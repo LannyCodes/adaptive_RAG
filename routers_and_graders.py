@@ -3,7 +3,11 @@
 包含查询路由、文档相关性评分、答案质量评分和幻觉检测
 """
 
-from langchain.prompts import PromptTemplate
+try:
+    from langchain_core.prompts import PromptTemplate
+except ImportError:
+    from langchain.prompts import PromptTemplate
+
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 

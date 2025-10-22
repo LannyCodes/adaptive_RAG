@@ -12,7 +12,10 @@ except ImportError:
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain.prompts import PromptTemplate
+try:
+    from langchain_core.prompts import PromptTemplate
+except ImportError:
+    from langchain.prompts import PromptTemplate
 
 from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT
 from pprint import pprint
