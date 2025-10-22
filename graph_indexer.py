@@ -3,8 +3,11 @@ GraphRAG索引器
 负责构建层次化的知识图谱索引，包括实体提取、图谱构建、社区检测和摘要生成
 """
 
-from typing import List, Dict
-from langchain.schema import Document
+from typing import List, Dict, Optional
+try:
+    from langchain_core.documents import Document
+except ImportError:
+    from langchain.schema import Document
 
 from entity_extractor import EntityExtractor, EntityDeduplicator
 from knowledge_graph import KnowledgeGraph, CommunitySummarizer
@@ -27,7 +30,7 @@ class GraphRAGIndexer:
     
     def index_documents(self, documents: List[Document], 
                        batch_size: int = 10,
-                       save_path: str = None) -> KnowledgeGraph:
+                       save_path: Optional[str] = None) -> KnowledgeGraph:
         """
         对文档集合建立GraphRAG索引
         
