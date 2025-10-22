@@ -1,0 +1,70 @@
+# Docker Compose配置文件 - GPU部署
+version: '3.8'
+
+services:
+  adaptive-rag:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    container_name: adaptive-rag-gpu
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+      - TOKENIZERS_PARALLELISM=false
+      - HF_HOME=/app/models
+      - TRANSFORMERS_CACHE=/app/models
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+      - "8001:8001"  # 可选：监控端口
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-gpu
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: ["ollama", "serve"]
+
+  # 可选：监控服务
+  nvidia-smi-exporter:
+    image: mindprince/nvidia_gpu_prometheus_exporter:0.1
+    container_name: gpu-monitor
+    restart: unless-stopped
+    ports:
+      - "9445:9445"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  ollama-data:
+    driver: local

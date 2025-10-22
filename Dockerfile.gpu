@@ -1,0 +1,58 @@
+# GPU优化Dockerfile - 针对RTX 4090
+FROM nvidia/cuda:12.2-devel-ubuntu22.04
+
+# 设置非交互模式和环境变量
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_VISIBLE_DEVICES=0
+ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+
+# 更新系统并安装必要软件
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    curl \
+    wget \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建应用目录
+WORKDIR /app
+
+# 创建必要目录
+RUN mkdir -p /app/data /app/models /app/logs
+
+# 复制依赖文件
+COPY requirements_gpu.txt .
+
+# 升级pip并安装Python依赖
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r requirements_gpu.txt
+
+# 复制应用文件
+COPY *.py .
+COPY *.md .
+COPY .env.example .
+
+# 设置Python路径
+ENV PYTHONPATH=/app
+
+# 创建启动脚本
+RUN echo '#!/bin/bash\n\
+export CUDA_VISIBLE_DEVICES=0\n\
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512\n\
+export TOKENIZERS_PARALLELISM=false\n\
+python3 -c "import torch; print(f'"'"'CUDA可用: {torch.cuda.is_available()}'"'"'); print(f'"'"'GPU数量: {torch.cuda.device_count()}'"'"')"\n\
+python3 main.py' > /app/start.sh && chmod +x /app/start.sh
+
+# 暴露端口
+EXPOSE 8000 8001
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# 启动命令
+CMD ["/app/start.sh"]
