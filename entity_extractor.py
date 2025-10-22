@@ -4,6 +4,7 @@
 """
 
 from typing import List, Dict, Tuple
+import time
 try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
@@ -17,8 +18,20 @@ from config import LOCAL_LLM
 class EntityExtractor:
     """实体提取器 - 使用LLM从文本中提取实体"""
     
-    def __init__(self):
-        self.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
+    def __init__(self, timeout: int = 60, max_retries: int = 3):
+        """初始化实体提取器
+        
+        Args:
+            timeout: LLM调用超时时间（秒）
+            max_retries: 失败重试次数
+        """
+        self.llm = ChatOllama(
+            model=LOCAL_LLM, 
+            format="json", 
+            temperature=0,
+            timeout=timeout  # 添加超时设置
+        )
+        self.max_retries = max_retries
         
         # 实体提取提示模板
         self.entity_prompt = PromptTemplate(
@@ -85,7 +98,7 @@ class EntityExtractor:
     
     def extract_entities(self, text: str) -> List[Dict]:
         """
-        从文本中提取实体
+        从文本中提取实体（带重试机制）
         
         Args:
             text: 输入文本
@@ -93,18 +106,34 @@ class EntityExtractor:
         Returns:
             实体列表
         """
-        try:
-            result = self.entity_chain.invoke({"text": text[:2000]})  # 限制长度
-            entities = result.get("entities", [])
-            print(f"✅ 提取到 {len(entities)} 个实体")
-            return entities
-        except Exception as e:
-            print(f"❌ 实体提取失败: {e}")
-            return []
+        for attempt in range(self.max_retries):
+            try:
+                print(f"   🔄 提取实体 (尝试 {attempt + 1}/{self.max_retries})...", end="")
+                result = self.entity_chain.invoke({"text": text[:2000]})  # 限制长度
+                entities = result.get("entities", [])
+                print(f" ✅ 提取到 {len(entities)} 个实体")
+                return entities
+            except TimeoutError as e:
+                print(f" ⏱️ 超时")
+                if attempt < self.max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    print(f"   ⏳ 等待 {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"   ❌ 实体提取最终失败: 超时")
+                    return []
+            except Exception as e:
+                print(f" ❌ 错误: {str(e)[:100]}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(1)
+                else:
+                    print(f"   ❌ 实体提取最终失败: {e}")
+                    return []
+        return []
     
     def extract_relations(self, text: str, entities: List[Dict]) -> List[Dict]:
         """
-        从文本中提取实体关系
+        从文本中提取实体关系（带重试机制）
         
         Args:
             text: 输入文本
@@ -113,34 +142,56 @@ class EntityExtractor:
         Returns:
             关系列表
         """
-        try:
-            entity_names = [e["name"] for e in entities]
-            result = self.relation_chain.invoke({
-                "text": text[:2000],
-                "entities": ", ".join(entity_names)
-            })
-            relations = result.get("relations", [])
-            print(f"✅ 提取到 {len(relations)} 个关系")
-            return relations
-        except Exception as e:
-            print(f"❌ 关系提取失败: {e}")
+        if not entities:
+            print("   ⚠️ 无实体，跳过关系提取")
             return []
+        
+        for attempt in range(self.max_retries):
+            try:
+                print(f"   🔄 提取关系 (尝试 {attempt + 1}/{self.max_retries})...", end="")
+                entity_names = [e["name"] for e in entities]
+                result = self.relation_chain.invoke({
+                    "text": text[:2000],
+                    "entities": ", ".join(entity_names)
+                })
+                relations = result.get("relations", [])
+                print(f" ✅ 提取到 {len(relations)} 个关系")
+                return relations
+            except TimeoutError as e:
+                print(f" ⏱️ 超时")
+                if attempt < self.max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    print(f"   ⏳ 等待 {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"   ❌ 关系提取最终失败: 超时")
+                    return []
+            except Exception as e:
+                print(f" ❌ 错误: {str(e)[:100]}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(1)
+                else:
+                    print(f"   ❌ 关系提取最终失败: {e}")
+                    return []
+        return []
     
-    def extract_from_document(self, document_text: str) -> Dict:
+    def extract_from_document(self, document_text: str, doc_index: int = 0) -> Dict:
         """
         从单个文档中提取实体和关系
         
         Args:
             document_text: 文档文本
+            doc_index: 文档索引（用于日志）
             
         Returns:
             包含实体和关系的字典
         """
-        print("🔍 开始提取实体...")
-        entities = self.extract_entities(document_text)
+        print(f"\n🔍 文档 #{doc_index + 1}: 开始提取...")
         
-        print("🔍 开始提取关系...")
+        entities = self.extract_entities(document_text)
         relations = self.extract_relations(document_text, entities)
+        
+        print(f"📊 文档 #{doc_index + 1} 完成: {len(entities)} 实体, {len(relations)} 关系")
         
         return {
             "entities": entities,

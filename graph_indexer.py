@@ -58,14 +58,27 @@ class GraphRAGIndexer:
         # 步骤1: 实体和关系提取
         print("📍 步骤 1/5: 实体和关系提取")
         extraction_results = []
+        total_batches = (len(documents) - 1) // batch_size + 1
         
         for i in range(0, len(documents), batch_size):
             batch = documents[i:i+batch_size]
-            print(f"   处理批次 {i//batch_size + 1}/{(len(documents)-1)//batch_size + 1}...")
+            batch_num = i // batch_size + 1
+            print(f"\n⚙️  === 批次 {batch_num}/{total_batches} (文档 {i+1}-{min(i+batch_size, len(documents))}) ===")
             
-            for doc in batch:
-                result = self.entity_extractor.extract_from_document(doc.page_content)
-                extraction_results.append(result)
+            for idx, doc in enumerate(batch):
+                doc_global_index = i + idx
+                try:
+                    result = self.entity_extractor.extract_from_document(
+                        doc.page_content, 
+                        doc_index=doc_global_index
+                    )
+                    extraction_results.append(result)
+                except Exception as e:
+                    print(f"   ❌ 文档 #{doc_global_index + 1} 处理失败: {e}")
+                    # 添加空结果以保持索引一致
+                    extraction_results.append({"entities": [], "relations": []})
+            
+            print(f"✅ 批次 {batch_num}/{total_batches} 完成")
         
         # 步骤2: 实体去重
         print("\n📍 步骤 2/5: 实体去重和合并")
