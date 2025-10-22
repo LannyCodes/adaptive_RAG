@@ -2,6 +2,12 @@
 # 在原有requirements.txt基础上添加这些包
 # 安装命令: pip install -r requirements_graphrag.txt
 
+# LangChain相关（确保最新版本）
+langchain>=0.1.0
+langchain-community>=0.0.38
+langchain-core>=0.1.0
+langchain-text-splitters>=0.0.1  # 新版本text splitter
+
 # 图数据库
 neo4j>=5.14.0
 py2neo>=2021.2.3
