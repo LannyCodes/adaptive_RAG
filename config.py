@@ -37,7 +37,13 @@ def setup_environment():
 
 
 # 模型配置
-LOCAL_LLM = "mistral"
+# Kaggle环境推荐使用较小的模型以加快下载速度
+# 可选模型:
+#   - "mistral" (4GB) - 质量最好，但下载慢
+#   - "phi" (1.6GB) - 平衡选择，速度较快
+#   - "tinyllama" (600MB) - 最快，质量稍低
+#   - "qwen:0.5b" (350MB) - 极小模型，速度极快
+LOCAL_LLM = "mistral"  # 在Kaggle中可改为 "phi" 或 "tinyllama"
 
 # 知识库URL配置
 KNOWLEDGE_BASE_URLS = [
