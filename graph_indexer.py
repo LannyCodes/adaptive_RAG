@@ -4,6 +4,7 @@ GraphRAG索引器
 """
 
 from typing import List, Dict, Optional
+import asyncio
 try:
     from langchain_core.documents import Document
 except ImportError:
@@ -16,17 +17,26 @@ from knowledge_graph import KnowledgeGraph, CommunitySummarizer
 class GraphRAGIndexer:
     """GraphRAG索引器 - 实现Microsoft GraphRAG的索引流程"""
     
-    def __init__(self):
+    def __init__(self, enable_async: bool = True, async_batch_size: int = 5):
+        """初始化GraphRAG索引器
+        
+        Args:
+            enable_async: 是否启用异步处理（默认启用）
+            async_batch_size: 异步并发批次大小（默认5个文档并发）
+        """
         print("🚀 初始化GraphRAG索引器...")
         
-        self.entity_extractor = EntityExtractor()
+        self.entity_extractor = EntityExtractor(enable_async=enable_async)
         self.entity_deduplicator = EntityDeduplicator()
         self.knowledge_graph = KnowledgeGraph()
         self.community_summarizer = CommunitySummarizer()
         
+        self.enable_async = enable_async
+        self.async_batch_size = async_batch_size
         self.indexed = False
         
-        print("✅ GraphRAG索引器初始化完成")
+        mode = "异步模式" if enable_async else "同步模式"
+        print(f"✅ GraphRAG索引器初始化完成 ({mode}, 并发数={async_batch_size})")
     
     def index_documents(self, documents: List[Document], 
                        batch_size: int = 10,
@@ -58,27 +68,35 @@ class GraphRAGIndexer:
         # 步骤1: 实体和关系提取
         print("📍 步骤 1/5: 实体和关系提取")
         extraction_results = []
-        total_batches = (len(documents) - 1) // batch_size + 1
         
-        for i in range(0, len(documents), batch_size):
-            batch = documents[i:i+batch_size]
-            batch_num = i // batch_size + 1
-            print(f"\n⚙️  === 批次 {batch_num}/{total_batches} (文档 {i+1}-{min(i+batch_size, len(documents))}) ===")
+        if self.enable_async:
+            # 异步批量处理模式
+            print(f"🚀 使用异步处理模式，并发数={self.async_batch_size}")
+            extraction_results = self._extract_async(documents)
+        else:
+            # 同步处理模式（原有逻辑）
+            print("🔄 使用同步处理模式")
+            total_batches = (len(documents) - 1) // batch_size + 1
             
-            for idx, doc in enumerate(batch):
-                doc_global_index = i + idx
-                try:
-                    result = self.entity_extractor.extract_from_document(
-                        doc.page_content, 
-                        doc_index=doc_global_index
-                    )
-                    extraction_results.append(result)
-                except Exception as e:
-                    print(f"   ❌ 文档 #{doc_global_index + 1} 处理失败: {e}")
-                    # 添加空结果以保持索引一致
-                    extraction_results.append({"entities": [], "relations": []})
-            
-            print(f"✅ 批次 {batch_num}/{total_batches} 完成")
+            for i in range(0, len(documents), batch_size):
+                batch = documents[i:i+batch_size]
+                batch_num = i // batch_size + 1
+                print(f"\n⚙️  === 批次 {batch_num}/{total_batches} (文档 {i+1}-{min(i+batch_size, len(documents))}) ===")
+                
+                for idx, doc in enumerate(batch):
+                    doc_global_index = i + idx
+                    try:
+                        result = self.entity_extractor.extract_from_document(
+                            doc.page_content, 
+                            doc_index=doc_global_index
+                        )
+                        extraction_results.append(result)
+                    except Exception as e:
+                        print(f"   ❌ 文档 #{doc_global_index + 1} 处理失败: {e}")
+                        # 添加空结果以保持索引一致
+                        extraction_results.append({"entities": [], "relations": []})
+                
+                print(f"✅ 批次 {batch_num}/{total_batches} 完成")
         
         # 步骤2: 实体去重
         print("\n📍 步骤 2/5: 实体去重和合并")
@@ -141,6 +159,47 @@ class GraphRAGIndexer:
         print(f"{'='*50}\n")
         
         return self.knowledge_graph
+    
+    def _extract_async(self, documents: List[Document]) -> List[Dict]:
+        """异步批量提取实体和关系
+        
+        Args:
+            documents: 文档列表
+            
+        Returns:
+            提取结果列表
+        """
+        total_docs = len(documents)
+        extraction_results = []
+        
+        # 将文档分成多个异步批次
+        for i in range(0, total_docs, self.async_batch_size):
+            batch_end = min(i + self.async_batch_size, total_docs)
+            batch_num = i // self.async_batch_size + 1
+            total_batches = (total_docs - 1) // self.async_batch_size + 1
+            
+            print(f"\n⚡ === 异步批次 {batch_num}/{total_batches} (文档 {i+1}-{batch_end}) ===")
+            
+            # 准备异步批次数据
+            async_batch = [
+                (documents[idx].page_content, idx) 
+                for idx in range(i, batch_end)
+            ]
+            
+            # 异步执行当前批次
+            try:
+                batch_results = asyncio.run(
+                    self.entity_extractor.extract_batch_async(async_batch)
+                )
+                extraction_results.extend(batch_results)
+                print(f"✅ 异步批次 {batch_num}/{total_batches} 完成")
+            except Exception as e:
+                print(f"❌ 异步批次 {batch_num} 失败: {e}")
+                # 添加空结果
+                for _ in range(len(async_batch)):
+                    extraction_results.append({"entities": [], "relations": []})
+        
+        return extraction_results
     
     def get_graph(self) -> KnowledgeGraph:
         """获取知识图谱"""

@@ -5,6 +5,9 @@
 
 from typing import List, Dict, Tuple
 import time
+import asyncio
+import aiohttp
+import json
 try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
@@ -16,14 +19,15 @@ from config import LOCAL_LLM
 
 
 class EntityExtractor:
-    """实体提取器 - 使用LLM从文本中提取实体"""
+    """实体提取器 - 使用LLM从文本中提取实体（支持异步批处理）"""
     
-    def __init__(self, timeout: int = 60, max_retries: int = 3):
+    def __init__(self, timeout: int = 60, max_retries: int = 3, enable_async: bool = True):
         """初始化实体提取器
         
         Args:
             timeout: LLM调用超时时间（秒）
             max_retries: 失败重试次数
+            enable_async: 是否启用异步处理（默认启用）
         """
         self.llm = ChatOllama(
             model=LOCAL_LLM, 
@@ -32,6 +36,8 @@ class EntityExtractor:
             timeout=timeout  # 添加超时设置
         )
         self.max_retries = max_retries
+        self.enable_async = enable_async
+        self.ollama_url = "http://localhost:11434/api/generate"
         
         # 实体提取提示模板
         self.entity_prompt = PromptTemplate(
@@ -175,9 +181,124 @@ class EntityExtractor:
                     return []
         return []
     
+    async def _async_llm_call(self, prompt: str, session: aiohttp.ClientSession, attempt: int = 0) -> Dict:
+        """异步调用 Ollama API"""
+        try:
+            async with session.post(
+                self.ollama_url,
+                json={
+                    "model": LOCAL_LLM,
+                    "prompt": prompt,
+                    "format": "json",
+                    "stream": False,
+                    "options": {"temperature": 0}
+                },
+                timeout=aiohttp.ClientTimeout(total=self.llm.timeout if hasattr(self.llm, 'timeout') else 60)
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    return json.loads(result.get('response', '{}'))
+                else:
+                    raise Exception(f"API返回错误: {response.status}")
+        except asyncio.TimeoutError:
+            if attempt < self.max_retries - 1:
+                await asyncio.sleep((attempt + 1) * 2)
+                return await self._async_llm_call(prompt, session, attempt + 1)
+            raise
+        except Exception as e:
+            if attempt < self.max_retries - 1:
+                await asyncio.sleep(1)
+                return await self._async_llm_call(prompt, session, attempt + 1)
+            raise
+    
+    async def _extract_entities_async(self, text: str, doc_index: int, session: aiohttp.ClientSession) -> List[Dict]:
+        """异步提取实体"""
+        prompt = self.entity_prompt.format(text=text[:2000])
+        
+        for attempt in range(self.max_retries):
+            try:
+                print(f"   [文档 #{doc_index + 1}] 🔄 提取实体 (尝试 {attempt + 1}/{self.max_retries})...", end="")
+                result = await self._async_llm_call(prompt, session, attempt)
+                entities = result.get("entities", [])
+                print(f" ✅ {len(entities)} 个实体")
+                return entities
+            except Exception as e:
+                print(f" ❌ {str(e)[:50]}")
+                if attempt == self.max_retries - 1:
+                    return []
+        return []
+    
+    async def _extract_relations_async(self, text: str, entities: List[Dict], doc_index: int, session: aiohttp.ClientSession) -> List[Dict]:
+        """异步提取关系"""
+        if not entities:
+            return []
+        
+        entity_names = [e["name"] for e in entities]
+        prompt = self.relation_prompt.format(
+            text=text[:2000],
+            entities=", ".join(entity_names)
+        )
+        
+        for attempt in range(self.max_retries):
+            try:
+                print(f"   [文档 #{doc_index + 1}] 🔄 提取关系 (尝试 {attempt + 1}/{self.max_retries})...", end="")
+                result = await self._async_llm_call(prompt, session, attempt)
+                relations = result.get("relations", [])
+                print(f" ✅ {len(relations)} 个关系")
+                return relations
+            except Exception as e:
+                print(f" ❌ {str(e)[:50]}")
+                if attempt == self.max_retries - 1:
+                    return []
+        return []
+    
+    async def _extract_from_document_async(self, document_text: str, doc_index: int, session: aiohttp.ClientSession) -> Dict:
+        """异步处理单个文档"""
+        print(f"\n🔍 [文档 #{doc_index + 1}] 开始异步提取...")
+        
+        # 并发提取实体和关系（先实体，再关系）
+        entities = await self._extract_entities_async(document_text, doc_index, session)
+        relations = await self._extract_relations_async(document_text, entities, doc_index, session)
+        
+        print(f"📊 [文档 #{doc_index + 1}] 完成: {len(entities)} 实体, {len(relations)} 关系")
+        
+        return {
+            "entities": entities,
+            "relations": relations
+        }
+    
+    async def extract_batch_async(self, documents: List[Tuple[str, int]]) -> List[Dict]:
+        """异步批量处理多个文档
+        
+        Args:
+            documents: 文档列表，每个元素为 (document_text, doc_index) 元组
+            
+        Returns:
+            提取结果列表
+        """
+        async with aiohttp.ClientSession() as session:
+            tasks = [
+                self._extract_from_document_async(doc_text, doc_idx, session)
+                for doc_text, doc_idx in documents
+            ]
+            
+            # 并发执行所有任务
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理异常结果
+            processed_results = []
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    print(f"⚠️ 文档 #{documents[i][1] + 1} 处理失败: {result}")
+                    processed_results.append({"entities": [], "relations": []})
+                else:
+                    processed_results.append(result)
+            
+            return processed_results
+    
     def extract_from_document(self, document_text: str, doc_index: int = 0) -> Dict:
         """
-        从单个文档中提取实体和关系
+        从单个文档中提取实体和关系（同步接口，保持向后兼容）
         
         Args:
             document_text: 文档文本
@@ -186,6 +307,7 @@ class EntityExtractor:
         Returns:
             包含实体和关系的字典
         """
+        # 同步方式调用（保持向后兼容）
         print(f"\n🔍 文档 #{doc_index + 1}: 开始提取...")
         
         entities = self.extract_entities(document_text)
