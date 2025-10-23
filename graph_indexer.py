@@ -17,7 +17,7 @@ from knowledge_graph import KnowledgeGraph, CommunitySummarizer
 class GraphRAGIndexer:
     """GraphRAG索引器 - 实现Microsoft GraphRAG的索引流程"""
     
-    def __init__(self, enable_async: bool = True, async_batch_size: int = 5):
+    def __init__(self, enable_async: bool = True, async_batch_size: int = 8):
         """初始化GraphRAG索引器
         
         Args:
