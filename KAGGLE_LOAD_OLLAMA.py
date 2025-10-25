@@ -120,18 +120,18 @@ else:
     exit(1)
 
 # ==================== 解压模型文件 ====================
-print(f"\n📦 步骤 3/5: 解压模型文件...")
+print(f"\n📦 步骤 3/5: 恢复模型文件...")
 
 models_archive = os.path.join(DATASET_PATH, "ollama_models.tar.gz")
+ollama_home = os.path.expanduser("~")
 
+# 检查是否有压缩包
 if os.path.exists(models_archive):
+    # 情况1: 有压缩包，需要解压
     print(f"   找到模型压缩包: {os.path.getsize(models_archive) / (1024**3):.2f} GB")
     print(f"   📦 开始解压（这可能需要 10-30 秒）...")
     
     start_time = time.time()
-    
-    # 解压到用户目录（恢复到 ~/.ollama）
-    ollama_home = os.path.expanduser("~")
     
     with tarfile.open(models_archive, 'r:gz') as tar:
         tar.extractall(ollama_home)  # 会自动创建 ~/.ollama 目录
@@ -139,9 +139,54 @@ if os.path.exists(models_archive):
     elapsed = time.time() - start_time
     print(f"   ✅ 解压完成（耗时: {int(elapsed)}秒）")
     
-    # 检查模型目录
-    models_dir = os.path.join(ollama_home, ".ollama")
-    if os.path.exists(models_dir):
+else:
+    # 情况2: 没有压缩包，检查是否已解压
+    print(f"   ⚠️  未找到压缩包，检查是否有解压后的文件...")
+    
+    # 检查常见的解压后文件/目录
+    possible_sources = [
+        os.path.join(DATASET_PATH, ".ollama"),              # 直接在根目录
+        os.path.join(DATASET_PATH, "ollama_model", ".ollama"),  # 在 ollama_model 文件夹内（嵌套结构）
+        os.path.join(DATASET_PATH, "ollama_models", ".ollama"), # 在 ollama_models 文件夹内
+        os.path.join(DATASET_PATH, "ollama"),               # 备用路径
+        os.path.join(DATASET_PATH, "models")                # 备用路径
+    ]
+    
+    found = False
+    for source in possible_sources:
+        if os.path.exists(source):
+            print(f"   ✅ 找到解压后的目录: {source}")
+            
+            # 确定目标目录
+            if source.endswith(".ollama"):
+                # 直接复制整个 .ollama 目录
+                dest = os.path.join(ollama_home, ".ollama")
+            else:
+                # 创建 .ollama/models 目录
+                dest = os.path.join(ollama_home, ".ollama", "models")
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+            
+            print(f"   📋 复制到: {dest}")
+            
+            # 复制文件
+            if os.path.isdir(source):
+                shutil.copytree(source, dest, dirs_exist_ok=True)
+            else:
+                shutil.copy2(source, dest)
+            
+            found = True
+            break
+    
+    if not found:
+        print(f"   ❌ 未找到模型文件")
+        print(f"\n   Dataset 内容:")
+        for item in os.listdir(DATASET_PATH):
+            print(f"      • {item}")
+        exit(1)
+
+# 检查模型目录
+models_dir = os.path.join(ollama_home, ".ollama")
+if os.path.exists(models_dir):
         total_size = sum(
             os.path.getsize(os.path.join(dirpath, filename))
             for dirpath, dirnames, filenames in os.walk(models_dir)
