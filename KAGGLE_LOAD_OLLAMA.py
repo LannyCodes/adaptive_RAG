@@ -24,8 +24,23 @@ print("="*70)
 
 # ==================== 配置 ====================
 # 修改为你的 Dataset 名称
-DATASET_NAME = "ollama-mistral-backup"  # 👈 修改这里
+# 常见名称: ollama-mistral-backup, ollama-phi-backup, ollama-backup 等
+DATASET_NAME = "ollama-mistral-backup"  # 👈 修改这里为你的实际 Dataset 名称
 DATASET_PATH = f"/kaggle/input/{DATASET_NAME}"
+
+print(f"💡 提示: 如果 Dataset 不存在，请检查:")
+print(f"   1. Dataset 是否已添加到 Notebook")
+print(f"   2. Dataset 名称是否正确")
+print(f"   3. 可用的 Datasets:")
+import os
+if os.path.exists("/kaggle/input"):
+    available = os.listdir("/kaggle/input")
+    if available:
+        for ds in available:
+            print(f"      • {ds}")
+    else:
+        print(f"      （无）")
+print()
 
 print(f"\n📋 配置:")
 print(f"   Dataset 路径: {DATASET_PATH}")
