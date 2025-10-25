@@ -84,19 +84,37 @@ print(f"\n🔧 步骤 2/5: 安装 Ollama 二进制文件...")
 ollama_bin_source = os.path.join(DATASET_PATH, "ollama")
 
 if os.path.exists(ollama_bin_source):
+    # 先停止可能正在运行的 Ollama 服务
+    print(f"   🛑 检查并停止现有 Ollama 进程...")
+    subprocess.run(['pkill', '-9', 'ollama'], capture_output=True)
+    time.sleep(2)
+    
     # 复制到系统路径
     ollama_bin_dest = "/usr/local/bin/ollama"
-    shutil.copy2(ollama_bin_source, ollama_bin_dest)
     
-    # 设置执行权限
-    os.chmod(ollama_bin_dest, 0o755)
-    
-    print(f"   ✅ Ollama 已安装到: {ollama_bin_dest}")
-    
-    # 验证版本
-    version_result = subprocess.run(['ollama', '--version'], capture_output=True, text=True)
-    if version_result.returncode == 0:
-        print(f"   📌 {version_result.stdout.strip()}")
+    try:
+        shutil.copy2(ollama_bin_source, ollama_bin_dest)
+        
+        # 设置执行权限
+        os.chmod(ollama_bin_dest, 0o755)
+        
+        print(f"   ✅ Ollama 已安装到: {ollama_bin_dest}")
+        
+        # 验证版本
+        version_result = subprocess.run(['ollama', '--version'], capture_output=True, text=True)
+        if version_result.returncode == 0:
+            print(f"   📌 {version_result.stdout.strip()}")
+    except OSError as e:
+        if "Text file busy" in str(e):
+            print(f"   ⚠️ 文件被占用，尝试强制停止...")
+            subprocess.run(['killall', '-9', 'ollama'], capture_output=True)
+            time.sleep(3)
+            # 重试
+            shutil.copy2(ollama_bin_source, ollama_bin_dest)
+            os.chmod(ollama_bin_dest, 0o755)
+            print(f"   ✅ Ollama 已安装（重试成功）")
+        else:
+            raise
 else:
     print(f"   ❌ 未找到 Ollama 二进制文件")
     exit(1)
