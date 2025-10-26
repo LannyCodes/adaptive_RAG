@@ -106,6 +106,9 @@ def test_generation():
     print("🧪 测试文本生成")
     print("="*70)
     
+    print("\n   ℹ️ 首次调用会加载模型到内存，需要 30-60 秒...")
+    print("   ⏳ 请耐心等待...\n")
+    
     try:
         response = requests.post(
             'http://localhost:11434/api/generate',
@@ -114,7 +117,7 @@ def test_generation():
                 "prompt": "Say 'Hello' in one word",
                 "stream": False
             },
-            timeout=30
+            timeout=120  # 增加到 120 秒，首次加载模型需要时间
         )
         
         if response.status_code == 200:
@@ -125,6 +128,10 @@ def test_generation():
         else:
             print(f"   ❌ 生成失败: {response.status_code}")
             return False
+    except requests.exceptions.Timeout:
+        print(f"   ⚠️ 生成超时（但这可能是模型加载中）")
+        print(f"   💡 建议：再等待 30 秒后重试")
+        return False
     except Exception as e:
         print(f"   ❌ 生成错误: {e}")
         return False
@@ -160,8 +167,9 @@ def main():
     print("="*70)
     
     if is_running:
-        print("""
-✅ Ollama 服务正常！现在可以运行 GraphRAG 了
+        if test_generation():
+            print("""
+✅ Ollama 服务完全就绪！现在可以运行 GraphRAG 了
 
 📝 在 Kaggle Notebook 中运行:
 
@@ -181,6 +189,23 @@ indexer = GraphRAGIndexer(
 )
 
 graph = indexer.index_documents(doc_splits)
+        """)
+        else:
+            print("""
+⚠️ Ollama 服务运行中，但模型可能还在加载
+
+💡 解决方案：
+
+1. 等待 30-60 秒让模型完全加载
+2. 再次运行此脚本验证
+3. 或者直接运行一次简单测试：
+   !curl http://localhost:11434/api/generate -d '{
+     "model": "mistral",
+     "prompt": "Hello",
+     "stream": false
+   }'
+
+4. 如果上述测试成功，就可以运行 GraphRAG 了
         """)
     else:
         print("""
