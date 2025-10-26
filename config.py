@@ -66,6 +66,10 @@ WEB_SEARCH_RESULTS_COUNT = 3
 # GraphRAG配置
 ENABLE_GRAPHRAG = True  # 是否启用GraphRAG功能
 GRAPHRAG_INDEX_PATH = "./data/knowledge_graph.json"  # 图谱索引保存路径
+
+# 确保数据目录存在
+import os
+os.makedirs("./data", exist_ok=True)
 GRAPHRAG_COMMUNITY_ALGORITHM = "louvain"  # 社区检测算法: louvain, greedy, label_propagation
 GRAPHRAG_MAX_HOPS = 2  # 本地查询最大跳数
 GRAPHRAG_TOP_K_COMMUNITIES = 5  # 全局查询使用的社区数量
