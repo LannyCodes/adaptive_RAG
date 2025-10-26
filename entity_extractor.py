@@ -21,11 +21,11 @@ from config import LOCAL_LLM
 class EntityExtractor:
     """实体提取器 - 使用LLM从文本中提取实体（支持异步批处理）"""
     
-    def __init__(self, timeout: int = 60, max_retries: int = 3, enable_async: bool = True):
+    def __init__(self, timeout: int = 180, max_retries: int = 3, enable_async: bool = True):
         """初始化实体提取器
         
         Args:
-            timeout: LLM调用超时时间（秒）
+            timeout: LLM调用超时时间（秒）- 默认180秒以应对首次模型加载
             max_retries: 失败重试次数
             enable_async: 是否启用异步处理（默认启用）
         """
@@ -38,6 +38,7 @@ class EntityExtractor:
         self.max_retries = max_retries
         self.enable_async = enable_async
         self.ollama_url = "http://localhost:11434/api/generate"
+        self.timeout = timeout  # 保存超时设置供异步使用
         
         # 实体提取提示模板
         self.entity_prompt = PromptTemplate(
@@ -184,6 +185,12 @@ class EntityExtractor:
     async def _async_llm_call(self, prompt: str, session: aiohttp.ClientSession, attempt: int = 0) -> Dict:
         """异步调用 Ollama API"""
         try:
+            timeout = aiohttp.ClientTimeout(
+                total=self.timeout,      # 总超时
+                connect=30,               # 连接超时 30 秒
+                sock_read=self.timeout    # 读取超时
+            )
+            
             async with session.post(
                 self.ollama_url,
                 json={
@@ -193,21 +200,22 @@ class EntityExtractor:
                     "stream": False,
                     "options": {"temperature": 0}
                 },
-                timeout=aiohttp.ClientTimeout(total=self.llm.timeout if hasattr(self.llm, 'timeout') else 60)
+                timeout=timeout
             ) as response:
                 if response.status == 200:
                     result = await response.json()
                     return json.loads(result.get('response', '{}'))
                 else:
                     raise Exception(f"API返回错误: {response.status}")
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
             if attempt < self.max_retries - 1:
-                await asyncio.sleep((attempt + 1) * 2)
+                wait_time = (attempt + 1) * 3
+                await asyncio.sleep(wait_time)
                 return await self._async_llm_call(prompt, session, attempt + 1)
-            raise
+            raise Exception(f"连接失败: {str(e)}")
         except Exception as e:
             if attempt < self.max_retries - 1:
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
                 return await self._async_llm_call(prompt, session, attempt + 1)
             raise
     
