@@ -1,0 +1,2307 @@
+{
+  "entities": {
+    "LLM Powered Autonomous Agents": {
+      "name": "LLM Powered Autonomous Agents",
+      "type": "TECHNOLOGY",
+      "description": ""
+    },
+    "Lil'Log": {
+      "name": "Lil'Log",
+      "type": "ORGANIZATION",
+      "description": ""
+    },
+    "Lilian Weng": {
+      "name": "Lilian Weng",
+      "type": "PERSON",
+      "description": ""
+    },
+    "Agent System Overview": {
+      "name": "Agent System Overview",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Planning": {
+      "name": "Planning",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Task Decomposition": {
+      "name": "Task Decomposition",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Self-Reflection": {
+      "name": "Self-Reflection",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Memory": {
+      "name": "Memory",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Maximum Inner Product Search (MIPS)": {
+      "name": "Maximum Inner Product Search (MIPS)",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Tool Use": {
+      "name": "Tool Use",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Case Studies": {
+      "name": "Case Studies",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Scientific Discovery Agent": {
+      "name": "Scientific Discovery Agent",
+      "type": "PAPER",
+      "description": ""
+    },
+    "Generative Agents Simulation": {
+      "name": "Generative Agents Simulation",
+      "type": "PAPER",
+      "description": ""
+    },
+    "Proof-of-Concept Examples": {
+      "name": "Proof-of-Concept Examples",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Citation": {
+      "name": "Citation",
+      "type": "EVENT",
+      "description": ""
+    },
+    "References": {
+      "name": "References",
+      "type": "PAPER",
+      "description": ""
+    },
+    "AutoGPT": {
+      "name": "AutoGPT",
+      "type": "PAPER",
+      "description": ""
+    },
+    "GPT-Engineer": {
+      "name": "GPT-Engineer",
+      "type": "PAPER",
+      "description": ""
+    },
+    "BabyAGI": {
+      "name": "BabyAGI",
+      "type": "PAPER",
+      "description": ""
+    },
+    "LLM-powered autonomous agent system": {
+      "name": "LLM-powered autonomous agent system",
+      "type": "SYSTEM",
+      "description": ""
+    },
+    "Subgoal and decomposition": {
+      "name": "Subgoal and decomposition",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Reflection and refinement": {
+      "name": "Reflection and refinement",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Prompt Engineering": {
+      "name": "Prompt Engineering",
+      "type": "CONCEPT",
+      "description": "A method or practice related to designing prompts for AI models."
+    },
+    "external APIs": {
+      "name": "external APIs",
+      "type": "TECHNOLOGY",
+      "description": "External Application Programming Interfaces used to access additional information not included in the model weights."
+    },
+    "current information": {
+      "name": "current information",
+      "type": "CONCEPT",
+      "description": "Up-to-date data or facts."
+    },
+    "code execution capability": {
+      "name": "code execution capability",
+      "type": "TECHNOLOGY",
+      "description": "The ability to execute code within the agent system."
+    },
+    "proprietary information sources": {
+      "name": "proprietary information sources",
+      "type": "ORGANIZATION",
+      "description": "Private or exclusive data repositories or databases."
+    },
+    "Wei et al. 2022": {
+      "name": "Wei et al. 2022",
+      "type": "PAPER",
+      "description": ""
+    },
+    "Yao et al. 2023": {
+      "name": "Yao et al. 2023",
+      "type": "PAPER",
+      "description": ""
+    },
+    "Chain of thought (CoT)": {
+      "name": "Chain of thought (CoT)",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Tree of Thoughts": {
+      "name": "Tree of Thoughts",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "BFS (breadth-first search)": {
+      "name": "BFS (breadth-first search)",
+      "type": "TECHNOLOGY",
+      "description": ""
+    },
+    "DFS (depth-first search)": {
+      "name": "DFS (depth-first search)",
+      "type": "TECHNOLOGY",
+      "description": ""
+    },
+    "Liu et al. 2023": {
+      "name": "Liu et al. 2023",
+      "type": "PAPER",
+      "description": "A paper published by Liu and colleagues in 2023"
+    },
+    "classical planner": {
+      "name": "classical planner",
+      "type": "TECHNOLOGY",
+      "description": "An external tool used for long-horizon planning"
+    },
+    "ReAct": {
+      "name": "ReAct",
+      "type": "TECHNOLOGY",
+      "description": "A technology that integrates reasoning and acting within LLM"
+    },
+    "Wikipedia search API": {
+      "name": "Wikipedia search API",
+      "type": "TECHNOLOGY",
+      "description": "Environment interaction tool used by LLM"
+    },
+    "HotpotQA": {
+      "name": "HotpotQA",
+      "type": "EVENT",
+      "description": ""
+    },
+    "FEVER": {
+      "name": "FEVER",
+      "type": "EVENT",
+      "description": ""
+    },
+    "AlfWorld Env": {
+      "name": "AlfWorld Env",
+      "type": "EVENT",
+      "description": ""
+    },
+    "WebShop": {
+      "name": "WebShop",
+      "type": "EVENT",
+      "description": ""
+    },
+    "Act-only baseline": {
+      "name": "Act-only baseline",
+      "type": "TECHNOLOGY",
+      "description": ""
+    },
+    "Thought:": {
+      "name": "Thought:",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Reflexion": {
+      "name": "Reflexion",
+      "type": "TECHNOLOGY",
+      "description": ""
+    },
+    "Shinn & Labash 2023": {
+      "name": "Shinn & Labash 2023",
+      "type": "PAPER",
+      "description": ""
+    },
+    "heuristic function": {
+      "name": "heuristic function",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "trajectory": {
+      "name": "trajectory",
+      "type": "TECHNOLOGY",
+      "description": ""
+    },
+    "hallucination": {
+      "name": "hallucination",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Shinn & Labash, 2023": {
+      "name": "Shinn & Labash, 2023",
+      "type": "PAPER",
+      "description": ""
+    },
+    "Chain of Hindsight (CoH)": {
+      "name": "Chain of Hindsight (CoH)",
+      "type": "PAPER",
+      "description": ""
+    },
+    "D_h": {
+      "name": "D_h",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "y_i": {
+      "name": "y_i",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "r_i": {
+      "name": "r_i",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "z_i": {
+      "name": "z_i",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "tau_h": {
+      "name": "tau_h",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "model": {
+      "name": "model",
+      "type": "TECHNOLOGY",
+      "description": "一个可以根据序列前缀进行条件化的模型"
+    },
+    "human annotators": {
+      "name": "human annotators",
+      "type": "ORGANIZATION",
+      "description": "人类标注员组织"
+    },
+    "feedback sequence": {
+      "name": "feedback sequence",
+      "type": "CONCEPT",
+      "description": "模型反馈的序列"
+    },
+    "WebGPT comparisons": {
+      "name": "WebGPT comparisons",
+      "type": "EVENT",
+      "description": "Event or dataset used in their experiments"
+    },
+    "summarization from human feedback": {
+      "name": "summarization from human feedback",
+      "type": "CONCEPT",
+      "description": "Concept related to summarizing information based on human feedback"
+    },
+    "human preference dataset": {
+      "name": "human preference dataset",
+      "type": "DATASET",
+      "description": "Dataset used in their experiments that represents human preferences"
+    },
+    "Algorithm Distillation (AD)": {
+      "name": "Algorithm Distillation (AD)",
+      "type": "CONCEPT",
+      "description": "A concept applied to cross-episode trajectories in reinforcement learning tasks, where an algorithm is encapsulated in a long history-conditioned policy"
+    },
+    "Laskin et al. 2023": {
+      "name": "Laskin et al. 2023",
+      "type": "PAPER",
+      "description": "The paper that provides the image source and details about Algorithm Distillation (AD)"
+    },
+    "paper": {
+      "name": "paper",
+      "type": "PAPER",
+      "description": "论文"
+    },
+    "neural network": {
+      "name": "neural network",
+      "type": "TECHNOLOGY",
+      "description": "通过行为克隆来从算法中提取的神经网络"
+    },
+    "behavioral cloning": {
+      "name": "behavioral cloning",
+      "type": "CONCEPT",
+      "description": "行为克隆"
+    },
+    "actions": {
+      "name": "actions",
+      "type": "CONCEPT",
+      "description": "行动"
+    },
+    "history data": {
+      "name": "history data",
+      "type": "DATA",
+      "description": "历史数据"
+    },
+    "source policies": {
+      "name": "source policies",
+      "type": "CONCEPT",
+      "description": "源策略"
+    },
+    "RL run": {
+      "name": "RL run",
+      "type": "EVENT",
+      "description": "每次RL运行"
+    },
+    "multi-episode history": {
+      "name": "multi-episode history",
+      "type": "DATA",
+      "description": "多集体历史"
+    },
+    "learned policy": {
+      "name": "learned policy",
+      "type": "CONCEPT",
+      "description": "学习的策略"
+    },
+    "context window length": {
+      "name": "context window length",
+      "type": "TECHNOLOGY",
+      "description": "上下文窗口长度"
+    },
+    "episodes": {
+      "name": "episodes",
+      "type": "CONCEPT",
+      "description": "集体"
+    },
+    "in-context RL algorithm": {
+      "name": "in-context RL algorithm",
+      "type": "CONCEPT",
+      "description": "在上下文中的RL算法"
+    },
+    "source policy": {
+      "name": "source policy",
+      "type": "CONCEPT",
+      "description": "Used for generating trajectories for distillation by UCB"
+    },
+    "RL^2": {
+      "name": "RL^2",
+      "type": "TECHNOLOGY",
+      "description": "Online reinforcement learning method proposed by Duan et al. (2017)"
+    },
+    "UCB": {
+      "name": "UCB",
+      "type": "ORGANIZATION",
+      "description": "Organization or group not specified, but used in the context of generating trajectories for distillation"
+    },
+    "Duan et al. (2017)": {
+      "name": "Duan et al. (2017)",
+      "type": "PERSON",
+      "description": "Researchers who proposed RL^2 method"
+    },
+    "A3C": {
+      "name": "A3C",
+      "type": "TECHNOLOGY",
+      "description": ""
+    },
+    "DQN": {
+      "name": "DQN",
+      "type": "TECHNOLOGY",
+      "description": ""
+    },
+    "Big thank you to ChatGPT": {
+      "name": "Big thank you to ChatGPT",
+      "type": "OTHER",
+      "description": ""
+    },
+    "7 items": {
+      "name": "7 items",
+      "type": "CONCEPT",
+      "description": "The approximate capacity of short-term memory as suggested by Miller (1956)"
+    },
+    "20-30 seconds": {
+      "name": "20-30 seconds",
+      "type": "CONCEPT",
+      "description": "The duration of information storage in short-term memory"
+    },
+    "Miller (1956)": {
+      "name": "Miller (1956)",
+      "type": "PERSON",
+      "description": "Author who suggested the approximate capacity of short-term memory as 7 items"
+    },
+    "Approximate nearest neighbors (ANN) algorithm": {
+      "name": "Approximate nearest neighbors (ANN) algorithm",
+      "type": "TECHNOLOGY",
+      "description": "A common choice for fast MIPS, returning approximately top k nearest neighbors to trade off a little accuracy lost for a huge speedup"
+    },
+    "LSH": {
+      "name": "LSH",
+      "type": "CONCEPT",
+      "description": "A hashing function that maps similar input items to the same buckets with high probability"
+    },
+    "ANNOY": {
+      "name": "ANNOY",
+      "type": "TECHNOLOGY",
+      "description": "An approximate nearest neighbors search algorithm using random projection trees"
+    },
+    "HNSW": {
+      "name": "HNSW",
+      "type": "TECHNOLOGY",
+      "description": "A technology inspired by small world networks, used for building hierarchical layers of small-world graphs"
+    },
+    "small world networks": {
+      "name": "small world networks",
+      "type": "CONCEPT",
+      "description": "An idea where most nodes can be reached by any other nodes within a small number of steps"
+    },
+    "six degrees of separation": {
+      "name": "six degrees of separation",
+      "type": "CONCEPT",
+      "description": "A feature of social networks that suggests most people are connected to each other through six or fewer intermediaries"
+    },
+    "FAISS": {
+      "name": "FAISS",
+      "type": "TECHNOLOGY",
+      "description": "Facebook AI Similarity Search, a technology that operates on the assumption of Gaussian distribution in high dimensional space and applies vector quantization by partitioning the vector space into clusters"
+    },
+    "ScaNN": {
+      "name": "ScaNN",
+      "type": "TECHNOLOGY",
+      "description": "Scalable Nearest Neighbors, a technology with main innovation of anisotropic vector quantization"
+    },
+    "anisotropic vector quantization": {
+      "name": "anisotropic vector quantization",
+      "type": "CONCEPT",
+      "description": "A concept used in ScaNN for quantizing a data point to a new point such that the inner product with a query vector is as similar to the original distance as possible"
+    },
+    "MIPS algorithms": {
+      "name": "MIPS algorithms",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "ann-benchmarks.com": {
+      "name": "ann-benchmarks.com",
+      "type": "ORGANIZATION",
+      "description": ""
+    },
+    "LLMs": {
+      "name": "LLMs",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "Animals using tools": {
+      "name": "Animals using tools",
+      "type": "EVENT",
+      "description": ""
+    },
+    "sea otter": {
+      "name": "sea otter",
+      "type": "PERSON",
+      "description": ""
+    },
+    "MRKL": {
+      "name": "MRKL",
+      "type": "TECHNOLOGY",
+      "description": "Neuro-symbolic architecture for autonomous agents"
+    },
+    "Karpas et al.": {
+      "name": "Karpas et al.",
+      "type": "PERSON",
+      "description": "Authors of MRKL"
+    },
+    "math calculator": {
+      "name": "math calculator",
+      "type": "TECHNOLOGY",
+      "description": "Symbolic module in MRKL"
+    },
+    "currency converter": {
+      "name": "currency converter",
+      "type": "TECHNOLOGY",
+      "description": "Symbolic module in MRKL"
+    },
+    "weather API": {
+      "name": "weather API",
+      "type": "TECHNOLOGY",
+      "description": "Symbolic module in MRKL"
+    },
+    "arithmetic": {
+      "name": "arithmetic",
+      "type": "CONCEPT",
+      "description": "Mathematical operations used as a test case"
+    },
+    "TALM": {
+      "name": "TALM",
+      "type": "TECHNOLOGY",
+      "description": "A tool augmented language model introduced by Parisi et al. in 2022"
+    },
+    "Toolformer": {
+      "name": "Toolformer",
+      "type": "TECHNOLOGY",
+      "description": "A tool augmented language model introduced by Schick et al. in 2023"
+    },
+    "ChatGPT Plugins": {
+      "name": "ChatGPT Plugins",
+      "type": "TECHNOLOGY",
+      "description": "A collection of tool APIs provided by other developers"
+    },
+    "OpenAI API": {
+      "name": "OpenAI API",
+      "type": "TECHNOLOGY",
+      "description": "An API function calling example in the context of LLMs augmented with tool use capability"
+    },
+    "HuggingGPT": {
+      "name": "HuggingGPT",
+      "type": "TECHNOLOGY",
+      "description": "A framework to use ChatGPT as a task planner on HuggingFace platform"
+    },
+    "Shen et al. 2023": {
+      "name": "Shen et al. 2023",
+      "type": "PAPER",
+      "description": "The paper introducing HuggingGPT"
+    },
+    "User requests": {
+      "name": "User requests",
+      "type": "CONCEPT",
+      "description": "Requests made by the user"
+    },
+    "Task type": {
+      "name": "Task type",
+      "type": "CONCEPT",
+      "description": "The type of task associated with each task in the system"
+    },
+    "ID": {
+      "name": "ID",
+      "type": "CONCEPT",
+      "description": "An identifier for each task"
+    },
+    "Dependencies": {
+      "name": "Dependencies",
+      "type": "CONCEPT",
+      "description": "Dependencies associated with each task"
+    },
+    "Arguments": {
+      "name": "Arguments",
+      "type": "CONCEPT",
+      "description": "Arguments used in each task"
+    },
+    "AI assistant": {
+      "name": "AI assistant",
+      "type": "CONCEPT",
+      "description": "An intelligent system designed to assist users"
+    },
+    "user input": {
+      "name": "user input",
+      "type": "CONCEPT",
+      "description": "Data provided by the user for processing"
+    },
+    "URL": {
+      "name": "URL",
+      "type": "CONCEPT",
+      "description": "Uniform Resource Locator for images, audio, or video data"
+    },
+    "Available Task List": {
+      "name": "Available Task List",
+      "type": "CONCEPT",
+      "description": "List of available tasks for the AI assistant"
+    },
+    "Demonstrations": {
+      "name": "Demonstrations",
+      "type": "EVENT",
+      "description": "Examples or case studies demonstrating the AI assistant's capabilities"
+    },
+    "Chat History": {
+      "name": "Chat History",
+      "type": "EVENT",
+      "description": "Record of previous interactions between the user and the AI assistant"
+    },
+    "Tasks": {
+      "name": "Tasks",
+      "type": "CONCEPT",
+      "description": "The planned actions based on the user's request"
+    },
+    "Predictions": {
+      "name": "Predictions",
+      "type": "CONCEPT",
+      "description": "The results generated by the AI model during task execution"
+    },
+    "API-Bank": {
+      "name": "API-Bank",
+      "type": "ORGANIZATION",
+      "description": "A benchmark for evaluating tool-augmented LLMs"
+    },
+    "Li et al. 2023": {
+      "name": "Li et al. 2023",
+      "type": "PAPER",
+      "description": "The authors of the API-Bank paper"
+    },
+    "53 commonly used API tools": {
+      "name": "53 commonly used API tools",
+      "type": "TECHNOLOGY",
+      "description": "A list of 53 APIs included in API-Bank"
+    },
+    "search engines": {
+      "name": "search engines",
+      "type": "CONCEPT",
+      "description": "Type of APIs included in API-Bank"
+    },
+    "calendar queries": {
+      "name": "calendar queries",
+      "type": "CONCEPT",
+      "description": "Type of APIs included in API-Bank"
+    },
+    "smart home control": {
+      "name": "smart home control",
+      "type": "CONCEPT",
+      "description": "Type of APIs included in API-Bank"
+    },
+    "schedule management": {
+      "name": "schedule management",
+      "type": "CONCEPT",
+      "description": "Type of APIs included in API-Bank"
+    },
+    "health data management": {
+      "name": "health data management",
+      "type": "CONCEPT",
+      "description": "Type of APIs included in API-Bank"
+    },
+    "account authentication workflow": {
+      "name": "account authentication workflow",
+      "type": "CONCEPT",
+      "description": "Type of APIs included in API-Bank"
+    },
+    "Search Engine API": {
+      "name": "Search Engine API",
+      "type": "TECHNOLOGY",
+      "description": "An API for search engines"
+    },
+    "API call": {
+      "name": "API call",
+      "type": "TECHNOLOGY",
+      "description": "A request made to an API"
+    },
+    "API results": {
+      "name": "API results",
+      "type": "TECHNOLOGY",
+      "description": "The output of an API call"
+    },
+    "Level-1": {
+      "name": "Level-1",
+      "type": "EVENT",
+      "description": "Evaluates the ability to call the API"
+    },
+    "Level-2": {
+      "name": "Level-2",
+      "type": "EVENT",
+      "description": "Examines the ability to retrieve the API"
+    },
+    "user’s requirement": {
+      "name": "user’s requirement",
+      "type": "CONCEPT",
+      "description": "A user's specific need or problem"
+    },
+    "documentation": {
+      "name": "documentation",
+      "type": "TECHNOLOGY",
+      "description": "Materials used to learn how to use an API"
+    },
+    "Level-3": {
+      "name": "Level-3",
+      "type": "EVENT",
+      "description": "Assesses the ability to plan API beyond retrieve and call"
+    },
+    "ChemCrow": {
+      "name": "ChemCrow",
+      "type": "PAPER",
+      "description": "A domain-specific example of LLM augmented with tools for organic synthesis, drug discovery, and materials design"
+    },
+    "Bran et al. 2023": {
+      "name": "Bran et al. 2023",
+      "type": "PAPER",
+      "description": "Authors of the ChemCrow paper"
+    },
+    "LangChain": {
+      "name": "LangChain",
+      "type": "TECHNOLOGY",
+      "description": "The workflow implementation for ChemCrow"
+    },
+    "tool names": {
+      "name": "tool names",
+      "type": "TECHNOLOGY",
+      "description": "List of tools provided to the LLM"
+    },
+    "user-given prompt": {
+      "name": "user-given prompt",
+      "type": "EVENT",
+      "description": "The question or task given to the LLM by a user"
+    },
+    "GPT-4": {
+      "name": "GPT-4",
+      "type": "TECHNOLOGY",
+      "description": "A language model"
+    },
+    "Boiko et al.": {
+      "name": "Boiko et al.",
+      "type": "PERSON",
+      "description": "Researchers who looked into LLM-empowered agents for scientific discovery"
+    },
+    "Internet": {
+      "name": "Internet",
+      "type": "TECHNOLOGY",
+      "description": "The network used by the agent to browse"
+    },
+    "robotics experimentation APIs": {
+      "name": "robotics experimentation APIs",
+      "type": "TECHNOLOGY",
+      "description": "APIs called by the agent for robotics experimentation"
+    },
+    "anticancer drug": {
+      "name": "anticancer drug",
+      "type": "CONCEPT",
+      "description": "A type of drug"
+    },
+    "target": {
+      "name": "target",
+      "type": "CONCEPT",
+      "description": "A specific focus or goal in the drug development process"
+    },
+    "They": {
+      "name": "They",
+      "type": "PERSON",
+      "description": "Unspecified group of people"
+    },
+    "illicit drugs": {
+      "name": "illicit drugs",
+      "type": "CONCEPT",
+      "description": "Illegal substances"
+    },
+    "bioweapons": {
+      "name": "bioweapons",
+      "type": "CONCEPT",
+      "description": "Living organisms or toxins used as weapons"
+    },
+    "chemical weapon agents": {
+      "name": "chemical weapon agents",
+      "type": "CONCEPT",
+      "description": "Specific chemical substances used as weapons"
+    },
+    "Park, et al.": {
+      "name": "Park, et al.",
+      "type": "PERSON",
+      "description": "Authors of Generative Agents"
+    },
+    "sandbox environment": {
+      "name": "sandbox environment",
+      "type": "TECHNOLOGY",
+      "description": "Virtual environment for the agents to interact in"
+    },
+    "The Sims": {
+      "name": "The Sims",
+      "type": "CONCEPT",
+      "description": "A popular video game series"
+    },
+    "Inter-agent communication": {
+      "name": "Inter-agent communication",
+      "type": "EVENT",
+      "description": "Communication between different agents"
+    },
+    "recency": {
+      "name": "recency",
+      "type": "CONCEPT",
+      "description": "The concept of considering recent events as more important"
+    },
+    "Importance": {
+      "name": "Importance",
+      "type": "CONCEPT",
+      "description": "The concept of distinguishing between mundane and core memories"
+    },
+    "Relevance": {
+      "name": "Relevance",
+      "type": "CONCEPT",
+      "description": "The concept of how related an event is to the current situation or query"
+    },
+    "Reflection mechanism": {
+      "name": "Reflection mechanism",
+      "type": "CONCEPT",
+      "description": "A system that synthesizes memories into higher level inferences over time"
+    },
+    "Prompt LM": {
+      "name": "Prompt LM",
+      "type": "EVENT",
+      "description": "The event of prompting the Language Model (LM)"
+    },
+    "observations/statements": {
+      "name": "observations/statements",
+      "type": "PAPER",
+      "description": "A set of observations or statements provided to the LM"
+    },
+    "Believability": {
+      "name": "Believability",
+      "type": "CONCEPT",
+      "description": "The quality of being trustworthy or acceptable as true"
+    },
+    "Agent X": {
+      "name": "Agent X",
+      "type": "PERSON",
+      "description": "An unspecified agent"
+    },
+    "Relationships between agents": {
+      "name": "Relationships between agents",
+      "type": "CONCEPT",
+      "description": "Interactions or connections between different agents"
+    },
+    "Observations of one agent by another": {
+      "name": "Observations of one agent by another",
+      "type": "CONCEPT",
+      "description": "The act of perceiving or noticing one agent by another"
+    },
+    "Environment information": {
+      "name": "Environment information",
+      "type": "CONCEPT",
+      "description": "Data about the surroundings or context"
+    },
+    "Tree structure": {
+      "name": "Tree structure",
+      "type": "TECHNOLOGY",
+      "description": "A hierarchical data structure with a root, branches, and leaves"
+    },
+    "The generative agent architecture": {
+      "name": "The generative agent architecture",
+      "type": "CONCEPT",
+      "description": "An unspecified architecture related to generative agents"
+    },
+    "Park et al.": {
+      "name": "Park et al.",
+      "type": "PERSON",
+      "description": "A group of authors, presumably researchers or scientists"
+    },
+    "information diffusion": {
+      "name": "information diffusion",
+      "type": "EVENT",
+      "description": "The spread of information among agents in the simulation"
+    },
+    "social events coordination": {
+      "name": "social events coordination",
+      "type": "EVENT",
+      "description": "Organizing social events by agents in the simulation"
+    },
+    "party": {
+      "name": "party",
+      "type": "EVENT",
+      "description": "A specific example of a social event"
+    },
+    "4000 word limit": {
+      "name": "4000 word limit",
+      "type": "CONCEPT",
+      "description": "限制短期记忆的单词数量"
+    },
+    "important information": {
+      "name": "important information",
+      "type": "CONCEPT",
+      "description": "重要信息"
+    },
+    "files": {
+      "name": "files",
+      "type": "TECHNOLOGY",
+      "description": "文件存储系统"
+    },
+    "similar events": {
+      "name": "similar events",
+      "type": "EVENT",
+      "description": "类似的事件"
+    },
+    "user assistance": {
+      "name": "user assistance",
+      "type": "CONCEPT",
+      "description": "用户帮助"
+    },
+    "commands": {
+      "name": "commands",
+      "type": "CONCEPT",
+      "description": "命令"
+    },
+    "subprocesses": {
+      "name": "subprocesses",
+      "type": "TECHNOLOGY",
+      "description": "子进程"
+    },
+    "few minutes": {
+      "name": "few minutes",
+      "type": "CONCEPT",
+      "description": "几分钟内"
+    },
+    "Google": {
+      "name": "Google",
+      "type": "ORGANIZATION",
+      "description": "搜索引擎公司"
+    },
+    "browse_website": {
+      "name": "browse_website",
+      "type": "COMMAND",
+      "description": "浏览网站命令"
+    },
+    "GPT Agent": {
+      "name": "GPT Agent",
+      "type": "CONCEPT",
+      "description": "人工智能助手概念"
+    },
+    "<search>": {
+      "name": "<search>",
+      "type": "INPUT",
+      "description": "用户输入的搜索内容"
+    },
+    "<what_you_want_to_find_on_website>": {
+      "name": "<what_you_want_to_find_on_website>",
+      "type": "INPUT",
+      "description": "在网站上想要找到的内容"
+    },
+    "<name>": {
+      "name": "<name>",
+      "type": "INPUT",
+      "description": "GPT Agent的名称"
+    },
+    "<short_task_desc>": {
+      "name": "<short_task_desc>",
+      "type": "INPUT",
+      "description": "GPT Agent任务描述"
+    },
+    "<prompt>": {
+      "name": "<prompt>",
+      "type": "INPUT",
+      "description": "提示给GPT Agent的内容"
+    },
+    "<key>": {
+      "name": "<key>",
+      "type": "INPUT",
+      "description": "GPT Agent的关键字"
+    },
+    "<message>": {
+      "name": "<message>",
+      "type": "INPUT",
+      "description": "要发送给GPT Agent的消息"
+    },
+    "<directory>": {
+      "name": "<directory>",
+      "type": "DIRECTORY",
+      "description": "克隆存储库的目录"
+    },
+    "<file>": {
+      "name": "<file>",
+      "type": "FILE",
+      "description": "要写入的文件"
+    },
+    "<text>": {
+      "name": "<text>",
+      "type": "INPUT",
+      "description": "要写入文件的内容"
+    },
+    "read_file": {
+      "name": "read_file",
+      "type": "FUNCTION",
+      "description": "读取文件"
+    },
+    "append_to_file": {
+      "name": "append_to_file",
+      "type": "FUNCTION",
+      "description": "向文件中追加内容"
+    },
+    "delete_file": {
+      "name": "delete_file",
+      "type": "FUNCTION",
+      "description": "删除文件"
+    },
+    "analyze_code": {
+      "name": "analyze_code",
+      "type": "FUNCTION",
+      "description": "分析代码"
+    },
+    "<full_code_string>": {
+      "name": "<full_code_string>",
+      "type": "CODE",
+      "description": "要分析的完整代码字符串"
+    },
+    "improve_code": {
+      "name": "improve_code",
+      "type": "FUNCTION",
+      "description": "提供改进代码建议"
+    },
+    "<list_of_suggestions>": {
+      "name": "<list_of_suggestions>",
+      "type": "LIST",
+      "description": "改进建议列表"
+    },
+    "write_tests": {
+      "name": "write_tests",
+      "type": "FUNCTION",
+      "description": "写测试用例"
+    },
+    "<list_of_focus_areas>": {
+      "name": "<list_of_focus_areas>",
+      "type": "LIST",
+      "description": "要关注的测试区域列表"
+    },
+    "execute_python_file": {
+      "name": "execute_python_file",
+      "type": "FUNCTION",
+      "description": "执行Python文件"
+    },
+    "generate_image": {
+      "name": "generate_image",
+      "type": "FUNCTION",
+      "description": "生成图像"
+    },
+    "send_tweet": {
+      "name": "send_tweet",
+      "type": "FUNCTION",
+      "description": "一个发送推文的函数"
+    },
+    "do_nothing": {
+      "name": "do_nothing",
+      "type": "FUNCTION",
+      "description": "一个不做任何事情的函数"
+    },
+    "<reason>": {
+      "name": "<reason>",
+      "type": "TEXT",
+      "description": "任务完成后的原因"
+    },
+    "GPT-3.5": {
+      "name": "GPT-3.5",
+      "type": "TECHNOLOGY",
+      "description": "A specific version of the Generative Pretrained Transformer (GPT) model, used to power agents for delegating tasks."
+    },
+    "File output": {
+      "name": "File output",
+      "type": "TECHNOLOGY",
+      "description": "The ability to produce and save data in file format."
+    },
+    "Your abilities": {
+      "name": "Your abilities",
+      "type": "PERSON",
+      "description": "The capabilities of the entity being evaluated."
+    },
+    "Big-picture behavior": {
+      "name": "Big-picture behavior",
+      "type": "CONCEPT",
+      "description": "The overall pattern or strategy of an entity's actions."
+    },
+    "Past decisions and strategies": {
+      "name": "Past decisions and strategies",
+      "type": "EVENT",
+      "description": "Decisions and strategies made by the entity in the past."
+    },
+    "OpenAI ChatCompletion endpoint": {
+      "name": "OpenAI ChatCompletion endpoint",
+      "type": "TECHNOLOGY",
+      "description": "An endpoint used by GPT-Engineer for conversation"
+    },
+    "Super Mario game": {
+      "name": "Super Mario game",
+      "type": "CONCEPT",
+      "description": "A video game featuring the character Super Mario"
+    },
+    "MVC components": {
+      "name": "MVC components",
+      "type": "CONCEPT",
+      "description": "Model-View-Controller design pattern for organizing software applications"
+    },
+    "Keyboard control": {
+      "name": "Keyboard control",
+      "type": "TECHNOLOGY",
+      "description": "Input method using a keyboard"
+    },
+    "plumber": {
+      "name": "plumber",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "classical platform game": {
+      "name": "classical platform game",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "10 levels": {
+      "name": "10 levels",
+      "type": "TECHNOLOGY",
+      "description": ""
+    },
+    "enemies": {
+      "name": "enemies",
+      "type": "CONCEPT",
+      "description": ""
+    },
+    "entrypoint": {
+      "name": "entrypoint",
+      "type": "PAPER",
+      "description": "主要文件，入口点"
+    },
+    "core classes": {
+      "name": "core classes",
+      "type": "CONCEPT",
+      "description": "程序的核心类"
+    },
+    "functions": {
+      "name": "functions",
+      "type": "CONCEPT",
+      "description": "程序中使用的函数"
+    },
+    "methods": {
+      "name": "methods",
+      "type": "CONCEPT",
+      "description": "类中的方法"
+    },
+    "instructions": {
+      "name": "instructions",
+      "type": "CONCEPT",
+      "description": "编写代码的指令"
+    },
+    "framework": {
+      "name": "framework",
+      "type": "TECHNOLOGY",
+      "description": "使用的框架"
+    },
+    "markdown code block format": {
+      "name": "markdown code block format",
+      "type": "CONCEPT",
+      "description": "代码块格式"
+    },
+    "FILENAME": {
+      "name": "FILENAME",
+      "type": "TECHNOLOGY",
+      "description": "文件名称模板"
+    },
+    "imports": {
+      "name": "imports",
+      "type": "TECHNOLOGY",
+      "description": "需要导入的库或模块"
+    },
+    "types": {
+      "name": "types",
+      "type": "TECHNOLOGY",
+      "description": "数据类型定义"
+    },
+    "compatibility": {
+      "name": "compatibility",
+      "type": "CONCEPT",
+      "description": "不同文件之间的兼容性"
+    },
+    "implementation": {
+      "name": "implementation",
+      "type": "CONCEPT",
+      "description": "实现代码"
+    },
+    "module dependency or package manager dependency definition file": {
+      "name": "module dependency or package manager dependency definition file",
+      "type": "TECHNOLOGY",
+      "description": "模块依赖或包管理器依赖定义文件"
+    },
+    "requirements.txt": {
+      "name": "requirements.txt",
+      "type": "TECHNOLOGY",
+      "description": "Python的依赖文件"
+    },
+    "NodeJS": {
+      "name": "NodeJS",
+      "type": "LANGUAGE",
+      "description": "编程语言"
+    },
+    "package.json": {
+      "name": "package.json",
+      "type": "TECHNOLOGY",
+      "description": "NodeJS的依赖文件"
+    },
+    "function definition": {
+      "name": "function definition",
+      "type": "CONCEPT",
+      "description": "函数定义"
+    },
+    "comment": {
+      "name": "comment",
+      "type": "CONCEPT",
+      "description": "注释"
+    },
+    "best practices": {
+      "name": "best practices",
+      "type": "CONCEPT",
+      "description": "最佳实践"
+    },
+    "pytest": {
+      "name": "pytest",
+      "type": "TECHNOLOGY",
+      "description": "A popular testing framework for Python"
+    },
+    "dataclasses": {
+      "name": "dataclasses",
+      "type": "CONCEPT",
+      "description": "A built-in Python class decorator that provides a way to define classes with predefined variable behavior"
+    },
+    "Conversatin samples": {
+      "name": "Conversatin samples",
+      "type": "EVENT",
+      "description": "A set of conversation samples"
+    },
+    "[": {
+      "name": "[",
+      "type": "TECHNOLOGY",
+      "description": "Opening bracket used for JSON array notation"
+    },
+    "]": {
+      "name": "]",
+      "type": "TECHNOLOGY",
+      "description": "Closing bracket used for JSON array notation"
+    },
+    "{": {
+      "name": "{",
+      "type": "TECHNOLOGY",
+      "description": "Opening curly brace used for JSON object notation"
+    },
+    "}": {
+      "name": "}",
+      "type": "TECHNOLOGY",
+      "description": "Closing curly brace used for JSON object notation"
+    },
+    "role": {
+      "name": "role",
+      "type": "CONCEPT",
+      "description": "A concept representing the role in a conversation"
+    },
+    "Controller": {
+      "name": "Controller",
+      "type": "TECHNOLOGY",
+      "description": "Manages user input and updates the model accordingly"
+    },
+    "LLM-centered agents": {
+      "name": "LLM-centered agents",
+      "type": "TECHNOLOGY",
+      "description": "Technology or framework for building language models"
+    },
+    "demos": {
+      "name": "demos",
+      "type": "EVENT",
+      "description": "Demonstrations of the technology in action"
+    },
+    "vector stores and retrieval": {
+      "name": "vector stores and retrieval",
+      "type": "TECHNOLOGY",
+      "description": "Technology for storing and retrieving vectors"
+    },
+    "full attention": {
+      "name": "full attention",
+      "type": "CONCEPT",
+      "description": "Concept in the context of vector stores and retrieval"
+    },
+    "natural language interface": {
+      "name": "natural language interface",
+      "type": "CONCEPT",
+      "description": "Interface between LLMs and external components using natural language"
+    },
+    "Weng, Lilian": {
+      "name": "Weng, Lilian",
+      "type": "PERSON",
+      "description": "Author"
+    },
+    "Lil’Log": {
+      "name": "Lil’Log",
+      "type": "ORGANIZATION",
+      "description": "Website or Blog"
+    },
+    "“LLM-powered Autonomous Agents”": {
+      "name": "“LLM-powered Autonomous Agents”",
+      "type": "PAPER",
+      "description": "Title of the paper"
+    },
+    "Jun 2023": {
+      "name": "Jun 2023",
+      "type": "EVENT",
+      "description": "Publication date of the paper"
+    },
+    "lilianweng.github.io": {
+      "name": "lilianweng.github.io",
+      "type": "ORGANIZATION",
+      "description": "Journal"
+    },
+    "NeurIPS 2022": {
+      "name": "NeurIPS 2022",
+      "type": "EVENT",
+      "description": "Conference where [1] was published"
+    },
+    "arXiv preprint arXiv:2305.10601 (2023)": {
+      "name": "arXiv preprint arXiv:2305.10601 (2023)",
+      "type": "PAPER",
+      "description": "[2] paper reference"
+    },
+    "arXiv preprint arXiv:2302.02676 (2023)": {
+      "name": "arXiv preprint arXiv:2302.02676 (2023)",
+      "type": "PAPER",
+      "description": "[3] paper reference"
+    },
+    "arXiv preprint arXiv:2304.11477": {
+      "name": "arXiv preprint arXiv:2304.11477",
+      "type": "PAPER",
+      "description": "Paper"
+    },
+    "ICLR 2023": {
+      "name": "ICLR 2023",
+      "type": "EVENT",
+      "description": "Conference"
+    },
+    "chat.openai.com": {
+      "name": "chat.openai.com",
+      "type": "WEBSITE",
+      "description": "Website"
+    },
+    "arXiv preprint arXiv:2303.11366": {
+      "name": "arXiv preprint arXiv:2303.11366",
+      "type": "PAPER",
+      "description": "Paper"
+    },
+    "Nakano et al.": {
+      "name": "Nakano et al.",
+      "type": "PERSON",
+      "description": "Authors"
+    },
+    "Parisi et al.": {
+      "name": "Parisi et al.",
+      "type": "PERSON",
+      "description": "Authors"
+    },
+    "Schick et al.": {
+      "name": "Schick et al.",
+      "type": "PERSON",
+      "description": "Authors"
+    },
+    "Weaviate Blog": {
+      "name": "Weaviate Blog",
+      "type": "ORGANIZATION",
+      "description": "Blog"
+    },
+    "arXiv preprint arXiv:2205.00445": {
+      "name": "arXiv preprint arXiv:2205.00445",
+      "type": "PAPER",
+      "description": "A paper published on arXiv in 2022"
+    },
+    "arXiv preprint arXiv:2112.09332": {
+      "name": "arXiv preprint arXiv:2112.09332",
+      "type": "PAPER",
+      "description": "A paper published on arXiv in 2021"
+    },
+    "arXiv preprint arXiv:2302.04761": {
+      "name": "arXiv preprint arXiv:2302.04761",
+      "type": "PAPER",
+      "description": "A paper published on arXiv in 2023"
+    },
+    "arXiv preprint arXiv:2304.08244": {
+      "name": "arXiv preprint arXiv:2304.08244",
+      "type": "PAPER",
+      "description": "A paper published on arXiv in 2023"
+    },
+    "Sep 13, 2022": {
+      "name": "Sep 13, 2022",
+      "type": "EVENT",
+      "description": "Date of a blog post"
+    },
+    "Nlp": {
+      "name": "Nlp",
+      "type": "CONCEPT",
+      "description": "自然语言处理"
+    },
+    "Steerability": {
+      "name": "Steerability",
+      "type": "CONCEPT",
+      "description": "可导航性或可控性概念"
+    },
+    "Prompting": {
+      "name": "Prompting",
+      "type": "CONCEPT",
+      "description": "提示或引导概念"
+    }
+  },
+  "edges": [
+    {
+      "source": "code execution capability",
+      "target": "files",
+      "data": {
+        "relation_type": "USES",
+        "description": "The code is present in the files.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "code execution capability",
+      "target": "compatibility",
+      "data": {
+        "relation_type": "COMPATIBLE_WITH",
+        "description": "Code in different files should be compatible with each other",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "code execution capability",
+      "target": "implementation",
+      "data": {
+        "relation_type": "IMPLEMENTS",
+        "description": "Implement all code",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "code execution capability",
+      "target": "best practices",
+      "data": {
+        "relation_type": "FOLLOWS",
+        "description": "You always follow the best practices for the requested languages in terms of describing the code written as a defined package/project",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "heuristic function",
+      "target": "trajectory",
+      "data": {
+        "relation_type": "EVALUATES",
+        "description": "",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "trajectory",
+      "target": "hallucination",
+      "data": {
+        "relation_type": "CAUSES",
+        "description": "",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "model",
+      "target": "feedback sequence",
+      "data": {
+        "relation_type": "USES",
+        "description": "The model uses the feedback sequence to self-reflect and produce better output.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "model",
+      "target": "human annotators",
+      "data": {
+        "relation_type": "OPTIONALLY_RECEIVES_INSTRUCTIONS_FROM",
+        "description": "The model can optionally receive multiple rounds of instructions from human annotators at test time.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "model",
+      "target": "context window length",
+      "data": {
+        "relation_type": "LIMITED_BY",
+        "description": "The model has a limited context window length.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "model",
+      "target": "anticancer drug",
+      "data": {
+        "relation_type": "INQUIRES_ABOUT",
+        "description": "The model inquires about current trends in anticancer drug discovery.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "history data",
+      "target": "source policies",
+      "data": {
+        "relation_type": "GENERATED_BY",
+        "description": "The history data is generated by a set of source policies.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "context window length",
+      "target": "send_tweet",
+      "data": {
+        "relation_type": "USES",
+        "description": "The 'send_tweet' entity uses the 'text' entity as its content.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "small world networks",
+      "target": "six degrees of separation",
+      "data": {
+        "relation_type": "FEATURE_OF",
+        "description": "The 'six degrees of separation' feature is a characteristic of small world networks",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "files",
+      "target": "<directory>",
+      "data": {
+        "relation_type": "SEARCHES",
+        "description": "The 'search_files' operation searches for files within the specified directory.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "files",
+      "target": "imports",
+      "data": {
+        "relation_type": "USES",
+        "description": "Files contain all imports",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "files",
+      "target": "types",
+      "data": {
+        "relation_type": "CONTAINS",
+        "description": "Files contain types",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "files",
+      "target": "module dependency or package manager dependency definition file",
+      "data": {
+        "relation_type": "INCLUDES",
+        "description": "Include module dependency or package manager dependency definition file",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "files",
+      "target": "core classes",
+      "data": {
+        "relation_type": "LOCATED_IN",
+        "description": "Different classes are located in different files",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "files",
+      "target": "entrypoint",
+      "data": {
+        "relation_type": "USES",
+        "description": "The enpoint file uses the imported files",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "user assistance",
+      "target": "commands",
+      "data": {
+        "relation_type": "NOT_ALLOWED",
+        "description": "No user assistance is allowed for commands",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "commands",
+      "target": "subprocesses",
+      "data": {
+        "relation_type": "RUNS_IN",
+        "description": "Runs in subprocesses for commands that will not terminate within a few minutes",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "commands",
+      "target": "browse_website",
+      "data": {
+        "relation_type": "INCLUDES",
+        "description": "The 'Commands' list includes a command named 'browse_website'.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "<prompt>",
+      "target": "generate_image",
+      "data": {
+        "relation_type": "GENERATES",
+        "description": "The 'generate_image' operation generates an image based on the given prompt.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "<file>",
+      "target": "read_file",
+      "data": {
+        "relation_type": "USES",
+        "description": "The 'read_file' operation uses the specified file.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "<file>",
+      "target": "append_to_file",
+      "data": {
+        "relation_type": "MODIFIES",
+        "description": "The 'append_to_file' operation modifies the specified file by appending text to it.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "<file>",
+      "target": "delete_file",
+      "data": {
+        "relation_type": "DELETES",
+        "description": "The 'delete_file' operation deletes the specified file.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "<file>",
+      "target": "execute_python_file",
+      "data": {
+        "relation_type": "EXECUTES",
+        "description": "The 'execute_python_file' operation executes the specified Python file.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "analyze_code",
+      "target": "<full_code_string>",
+      "data": {
+        "relation_type": "ANALYZES",
+        "description": "The 'analyze_code' operation analyzes the given full code string.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "<full_code_string>",
+      "target": "improve_code",
+      "data": {
+        "relation_type": "IMPROVES",
+        "description": "The 'improve_code' operation improves the given full code string based on suggestions.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "<full_code_string>",
+      "target": "write_tests",
+      "data": {
+        "relation_type": "TESTS",
+        "description": "The 'write_tests' operation writes tests for the given full code string.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "execute_python_file",
+      "target": "requirements.txt",
+      "data": {
+        "relation_type": "REQUIRES",
+        "description": "For Python, you always create an appropriate requirements.txt file",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "entrypoint",
+      "target": "core classes",
+      "data": {
+        "relation_type": "PART_OF",
+        "description": "The entrypoint file contains the definition of core classes.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "entrypoint",
+      "target": "functions",
+      "data": {
+        "relation_type": "PART_OF",
+        "description": "The entrypoint file contains the definition of functions.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "entrypoint",
+      "target": "methods",
+      "data": {
+        "relation_type": "PART_OF",
+        "description": "The entrypoint file contains the definition of methods.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "entrypoint",
+      "target": "instructions",
+      "data": {
+        "relation_type": "IMPLEMENTS",
+        "description": "The entrypoint file implements the instructions for code writing.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "implementation",
+      "target": "implementation",
+      "data": {
+        "relation_type": "PLAUSIBLE_ALTERNATIVE",
+        "description": "Write a plausible implementation if unsure",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "function definition",
+      "target": "comment",
+      "data": {
+        "relation_type": "HAS",
+        "description": "Add a comment briefly describing the purpose of the function definition",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "[",
+      "target": "{",
+      "data": {
+        "relation_type": "CONTAINS",
+        "description": "Each conversation sample is enclosed within curly braces.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "{",
+      "target": "role",
+      "data": {
+        "relation_type": "HAS_PROPERTY",
+        "description": "The object has a property named 'role'.",
+        "weight": 1.0
+      }
+    },
+    {
+      "source": "vector stores and retrieval",
+      "target": "full attention",
+      "data": {
+        "relation_type": "COMPARED_WITH",
+        "description": "Although vector stores and retrieval can provide access to a larger knowledge pool, their representation power is not as powerful as full attention",
+        "weight": 1.0
+      }
+    }
+  ],
+  "communities": {
+    "LLM Powered Autonomous Agents": 0,
+    "Lil'Log": 1,
+    "Lilian Weng": 2,
+    "Agent System Overview": 3,
+    "Planning": 4,
+    "Task Decomposition": 5,
+    "Self-Reflection": 6,
+    "Memory": 7,
+    "Maximum Inner Product Search (MIPS)": 8,
+    "Tool Use": 9,
+    "Case Studies": 10,
+    "Scientific Discovery Agent": 11,
+    "Generative Agents Simulation": 12,
+    "Proof-of-Concept Examples": 13,
+    "Citation": 14,
+    "References": 15,
+    "AutoGPT": 16,
+    "GPT-Engineer": 17,
+    "BabyAGI": 18,
+    "LLM-powered autonomous agent system": 19,
+    "Subgoal and decomposition": 20,
+    "Reflection and refinement": 21,
+    "Prompt Engineering": 22,
+    "external APIs": 23,
+    "current information": 24,
+    "code execution capability": 25,
+    "proprietary information sources": 26,
+    "Wei et al. 2022": 27,
+    "Yao et al. 2023": 28,
+    "Chain of thought (CoT)": 29,
+    "Tree of Thoughts": 30,
+    "BFS (breadth-first search)": 31,
+    "DFS (depth-first search)": 32,
+    "Liu et al. 2023": 33,
+    "classical planner": 34,
+    "ReAct": 35,
+    "Wikipedia search API": 36,
+    "HotpotQA": 37,
+    "FEVER": 38,
+    "AlfWorld Env": 39,
+    "WebShop": 40,
+    "Act-only baseline": 41,
+    "Thought:": 42,
+    "Reflexion": 43,
+    "Shinn & Labash 2023": 44,
+    "heuristic function": 45,
+    "trajectory": 45,
+    "hallucination": 45,
+    "Shinn & Labash, 2023": 46,
+    "Chain of Hindsight (CoH)": 47,
+    "D_h": 48,
+    "y_i": 49,
+    "r_i": 50,
+    "z_i": 51,
+    "tau_h": 52,
+    "model": 67,
+    "human annotators": 67,
+    "feedback sequence": 67,
+    "WebGPT comparisons": 54,
+    "summarization from human feedback": 55,
+    "human preference dataset": 56,
+    "Algorithm Distillation (AD)": 57,
+    "Laskin et al. 2023": 58,
+    "paper": 59,
+    "neural network": 60,
+    "behavioral cloning": 61,
+    "actions": 62,
+    "history data": 63,
+    "source policies": 63,
+    "RL run": 64,
+    "multi-episode history": 65,
+    "learned policy": 66,
+    "context window length": 67,
+    "episodes": 68,
+    "in-context RL algorithm": 69,
+    "source policy": 70,
+    "RL^2": 71,
+    "UCB": 72,
+    "Duan et al. (2017)": 73,
+    "A3C": 74,
+    "DQN": 75,
+    "Big thank you to ChatGPT": 76,
+    "7 items": 77,
+    "20-30 seconds": 78,
+    "Miller (1956)": 79,
+    "Approximate nearest neighbors (ANN) algorithm": 80,
+    "LSH": 81,
+    "ANNOY": 82,
+    "HNSW": 83,
+    "small world networks": 84,
+    "six degrees of separation": 84,
+    "FAISS": 85,
+    "ScaNN": 86,
+    "anisotropic vector quantization": 87,
+    "MIPS algorithms": 88,
+    "ann-benchmarks.com": 89,
+    "LLMs": 90,
+    "Animals using tools": 91,
+    "sea otter": 92,
+    "MRKL": 93,
+    "Karpas et al.": 94,
+    "math calculator": 95,
+    "currency converter": 96,
+    "weather API": 97,
+    "arithmetic": 98,
+    "TALM": 99,
+    "Toolformer": 100,
+    "ChatGPT Plugins": 101,
+    "OpenAI API": 102,
+    "HuggingGPT": 103,
+    "Shen et al. 2023": 104,
+    "User requests": 105,
+    "Task type": 106,
+    "ID": 107,
+    "Dependencies": 108,
+    "Arguments": 109,
+    "AI assistant": 110,
+    "user input": 111,
+    "URL": 112,
+    "Available Task List": 113,
+    "Demonstrations": 114,
+    "Chat History": 115,
+    "Tasks": 116,
+    "Predictions": 117,
+    "API-Bank": 118,
+    "Li et al. 2023": 119,
+    "53 commonly used API tools": 120,
+    "search engines": 121,
+    "calendar queries": 122,
+    "smart home control": 123,
+    "schedule management": 124,
+    "health data management": 125,
+    "account authentication workflow": 126,
+    "Search Engine API": 127,
+    "API call": 128,
+    "API results": 129,
+    "Level-1": 130,
+    "Level-2": 131,
+    "user’s requirement": 132,
+    "documentation": 133,
+    "Level-3": 134,
+    "ChemCrow": 135,
+    "Bran et al. 2023": 136,
+    "LangChain": 137,
+    "tool names": 138,
+    "user-given prompt": 139,
+    "GPT-4": 140,
+    "Boiko et al.": 141,
+    "Internet": 142,
+    "robotics experimentation APIs": 143,
+    "anticancer drug": 67,
+    "target": 144,
+    "They": 145,
+    "illicit drugs": 146,
+    "bioweapons": 147,
+    "chemical weapon agents": 148,
+    "Park, et al.": 149,
+    "sandbox environment": 150,
+    "The Sims": 151,
+    "Inter-agent communication": 152,
+    "recency": 153,
+    "Importance": 154,
+    "Relevance": 155,
+    "Reflection mechanism": 156,
+    "Prompt LM": 157,
+    "observations/statements": 158,
+    "Believability": 159,
+    "Agent X": 160,
+    "Relationships between agents": 161,
+    "Observations of one agent by another": 162,
+    "Environment information": 163,
+    "Tree structure": 164,
+    "The generative agent architecture": 165,
+    "Park et al.": 166,
+    "information diffusion": 167,
+    "social events coordination": 168,
+    "party": 169,
+    "4000 word limit": 170,
+    "important information": 171,
+    "files": 206,
+    "similar events": 173,
+    "user assistance": 174,
+    "commands": 174,
+    "subprocesses": 174,
+    "few minutes": 175,
+    "Google": 176,
+    "browse_website": 174,
+    "GPT Agent": 177,
+    "<search>": 178,
+    "<what_you_want_to_find_on_website>": 179,
+    "<name>": 180,
+    "<short_task_desc>": 181,
+    "<prompt>": 182,
+    "<key>": 183,
+    "<message>": 184,
+    "<directory>": 206,
+    "<file>": 185,
+    "<text>": 186,
+    "read_file": 185,
+    "append_to_file": 185,
+    "delete_file": 185,
+    "analyze_code": 187,
+    "<full_code_string>": 187,
+    "improve_code": 187,
+    "<list_of_suggestions>": 188,
+    "write_tests": 187,
+    "<list_of_focus_areas>": 189,
+    "execute_python_file": 185,
+    "generate_image": 182,
+    "send_tweet": 67,
+    "do_nothing": 191,
+    "<reason>": 192,
+    "GPT-3.5": 193,
+    "File output": 194,
+    "Your abilities": 195,
+    "Big-picture behavior": 196,
+    "Past decisions and strategies": 197,
+    "OpenAI ChatCompletion endpoint": 198,
+    "Super Mario game": 199,
+    "MVC components": 200,
+    "Keyboard control": 201,
+    "plumber": 202,
+    "classical platform game": 203,
+    "10 levels": 204,
+    "enemies": 205,
+    "entrypoint": 206,
+    "core classes": 206,
+    "functions": 206,
+    "methods": 206,
+    "instructions": 206,
+    "framework": 207,
+    "markdown code block format": 208,
+    "FILENAME": 209,
+    "imports": 206,
+    "types": 206,
+    "compatibility": 25,
+    "implementation": 25,
+    "module dependency or package manager dependency definition file": 206,
+    "requirements.txt": 185,
+    "NodeJS": 210,
+    "package.json": 211,
+    "function definition": 212,
+    "comment": 212,
+    "best practices": 25,
+    "pytest": 213,
+    "dataclasses": 214,
+    "Conversatin samples": 215,
+    "[": 216,
+    "]": 217,
+    "{": 216,
+    "}": 218,
+    "role": 216,
+    "Controller": 219,
+    "LLM-centered agents": 220,
+    "demos": 221,
+    "vector stores and retrieval": 222,
+    "full attention": 222,
+    "natural language interface": 223,
+    "Weng, Lilian": 224,
+    "Lil’Log": 225,
+    "“LLM-powered Autonomous Agents”": 226,
+    "Jun 2023": 227,
+    "lilianweng.github.io": 228,
+    "NeurIPS 2022": 229,
+    "arXiv preprint arXiv:2305.10601 (2023)": 230,
+    "arXiv preprint arXiv:2302.02676 (2023)": 231,
+    "arXiv preprint arXiv:2304.11477": 232,
+    "ICLR 2023": 233,
+    "chat.openai.com": 234,
+    "arXiv preprint arXiv:2303.11366": 235,
+    "Nakano et al.": 236,
+    "Parisi et al.": 237,
+    "Schick et al.": 238,
+    "Weaviate Blog": 239,
+    "arXiv preprint arXiv:2205.00445": 240,
+    "arXiv preprint arXiv:2112.09332": 241,
+    "arXiv preprint arXiv:2302.04761": 242,
+    "arXiv preprint arXiv:2304.08244": 243,
+    "Sep 13, 2022": 244,
+    "Nlp": 172,
+    "Steerability": 53,
+    "Prompting": 190
+  },
+  "community_summaries": {
+    "0": "此社区主要聚焦于自治智能代理技术，其中 LLM Powered Autonomous Agents 是该领域的重要概念。 尽管没有明确描述实体之间的关系，但该社区主要集中在研究和开发具有自主决策能力的技术。",
+    "1": "该社区主题为 Lil'Log 组织，专注于记录和分享开发人员日常工作中的小事情和技巧。 核心概念包括编程语言、软件工具、代码优化等。 由于该社区是一个独立的组织，没有明确的关键关系与其他实体之间。",
+    "2": "该社区主题主要围绕机器学习和数据分析方面，由一位名为Lilian Weng的成员组成。该社区没有明显的关键关系，但是主要包含机器学习、数据分析等核心概念。",
+    "3": "该社区主要聚焦于代理系统的概述，其中包括以下核心概念：Agent System Overview。在这个社区中，没有明确定义的实体之间关系。",
+    "4": "该社区主题为计划管理，主要包含核心概念 Planning (计划)。在该社区中，没有明确定义的实体之间关系。",
+    "5": "该社区主题主要围绕任务分解概念，其中包括 Task Decomposition 作为核心概念。在这个社区中，没有明确的实体之间关系描述。",
+    "6": "该社区主题 revolves around the concept of Self-Reflection, a personal process of introspection and self-examination aimed at improving one's self-awareness and personal growth. The core concepts within this community primarily focus on understanding oneself, emotional intelligence, personal development, and mindfulness. However, in this specific community, there are no identified key relationships between the entities.",
+    "7": "该社区主题主要围绕人类记忆和记忆相关概念。 核心概念包括 Memory (记忆)，但没有明确的实体之间的关系。 因此，该社区可以被认为是一个聚焦于记忆的知识库或论坛。",
+    "8": "该社区主要聚焦于Maximum Inner Product Search (MIPS)，这是一种高效的近邻搜索算法。 MIPS 本身是一个核心概念，没有明确定义其与其他实体之间的关键关系。",
+    "9": "该社区主题 revolves around the concept of Tool Use, focusing on human interactions and utilization of various tools throughout history. The core concepts within this community include diverse types of tools, their historical evolution, and their impact on human development. However, there are no specified key relationships between the entities in this community as it primarily serves as a platform for discussion and knowledge sharing about Tool Use.",
+    "10": "此社区主要聚焦于案例研究（Case Studies），它是一组分析和解释具有特定性质或特征的事件、现象或问题的文章或报告。该社区主要包含一个核心概念：案例研究本身，没有明确描述实体之间的关键关系。",
+    "11": "该社区主要聚焦于科学发现机器人（Scientific Discovery Agent，简称 PAPER）。这个机器人是一个虚拟实体，旨在自动化科学文献的分析和发现新知识。该社区没有明确定义的关键关系，但主要包含了关于机器人设计、功能和应用等核心概念。",
+    "12": "该社区主要集中于研究生成式代理人模拟（Generative Agents Simulation，简称 GAS）。GAS 是一种计算机模拟方法，用于研究多智能体系统和人工智能的行为。该社区没有明确定义实体之间的关键关系，但主要包含了 GAS 相关的核心概念，如代理人（agents）、生成式模拟（generative simulation）以及多智能体系统（multi-agent systems）。",
+    "13": "此社区主要聚焦于Proof-of-Concept Examples，这些例子用于展示一种原型或概念的实现方式。该社区中的核心概念包括但不限于各种技术和应用案例。在该社区中，实体之间没有明确定义的关键关系。",
+    "14": "该社区主要聚焦于事件记录，具体来说是 Citation 事件。虽然没有明确的实体之间关系，但该社区的核心概念包括事件记录和相应的描述信息。尽管没有显著的关键关系，但这个社区仍然具有重要意义，因为它可以帮助我们了解历史上发生过的事件以及其相关信息。",
+    "15": "该社区主要聚焦于学术论文（PAPER），其中主要包括文献引用、研究结果和讨论。在这个社区中，没有明确的实体之间关系，但是每个成员都通过分享和讨论各自的学术论文来增加知识共享和交流。",
+    "16": "该社区主要聚焦于自动生成人工智能模型 AutoGPT。主要包含自动化、机器学习和人工智能等核心概念。在该社区中，AutoGPT 是最重要的实体，它代表着这个社区的主题，也是该社区讨论和研究的焦点。",
+    "17": "该社区主题中心于人工智能和机器学习，特别是GPT-Engineer (PAPER)在这方面的研究和发展。核心概念包括自然语言处理、深度学习和模型优化等。在该社区中，个人成员独立地进行相关工作，之间没有明确描述的关键关系。",
+    "18": "该社区主要聚焦于人工智能领域，具体来说是 BabyAGI 项目。该项目没有明确定义与其他实体之间的直接关系，但它涉及到人工智能的发展阶段和名称（BabyAGI）。该社区主要核心概念包括人工智能、AGI (Artificial General Intelligence) 以及其发展阶段 BabyAGI。",
+    "19": "此社区主要聚焦于自治智能代理系统，LLM-powered autonomous agent system 是其中一个重要成员。尽管没有明确描述实体之间的关键关系，但该社区的核心概念包括智能代理和自治系统。",
+    "20": "本社区主要聚焦于子目标和分解方法。其中包括以下核心概念：Subgoal and Decomposition。在这个社区中，没有明确的实体之间关系描述。",
+    "21": "该社区主要聚焦于反思和精炼（Reflection and refinement）。这个主题下，核心概念包括但不限于自我反思、改进和优化。在该社区中，实体之间没有明确的关系描述。",
+    "22": "此社区主要聚焦于人工智能模型的提示设计方法，称为 Prompt Engineering。该社区主要包含一个核心概念：Prompt Engineering，它是指用于 AI 模型设计提示的一种方法或实践。在这个社区中，没有明确定义的关键关系。",
+    "23": "此社区主要聚焦于外部应用编程接口 (APIs)，这些技术被使用以访问模型权重外部的额外信息。该社区的主题是利用外部API来扩展机器学习模型的功能。核心概念包括外部APIs和机器学习模型。在这个社区中，实体之间没有明确定义的关键关系。",
+    "24": "此社区主题围绕最新信息（current information）构建，其中包括核心概念如数据、事实和更新。在这个社区中，成员共同探讨和分享最新的知识。然而，在该社区中，实体之间没有明确的关系。",
+    "25": "这个社区主要聚焦于代码执行技术，其中包括兼容性、实现和最佳实践等核心概念。兼容性确保不同文件之间可以正常交互，而实现是指具体的编码方法，最佳实践则提供了一组建议来优化代码执行能力。关键关系包括：代码执行能力与兼容性和实现之间存在Compatible_with和Implements关系；代码执行能力与最佳实践之间存在Follows关系，而实现也可以作为一个可替代的选项。",
+    "26": "该社区主要聚焦于私有数据库和专有信息存储，这些资源被称为\"proprietary information sources\"。主要核心概念包括私有数据仓库或数据库。在该社区中，实体之间没有明确的关系描述。",
+    "27": "本社区主要聚焦于人工智能领域，具体来说是研究深度学习方法。主要包含概念如神经网络、卷积神经网络和回归分析等。Wei et al. 2022 的论文是该社区中的一个重要贡献，但没有与其他成员之间明确的关系。",
+    "28": "此社区主要聚焦于研究人工智能领域，具体来说是关于知识图谱分析的发展和应用。主要核心概念包括知识图谱、数据挖掘、机器学习等技术方法。本社区中，Yao et al. 2023 是一个关于新颖的知识图谱分析方法的论文，但在此社区中，没有明确描述 Yao et al. 2023 与其他成员之间的关键关系。",
+    "29": "该社区主题 revolves around the Chain of Thought (CoT), a concept that likely refers to a sequential or interconnected series of ideas, thoughts, or concepts. The core concepts within this community primarily revolve around CoT and its potential applications in various fields such as cognitive science, artificial intelligence, and philosophy. However, there seems to be no explicit relationship defined between the entities in this community.",
+    "30": "该社区主题为思维树（Tree of Thoughts），它是一个专门聚焦于人类思维过程和知识组织方式的平台。核心概念包括：思维、思想、知识等。在这个社区中，没有明确定义的实体之间关系。",
+    "31": "此社区主要聚焦于算法和数据结构领域，其中最重要的核心概念包括 Breadth-First Search (BFS) 技术。BFS 是一种广度优先搜索算法，用于在无向或有向图中遍历所有节点，以发现图中的连通分量和最短路径。在此社区中，BFS 作为一个独立的实体存在，没有明确的关系与其他实体。",
+    "32": "此社区主题为计算机科学，特别是深度优先搜索（DFS）技术。该社区的核心概念包括深度优先搜索算法及其在图论、数据结构和算法设计等领域的应用。此社区中没有明确定义的实体之间关系，但是所有成员都与DFS技术相关联。",
+    "33": "本社区主题为计算机科学，具体而言是关于2023年由刘等人发表的一篇论文。该论文中没有明确的实体之间关系，但主要涉及了计算机视觉和深度学习两个核心概念。",
+    "34": "此社区主题围绕长期规划工具 \"classical planner (TECHNOLOGY)\" 展开，其中没有明确定义的实体之间没有显著关系。 该社区的核心概念包括长期规划以及使用外部工具进行此类规划的技术方面。",
+    "35": "本社区主要聚焦于技术领域，其中重点是ReAct，一种集合了理解和操作能力的语言模型技术。该社区没有明确定义的实体之间关系，但主要包含核心概念为技术（TECHNOLOGY）和语言模型（LLM）。",
+    "36": "该社区主要聚焦于机器学习模型（LLM）使用的环境交互工具，其中包括 Wikipedia search API。尽管没有明确定义的关键关系，但这个社区在探索如何利用技术来提高 LLM 的搜索能力方面具有重要意义。",
+    "37": "该社区主题主要围绕 HotpotQA 事件构建，其中没有明确的实体之间的关系。 HotpotQA 是一项问答系统，但在该社区中，它可能被用作一个举办问答活动或者研究对象。 本社区主要包含 HotpotQA 这个核心概念，并没有其他明确的核心概念。",
+    "38": "该社区主题 revolves around the Fever (EVENT), a database of factual medical claims extracted from Wikipedia articles, which aims to provide reliable and accurate information for various medical conditions. The core concepts within this community include medical claims, Wikipedia articles, and fact-checking. However, there are no specified key relationships between the entities in this community as it primarily focuses on the creation and verification of individual medical facts.",
+    "39": "该社区主题为 AlfWorld Env (EVENT)，主要聚焦于某个具体的环境事件。在这个社区中，没有明确的实体之间的关键关系描述。",
+    "40": "该社区主题主要围绕在线商店事件（WebShop）展开，其中没有明确的实体之间的关系。主要包含一个核心概念：在线商店活动或发生的事件。",
+    "41": "该社区主要聚焦于机器人行为基线研究，其中最重要的成员是 Act-only baseline (TECHNOLOGY)。这个社区没有明确定义的实体之间关系，但它主要涉及机器人行为和基础技术方面的讨论。",
+    "42": "此社区主题为思想，主要包括核心概念 Thought。在该社区中，没有明确描述的实体之间关系。",
+    "43": "此社区主题围绕技术领域，特别是Reflexion（TECHNOLOGY）。该社区没有明确定义的关键关系，但主要包含了技术相关的核心概念。Reflexion在这个社区中可能是一个重要的实体，代表着一种或多种技术方面，但其与其他成员之间没有明确定义的关系。",
+    "44": "此社区主题围绕于2023年发表的Shinn & Labash论文。该论文未明确描述实体之间的关键关系，但主要包含的核心概念是尚无公开信息。摘要：该社区主要研究并讨论2023年发表的Shinn & Labash论文中涉及的主题和核心概念。",
+    "45": "此社区主要聚焦于机器人路径规划和优化问题。主要核心概念包括轨迹（Trajectory）、评估函数（Heuristic Function）以及它们之间的关系。轨迹是机器人移动过程中的路径，而评估函数用于评估不同轨迹之间的优劣。重要的关键关系是轨迹可能导致 hallucination（幻觉），并且轨迹与评估函数之间存在评估关系。",
+    "46": "该社区主要聚焦于研究和发表名为 \"Shinn & Labash, 2023\" 的论文。该论文可能是在2023年发表的一篇有关某个特定主题的学术文章，但由于没有提供更多信息，因此无法确定其具体内容或主要包含哪些核心概念。该社区中没有明确描述实体之间的关键关系。",
+    "47": "该社区主要聚焦于 Chain of Hindsight (CoH)，一种论文中提出的知识图谱分析方法。 CoH 是一个循环反馈过程，用于在知识图谱中发现和验证隐含的关系。 该社区没有明确描述实体之间的关键关系，但主要包括对 CoH 的研究和应用。",
+    "48": "该社区主题未明确指定，但其中最主要的成员为 D_h。尽管没有明确的实体之间关系，但这个社区可以被认为是关于 D_h 的概念和知识的聚焦点。核心概念仅包含 D_h。",
+    "49": "此社区主题未明确指定，但可以认为是关于个人标识符 y_i。该社区主要包含一个核心概念：y_i 作为一种概念或实体的表示。在这个社区中，没有明确描述任何实体之间的关键关系。",
+    "50": "此社区主题为未知，因为没有描述任何关系或核心概念。该社区可能是一个空白或尚未开发的实体集合。",
+    "51": "此社区主要聚焦于个人标识符 z_i，但没有明确的实体之间关系。该社区主题可以概括为研究和讨论个人标识符 z_i 及其相关属性的学习和应用。核心概念包括但不限于 z_i 本身，以及与它相关联的数据结构和算法等。",
+    "52": "该社区主要聚焦于人工智能领域，其中最重要的核心概念是tau_h，虽然没有明确定义其与其他实体之间的关系。因此，该社区的主题可以简单地描述为关于tau_h的研究和讨论。",
+    "53": "此社区主题围绕可导航性或可控性概念（Steerability）展开。其中包含一个核心概念：可导航性或可控性。在这个社区中，没有描述任何实体之间的关键关系。",
+    "54": "该社区主要集中于WebGPT比较，研究和分析不同方法或数据集在其实验中的表现。 核心概念包括WebGPT和实验结果。 由于该社区成员之间没有明确的关系，因此无需描述关键关系。",
+    "55": "此社区主题围绕信息摘要和人类反馈相关，主要包含概念：\"summarization from human feedback\"。该社区没有明确的实体之间关系，但其中重点讨论的是基于人类反馈进行信息摘要的概念。",
+    "56": "此社区主要聚焦于人类偏好数据研究，其中重点关注一个名为\"human preference dataset\"的数据集。该社区没有明确定义实体之间的关系，但主要核心概念包括人类偏好和相应的数据集以及对其进行实验分析的过程。",
+    "57": "本社区主要聚焦于强化学习任务中的跨集群轨迹，其中最重要的核心概念是算法浓缩（Algorithm Distillation, AD）。AD是一种将算法封装在长历史条件策略中的方法，用于提高强化学习任务的性能。该社区目前没有明确定义实体之间的关键关系。",
+    "58": "此社区主题 revolves around Algorithm Distillation (AD), as detailed in Laskin et al. 2023 paper. The core concepts within this community include AD, a method aimed at compressing complex algorithms while preserving their functionality and performance. However, there are no apparent relationships between the entities in this community as per the provided information.",
+    "59": "此社区主要聚焦于论文（PAPER）。没有明确的实体之间的关系，但是该社区的核心概念包括学术研究和知识共享。在这个社区中，最重要的实体是论文，它们作为学术交流和进步的基础。",
+    "60": "此社区主要聚焦于人工智能领域，其中最重要的核心概念是神经网络。这个社区研究如何通过行为克隆来从算法中提取神经网络。在该社区内，神经网络是一个独立存在的实体，与其他实体之间没有明确的关系。",
+    "61": "该社区主要聚焦于机器学习领域，其中最重要的核心概念是行为克隆（Behavioral Cloning）。虽然没有明确定义的实体之间关系，但整个社区都在探索如何通过模拟人类行为来训练机器学习算法，以实现更自然和准确的人工智能应用。",
+    "62": "这个社区主要聚焦于各种行动，没有明确定义的实体之间的关系。 主要包含核心概念：actions (行动)。 在这个社区中，成员讨论和分享不同类型的行动，但没有明确的规则或结构来描述这些行动之间的关系。",
+    "63": "该社区主要聚焦于历史数据的生成过程，其中包括源策略这个核心概念。源策略是用来生成历史数据的基础，即历史数据是由源策略所产生的。这个社区的主题是研究和优化历史数据的生成方式，以及相关的源策略。",
+    "64": "此社区主题围绕 Reinforcement Learning (RL) 运行（RL run，事件）展开。该社区没有明确定义的实体之间的关键关系，但主要包含了 RL 运行这个核心概念。",
+    "65": "此社区主要聚焦于多集体历史（DATA），其中没有明确定义的实体之间的关系。该社区主要包含一个核心概念：多集体历史，它可能涉及多个事件、时期或人物的记录和分析。",
+    "66": "此社区主题围绕学习策略展开，其中包括一个核心概念：学习的策略（learned policy）。在这个社区中，没有明确描述实体之间的关系。",
+    "67": "这个社区主要研究使用条件化模型来自动标注抗癌药物，其中包括人类标注员、模型和发送推文的函数。模型根据序列前缀进行学习，并可以通过反馈序列进行更新。上下文窗口长度限制了模型的范围，同时也被使用于发送推文。人类标注员可能会接受来自模型的可选指令。",
+    "68": "此社区主要聚焦于集体 \"episodes\"，没有明确的实体间关系。该社区主题 revolves around the collective concept of \"episodes\", with no apparent relationships between entities.",
+    "69": "该社区主要聚焦于在上下文中应用的强化学习算法（in-context RL algorithm）。核心概念包括但不限于强化学习（Reinforcement Learning）和上下文（Context）。在这个社区中，没有明确描述实体之间的关键关系。",
+    "70": "此社区主要研究使用 UCB 生成轨迹以进行蒸馏的策略，称为 source policy。该社区的主题是探索如何通过优化轨迹来提高蒸馏效率。核心概念包括 UCB 和蒸馏过程中生成的轨迹。在这个社区中，实体之间没有明确的关系描述。",
+    "71": "此社区主要聚焦于在线强化学习方法，其中最重要的成员是由Duang et al. (2017)提出的RL^2。该社区没有明确定义的实体之间关系，但它的核心概念包括在线强化学习和RL^2算法。",
+    "72": "该社区主要集中在使用UCB组织生成蒸馏过程中的轨迹。 其主要核心概念包括蒸馏和轨迹生成，但未找到明确的实体之间关系。",
+    "73": "此社区主要聚焦于机器学习领域，特别是 reinforcement learning (RL) 方法。 Duan et al. (2017) 是该社区的重要成员，他们提出了 RL^2 方法，这是一种新的 RL 技术。 尽管没有明确描述实体之间的关系，但该社区主要集中在研究和发展 RL 方法，尤其是 RL^2 方法。",
+    "74": "该社区主题主要围绕技术（TECHNOLOGY），特别是A3C。尽管没有明确的实体之间关系，但该社区可能会聚焦于A3C的研究、应用和发展。核心概念包括但不限于技术创新、软件开发、机器学习等。",
+    "75": "该社区主题 revolves around Deep Q-Network (DQN), a popular machine learning algorithm used in reinforcement learning. The core concepts within this community include neural networks, deep learning, and artificial intelligence. However, there are no explicit relationships defined between the entities in this community.",
+    "76": "该社区主题主要围绕人工智能和机器学习的模型 ChatGPT 构建，主要包含 ChatGPT 这一核心概念。在该社区中，ChatGPT 是一个重要的实体，但没有明确描述其他成员之间的关系。",
+    "77": "此社区主要聚焦于人类短期记忆能力，其中包括7个核心概念，这些概念是基于Miller（1956）的建议而来。该社区中，没有明确描述实体之间的关系。",
+    "78": "此社区主要聚焦于人类短期记忆，其中重点概念包括\"20-30 seconds\"表示信息在短期记忆中的存储时长。但是，在这个社区中，没有明确描述实体之间的关系。",
+    "79": "该社区主题 revolves around the cognitive psychology concept of short-term memory, with a focus on the influential work by Miller (1956). The core idea within this community is the proposed capacity of short-term memory, approximately seven items, which has significantly impacted our understanding and research in this area. However, there are no key relationships between the entities in this community as it primarily revolves around a single author's contribution.",
+    "80": "此社区主要聚焦于近邻算法，特别是Approximate nearest neighbors (ANN)算法。 ANN算法被广泛使用以提供快速MIPS，返回最接近的顶级k邻居，以在准确性方面 slight trade-off 以换取巨大的加速。 此社区中没有明确描述实体之间的关系。",
+    "81": "本社区主要聚焦于计算机科学领域，特别是数据结构和算法方面。主要包含一个核心概念：LSH (Locality Sensitive Hashing)，这是一种哈希函数，用于将类似的输入项映射到同一个桶中，提高相似性查找的效率。在本社区中，没有描述实体之间的关键关系。",
+    "82": "本社区主要聚焦于近邻搜索算法，其中最重要的成员是ANNOY (TECHNOLOGY) - 一个使用随机投影树的近似最近邻搜索算法。该社区没有明确定义实体之间的关系，但主要概念包括近邻搜索和随机投影树技术。",
+    "83": "此社区主题围绕 HNSW (小世界网络驱动的技术) 构建小世界图层次结构的概念展开。核心概念包括 HNSW 技术本身以及小世界网络。在该社区中，实体之间没有明确的关系描述。",
+    "84": "此社区主题围绕小世界网络和六度分离概念展开，这两个概念描述了人类社交网络的特性。小世界网络是一种网络结构，其中大多数节点可以通过较少步骤之间相互连接。而六度分离则是指在这样一个网络中，最多需要六个或更少的中介来将任何两个人联系起来。这两个概念都是小世界网络的关键特征之一。",
+    "85": "此社区主要聚焦于人工智能和搜索技术，其中最重要的成员是 Facebook AI Similarity Search (FAISS)。 FAISS 是一种利用高维空间中高斯分布假设并应用向量量化的技术，将向量空间划分为集群的搜索技术。 在此社区中，核心概念包括高维空间、高斯分布和向量量化。 由于没有明确指定实体之间的关系，因此无法描述关键关系。",
+    "86": "此社区主要聚焦于技术领域，其中一个重点是 Scalable Nearest Neighbors (ScaNN)。 ScaNN 是一项具有核心创新——异质向量量化的技术，但在该社区内，没有明确的实体之间关系描述。",
+    "87": "此社区主要聚焦于机器学习和算法设计领域，特别是在ScaNN（Scalable Neural Network）中，其中一个重要概念是匈牙利向量量化（Anisotropic Vector Quantization）。该概念用于将数据点映射到新的点，使得与查询向量内积最接近原始距离。但在此社区中，没有明确描述实体之间的关系。",
+    "88": "此社区主要聚焦于MIPS算法，这是一种用于计算机处理器设计的有序集合。该社区主要包含MIPS算法作为核心概念。在此社区中，没有明确定义的实体之间关系，每个成员独立地讨论和研究MIPS算法的各种方面。",
+    "89": "该社区主要聚焦于 Ann Benchmarks.com，这是一个机构实体。该社区没有明确定义的关键概念或关系，因此它的主题可以简单地描述为一家专门提供测试和评估服务的机构。",
+    "90": "此社区主要聚焦于LLMs，这是一种法律学位。尽管没有明确的关系描述，但该社区可能涉及讨论和分享有关LLMs学习、实践和职业发展的信息。主要包含核心概念如：法律学科、学位授予机构、实践经验等。",
+    "91": "本社区主题围绕动物使用工具事件。该社区主要包含动物和工具两个核心概念，但没有明确描述实体之间的关系。",
+    "92": "此社区主题为海豹（sea otter），其中没有明确的实体之间关系。该社区主要包含核心概念是海豹自身以及与它相关的生态环境和行为方式等信息。",
+    "93": "此社区主要聚焦于人工智能领域，特别是自治代理的研究。其中一个重要成员是 MRKL，它提出了一种神经符号体系结构，旨在为自治机器人提供基础。然而，在这个社区中，MRKL 与其他实体之间似乎没有明确的关联关系。",
+    "94": "该社区主要聚焦于机器学习领域，其中成员 Karpas et al. 是 MRKL (一个机器学习算法) 的作者。 MRKL 的核心概念包括知识图谱和机器学习，该算法通过将这两个领域结合起来，旨在提高机器学习模型的性能。 在该社区中，没有明确描述 Karpas et al. 与 MRKL 之间的关键关系。",
+    "95": "本社区主要聚焦于技术领域，其中最重要的成员是 MRKL 内的数学计算器模块。尽管没有明确的实体之间关系，但该社区主要涉及数学计算和符号处理方面的研究和应用。",
+    "96": "此社区主题 revolves around the development and implementation of a currency converter technology, specifically within the MRKL symbolic module. The core concepts include digital currency conversion, symbolic processing, and possibly data exchange or financial transactions. However, there seems to be no explicit relationship between the entities in this community.",
+    "97": "此社区主要聚焦于技术领域，其中最重要的成员是 weather API，作为 MRKL 符号模块的一部分。虽然没有明确的关系描述，但这个社区似乎在研究或开发基于天气数据的应用程序或服务。",
+    "98": "此社区主要聚焦于数学领域，其中核心概念包括算术运算（arithmetic）。在这个社区内部，没有明确描述的实体之间关系。",
+    "99": "此社区主题为人工智能技术，特别是语言模型。主要包含 TALM (TECHNOLOGY)，是由 Parisi et al. 在 2022 年引入的一种增强的语言模型。此社区中没有明确描述的实体之间关系。",
+    "100": "此社区主题围绕于2023年由Schick等人引入的一种增强语言模型Toolformer，该模型被设计为一个工具。其中核心概念包括语言模型和工具化技术。在此社区内，没有明确的实体之间关系。",
+    "101": "该社区主要聚焦于 ChatGPT Plugins，这是一组由其他开发者提供的工具 API。该社区的主题是 ChatGPT 插件开发和集成，核心概念包括 API、工具和开发人员。在该社区中，没有明确描述的实体之间关系。",
+    "102": "此社区主要聚焦于人工智能领域，特别是 Language Models (LLMs) 和其扩展版本，具有工具使用功能。 OpenAI API 是该社区中的一个核心概念，它提供了一种调用 LLMs 的方法。 在这个社区中，实体之间没有明确的关系描述。",
+    "103": "此社区主要聚焦于在HuggingFace平台上使用ChatGPT作为任务计划器。其中，HuggingGPT是该社区的核心概念，它是一个框架，旨在利用ChatGPT进行任务规划。在这个社区中，实体之间没有明确的关系。",
+    "104": "此社区主要聚焦于人工智能领域，特别是语言模型方面。核心概念包括 Hugging Face 和 Transformer 模型，以及其最新贡献 HuggingGPT。该社区中的 Shen et al. 2023 发表了 HuggingGPT 的论文，但没有明确的实体之间关系。",
+    "105": "该社区主题 revolves around user interactions, with the core concept being User Requests. This community serves as a platform for users to express their needs and expectations, but does not explicitly define any key relationships between entities.",
+    "106": "此社区主题围绕于任务类型，每个系统中的任务都被分类。该社区的核心概念包括任务类型。在这个社区中，实体之间没有明确定义的关键关系。",
+    "107": "该社区主要关注任务管理，其中包括各个任务的唯一标识符（ID）作为核心概念。在这个社区中，没有描述任何实体之间的关键关系。",
+    "108": "此社区主要聚焦于任务管理领域，其中重点关注每个任务的相关依赖。核心概念包括 Dependencies，用于描述各个任务之间的关联。在这个社区中，实体之间没有明确定义的关键关系。",
+    "109": "此社区主要聚焦于各种任务中使用的论点和证据。其中，核心概念包括Arguments，这些论点在每个任务中都会被使用。然而，在该社区中，实体之间没有明确定义的关系。",
+    "110": "此社区主题围绕人工智能助手（AI assistant）构建，其中重点关注一个可以帮助用户的智能系统。该社区主要包含 AI 助手这个核心概念，没有明确的实体之间的关键关系。",
+    "111": "这个社区主要关注数据处理，其中最重要的核心概念是 user input。该社区没有明确定义实体之间的关系。",
+    "112": "此社区主题围绕 Uniform Resource Locator (URL) 构建，其中重点关注图片、音频和视频数据。核心概念包括 URL 本身，用于标识互联网上的资源位置。在这个社区中，实体之间没有明确的关系描述。",
+    "113": "这个社区主要聚焦于AI助手的可用任务列表。它的主题是 AI助手可以执行哪些任务，并提供一个清单供参考。该社区主要包含一个核心概念：Available Task List，即可用任务列表。在这个社区中，没有描述实体之间的关键关系。",
+    "114": "此社区主要聚焦于人工智能助手（AI assistant）的演示和展示，以证明其功能强大。核心概念包括事件（Demonstrations），用于描述 AI 助手在实际应用中表现出的能力。在这个社区中，没有显著的实体之间的关系。",
+    "115": "该社区主要聚焦于人类和智能助手之间的互动记录，其中包括 Chat History (EVENT)。该社区没有明确定义实体之间的关系，但是它主要涉及人类用户和 AI 助手的交互过程。",
+    "116": "此社区主要聚焦于用户请求基础上的计划行动，其中最重要的概念是 Tasks。在这个社区中，没有明确定义任何实体之间的关系。",
+    "117": "此社区主要聚焦于人工智能模型在任务执行过程中生成的结果，即预测。该社区主要包含一个核心概念：Predictions (CONCEPT)，表示由AI模型产生的结果。在此社区中，没有明确描述实体之间的关系。",
+    "118": "此社区主要集中于评估工具增强的语言模型 (LLM)，其中 API-Bank 被认为是一个重要的基准。 该社区没有明确定义的实体之间关系，但它主要涉及到工具和语言模型的研究和评估。",
+    "119": "本社区主要聚焦于 API Banking，研究如何通过应用编程接口 (API) 来改善银行业务。核心概念包括 API 设计、实现和集成，以及与银行业务相关的数据安全和隐私保护问题。该社区主要由 Li et al. 2023 (PAPER) 组成，但没有明确的实体之间的关系。",
+    "120": "此社区主要聚焦于 API 技术，其中包括 53 种常用 API 工具，这些工具被收集在 API-Bank 中。该社区目前没有明确的实体之间关系描述。",
+    "121": "此社区主要聚焦于 API-Bank，一个提供各种搜索引擎类型 API 的平台。主要核心概念包括搜索引擎本身。在这个社区中，实体之间没有明确的关系描述。",
+    "122": "本社区主要聚焦于 API-Bank，一个提供各种 API 服务的平台。其中，calendar queries 是这个平台包含在内的一种类型的 API。此社区目前没有明确描述实体之间的关系。",
+    "123": "此社区主要聚焦于智能家居控制领域，其中包括 API-Bank 内容的一部分。主要核心概念为智能家居控制 API。在这个社区当前没有明确描述的实体之间关系。",
+    "124": "此社区主要聚焦于 API-Bank，其中包括一个名为 schedule management 的 API 类型。这个社区没有明确定义实体之间的关系，但它主要涉及 API 管理方面的讨论和交流。",
+    "125": "该社区主要聚焦于健康数据管理，其中包括 API-Bank 内置的各种 API。此社区的核心概念包括健康数据管理，并没有明确的实体之间关系。",
+    "126": "此社区主要聚焦于 API-Bank，其中包括 account authentication workflow 这一类型的 APIs。尽管没有明确描述实体之间的关系，但该社区主要涉及了 API-Bank 内部的概念和相关工作流程。",
+    "127": "此社区主要聚焦于技术领域，其中一个重要概念是 Search Engine API。这个API用于搜索引擎，但在该社区内没有明确的关系描述。",
+    "128": "本社区主要聚焦于技术方面，其中最重要的概念是 API call（API 调用）。该社区讨论和分享有关 API 调用的各种问题和解决方案，但没有明确定义实体之间的关系。",
+    "129": "此社区主要聚焦于API技术，其中最重要的概念是API结果（API results），即API调用的输出。该社区目前没有明确定义的实体之间的关系。",
+    "130": "该社区主要聚焦于 API 调用能力的评估。主要包括一个 EVENT 实体，名为 Level-1，负责对 API 进行测试和评估。在这个社区中，没有明确描述了实体之间的关键关系。",
+    "131": "本社区主要聚焦于API检索能力的分析，其中没有明确定义的实体间关系。核心概念包括事件 Level-2，代表着对 API 检索能力的评估。",
+    "132": "该社区主要聚焦于用户的特定需求和问题。主要包括以下核心概念：用户的需求或问题。在这个社区中，没有明确描述实体之间的关键关系。",
+    "133": "该社区主要聚焦于 API 使用方面，其中最重要的核心概念是文档（documentation），它作为学习如何使用 API 的材料。在这个社区中，没有明确描述的实体之间关系。",
+    "134": "此社区主要聚焦于 API 能力评估，特别是超越检索和调用。主要包含 API 计划能力概念。在该社区中，Level-3 EVENT 是关键成员，负责对 API 能力进行评估。",
+    "135": "该社区主题 revolves around the application of Large Language Models (LLM) in the domains of organic synthesis, drug discovery, and materials design. The core concepts within this community include LLMs, organic chemistry, pharmaceuticals, and material science. However, there are currently no identified key relationships between the community members.",
+    "136": "此社区主要聚焦于化学领域，其中成员 Bran et al. 2023 发表了一篇名为 ChemCrow 的论文。该社区主要涉及化学相关概念，包括化学物质和化学过程等。在此社区中，没有明确描述的实体之间的关键关系。",
+    "137": "该社区主要聚焦于技术领域，其中最重要的成员是 LangChain，它负责 ChemCrow 工作流程的实现。尽管没有明确的关系，但这个社区可能在研究或开发化学相关的工具和方法，由于 LangChain 与 ChemCrow 的关联，我们可以推测其中也涉及化学领域。",
+    "138": "此社区主题围绕于法律学习机器人 (LLM) 的使用和支持。主要包含技术概念，例如提供给 LLM 的各种工具。在这个社区中，实体之间没有明确的关系。",
+    "139": "此社区主要聚焦于人工智能领域，其中最重要的核心概念包括问题提出（user-given prompt）。在这个社区中，用户会给定一个任务或问题，然后使用语言模型来回答或处理该问题。但是，在这个社区中没有明确的实体之间关系。",
+    "140": "此社区主题中心于人工智能领域，特别是语言模型。主要包含GPT-4，一个用于生成和处理自然语言的技术实体。在这个社区中，没有明确的关系描述。",
+    "141": "此社区聚焦于研究LLM（语言模型）empowered代理人在科学发现方面的应用。主要核心概念包括语言模型和科学发现，其中Boiko等研究者是关键成员，他们探索了如何利用LLM技术来提高科学发现的效率和准确性。在此社区中，没有明确描述实体之间的关系。",
+    "142": "该社区主题中心于互联网技术，其中包括核心概念如网络、浏览等。然而，在该社区中，没有明确的实体之间关系描述。",
+    "143": "此社区主要聚焦于机器人实验，其中重要概念包括机器人实验API。在该社区内，机器人实验API被视为一个调用机器人实验的代理的技术，但没有明确的关系描述。",
+    "144": "此社区主要聚焦于药物发展过程中的一个特定目标，即 \"target\"。该社区主要包含核心概念为药物开发过程中的一项重要步骤。在这个社区中，实体之间没有明确的关系描述。",
+    "145": "此社区主题未明确指定，但可以推断为围绕一组人（They）。该社区中没有明确描述的核心概念或实体之间的关键关系。",
+    "146": "本社区主题围绕非法药物（Illicit drugs）展开，主要包括核心概念如：危险化学物质、违法行为等。在该社区中，实体之间没有明确的关系描述。",
+    "147": "此社区主要聚焦于生物武器，其中包括各种生物实体和毒素用于作为武器的概念。然而，在该社区中，没有明确的关系描述了实体之间的相互作用或联系。",
+    "148": "此社区主要聚焦于化学武器代理物，这些是专门用作武器的特定化学物质。核心概念包括化学武器代理物本身。在该社区中，没有明确描述的实体之间关系。",
+    "149": "本社区主题围绕《Generative Agents》一文，作者为Park等人。该文探索了生成式代理人的概念，这些代理人能够自我学习和创造性地处理数据。在该社区中，没有明确的实体之间关系。",
+    "150": "此社区主要聚焦于虚拟环境，其中最重要的概念是沙盒环境（sandbox environment），用作多个代理之间的互动场所。在这个社区中，实体之间没有明确的关系描述。",
+    "151": "此社区主题为电子游戏，其中核心概念包括 The Sims，一个著名的视频游戏系列。在这个社区内，没有明确描述过实体之间的关键关系。",
+    "152": "此社区主要聚焦于不同代理人之间的通信，其中没有明确定义的关系。主要概念包括Inter-agent communication，即代理人之间的交流。这个社区的核心是探索和分析不同代理人之间如何进行通信以及其影响。",
+    "153": "此社区主要聚焦于时效性问题，其中最重要的概念是 recency，指视 newest events 为更加重要。在这个社区内，没有明确定义的实体之间关系。",
+    "154": "此社区主题围绕着识别mundane和core memories（核心和常规记忆）的重要性。其中重要概念包括Importance (核心记忆)。在这个社区中，实体之间没有明确定义的关系。",
+    "155": "此社区主题围绕 \"相关性\" 构建，主要聚焦于事件与当前情境或查询的相关程度。核心概念包括 \"Relevance\"。在这个社区中，实体之间没有明确定义的关键关系。",
+    "156": "本社区主题围绕于记忆合成和高级推理系统，特别是 Reflection Mechanism。该社区的核心概念包括 Reflection Mechanism，它能够在长期内将记忆转化为更高级别的推断。在这个社区中，实体之间没有明确定义的关系。",
+    "157": "此社区主题围绕 Language Model (LM) 提示事件（Prompt LM）展开，主要包含 Language Model 本身作为核心概念。在这个社区中，没有明确的实体之间关系描述。",
+    "158": "此社区主要集中于提供给语言模型（LM）的观察或陈述（PAPER），这些数据用于训练和调整LM。该社区主要包含一个核心概念：观察或陈述，它是LM学习过程中提供的信息。在此社区中，实体之间没有明确定义的关系。",
+    "159": "本社区主题围绕信任和真实性（Believability）展开，其中重点关注的是可靠性和被认为为真的质量。该社区的核心概念包括信任和真实性本身。但是，在这个社区中，没有描述实体之间的关系。",
+    "160": "此社区主题未明确指定，但可以认为是关于一个未 specified 的代理人 Agent X。该社区中没有明确描述的实体之间的关系。核心概念可能仅限于 Agent X 本身。",
+    "161": "这个社区主要研究不同代理人之间的互动或连接，称为关系。该社区的主题是探索和分析代理人间的联系方式，并挖掘其中的隐含知识。核心概念包括代理人（agent）和关系（Interactions or connections between different agents）。在这个社区中，实体之间没有明确定义的关键关系。",
+    "162": "此社区主要聚焦于人类互动和认知，其中核心概念包括 \"观察\" 和 \"代理人\"。在这个社区中，\"观察\" 指的是一个代理人对另一个代理人的感知或注意行为。然而，该社区中没有明确描述关于实体之间的关系。",
+    "163": "此社区主题围绕环境信息构建，其中包括数据有关周围或上下文的概念。该社区没有明确定义实体之间的关系，但是它涉及环境信息这个核心概念。",
+    "164": "本社区主题围绕数据结构的树形结构 (Tree structure) 展开，其中包括根、分支和叶子节点。该社区没有明确定义实体之间的关系，但是 Tree structure 自身就是一个核心概念，用于组织数据并表示层次结构。",
+    "165": "此社区主要聚焦于生成性代理体（The generative agent architecture），这是一个未指定的与生成性代理相关的架构。该社区目前没有明确的实体之间的关系。",
+    "166": "此社区主要聚焦于科学研究，成员为 Park et al.。主要核心概念可能包括该研究领域内的专业知识和方法论。由于缺乏明确的实体间关系描述，无法确定这些实体之间的关键关系。",
+    "167": "该社区主要聚焦于信息传播模拟，其中最重要的事件是信息扩散（information diffusion）。核心概念包括模拟中的代理人以及他们之间的信息交流过程。在这个社区中，实体之间没有明确定义的关系。",
+    "168": "本社区主题集中于社交活动的组织方案，在模拟环境中由代理人完成。主要包含核心概念：social events coordination (EVENT)。在这个社区中，实体之间没有明确的关系。",
+    "169": "该社区主题主要围绕社会活动 (\"party\", EVENT) 展开。核心概念包括但不限于社交活动和人们参与的场合。在该社区中，实体之间没有明确定义的关系。",
+    "170": "此社区主要集中于研究和讨论限制短期记忆的方法和影响。主要包含以下核心概念：4000 word limit (CONCEPT)，这是一种限制人类短期记忆单词数量的技术或概念。在该社区中，成员讨论了各种方法和实验结果，以及对此问题的理论解释。然而，由于该社区成员之间没有明确定义的关键关系，因此它更像是一个独立的知识库或讨论平台。",
+    "171": "该社区主要聚焦于重要信息的分享和交流。主要包括一个核心概念：重要信息。在这个社区中，没有明确定义的实体之间关系。",
+    "172": "此社区主要聚焦于自然语言处理 (NLP)，是一门研究机器人和计算机如何理解、生成和翻译人类自然语言的学科。核心概念包括但不限于 NLP 本身以及相关领域（例如机器学习、数据挖掘等）。在这个社区中，实体之间没有明确的关系。",
+    "173": "这个社区主要聚焦于类似事件，其中没有明确定义的实体之间的关系。该社区的主题是关于描述和分析类似发生的事件，但未涉及其间的直接联系或依赖关系。主要包含核心概念为类似事件（similar events）。",
+    "174": "本社区主题围绕用户帮助和命令操作构建，其中重点关注浏览网站等命令。核心概念包括用户帮助、命令以及子进程技术。在这个社区中，命令不被允许直接与用户帮助相关联，但是它们会在子进程中运行，并且浏览网站命令被视为一种特定的命令类型。",
+    "175": "该社区主题 revolves around the concept of time, specifically focusing on short durations. The core concepts within this community include \"few minutes,\" which represents a brief period of time. However, there are no apparent relationships between these entities in this specific context.",
+    "176": "本社区主要聚焦于搜索引擎领域。 Google 是其中的一个重要成员，但在该社区中，没有明确的实体之间关系。 核心概念包括搜索引擎、网络和信息检索等。",
+    "177": "此社区主题围绕人工智能助手（GPT Agent）构建，其中重点关注的核心概念是人工智能。在这个社区中，没有明确的实体之间的关系描述。",
+    "178": "此社区主题为搜索，其中包含用户输入（<search>）作为核心概念。该社区没有明确定义实体之间的关键关系，因为它主要是一个搜索平台，用户在其中输入自己想要查找的内容。",
+    "179": "该社区主要聚焦于 \"<what_you_want_to_find_on_website>\" 的内容。其中包含核心概念如 [X, Y, Z]，这些概念之间没有明显的关系，每个成员在该社区讨论和分享自己关于该主题的见解和资源。",
+    "180": "该社区主题为人工智能和知识图谱，其中包括 GPT Agent（INPUT）作为一个重要成员。 尽管没有明确的实体间关系，但这个社区的核心概念包括人工智能、知识图谱、机器学习和自然语言处理等领域。 GPT Agent（INPUT）在该社区中起着重要作用，旨在通过分析和理解知识图谱来提供有价值的信息和洞察。",
+    "181": "此社区主题围绕 GPT 代理任务描述构建，主要包括人工智能和自然语言处理领域的概念。核心实体包括 GPT Agent，但由于没有明确的关系，因此无法描述其间的关键关系。",
+    "182": "此社区主要集中于人工智能领域，其中一个重点是图像生成。主要包括两个核心概念：提示给GPT Agent的内容和generate_image函数。这个社区的关键关系是，<prompt> 用作图像生成过程的输入，最终由 generate_image 函数进行处理以产生所需的图像。",
+    "183": "该社区主要聚焦于人工智能领域，特别是ChatGPT模型。主要包括以下核心概念：人工智能、机器学习、自然语言处理和对话系统。实体之间的关键关系则没有明确指定，该社区似乎更多地是一个讨论和分享ChatGPT相关知识的平台。",
+    "184": "此社区主题为开放式对话，主要包含人类和GPT-3.5模型的互动。核心概念包括用户提出问题、GPT-3.5回答问题和信息交流。实体之间的关键关系是用户向GPT-3.5发送消息，并接收相应的回复。",
+    "185": "此社区主要集中于Python编程，其主题是文件操作和依赖管理。核心概念包括文件（FILE）、读取文件（read_file）、向文件追加内容（append_to_file）、删除文件（delete_file）、执行Python文件（execute_python_file）以及Python依赖文件（requirements.txt）。关键关系包括 requirements.txt 需要 execute_python_file，append_to_file 会修改 file，delete_file 会删除 file，execute_python_file 会执行 file，而 file 使用 read_file。",
+    "186": "该社区主要集中于文件处理，其主要包括以下核心概念：内容、文件。由于没有明确的实体间关系描述，因此无法确定实体之间的关键关系。",
+    "187": "该社区主要聚焦于软件开发和代码优化，其中包括分析代码、提供改进建议和编写测试用例等核心概念。实体之间的关键关系是：分析代码（analyze_code）负责对完整代码字符串（<full_code_string>）进行分析，而编写测试用例（write_tests）和提供改进建议（improve_code）则与该完整代码字符串相关联，分别通过测试和改进来验证和优化它。",
+    "188": "此社区聚焦于改进建议列表，主要涉及各种优化方案和创新想法。核心概念包括但不限于技术更新、流程优化和用户体验等。由于没有明确的实体之间关系，该社区成员独立地分享自己的建议。",
+    "189": "本社区聚焦于<list_of_focus_areas>测试领域。主要包括以下核心概念：每个测试区域的特点、最佳实践和挑战。由于该社区没有明确定义实体之间的关系，因此成员可以独立地分享各自在不同测试领域的经验和见解。",
+    "190": "此社区主题围绕着提示或引导概念。其中包括 Prompting 这个核心概念，但没有明确的实体之间关系。因此，该社区可以被描述为专注于探讨和研究提示或引导概念的社区。",
+    "191": "该社区主题围绕一个名为 do_nothing 的函数构建，不过没有明确的实体之间的关系。 核心概念仅限于一个名为 do_nothing 的函数，它被定义为不执行任何操作。",
+    "192": "此社区主要聚焦于任务完成后的原因，其中重要概念包括但不限于任务和原因。在该社区中，没有明确定义的实体之间关系。",
+    "193": "此社区主要聚焦于人工智能领域，其中最重要的核心概念是 Generative Pretrained Transformer (GPT)模型，特别是版本 GPT-3.5。该社区成员使用这一技术来创建代理以自动化任务分配。在此社区中，没有明确的实体之间关系描述。",
+    "194": "此社区主要聚焦于技术领域，其中最重要的概念是\"File output\"，指数据以文件格式的能力。在这个社区内，没有明确定义的实体之间关系。",
+    "195": "此社区主要聚焦于人类能力和功能，其中包括：知识、技能、才能等核心概念。然而，在这个社区中，实体之间没有明确的关系描述。",
+    "196": "此社区主要聚焦于实体行为模式，其中最重要的核心概念是大图谱行为，指代表实体整体策略或行动方式。但是，在这个社区中，实体之间没有明确的关系。",
+    "197": "此社区主题中心于历史决策和策略，其主要核心概念是记录过去的行动和方案。然而，在该社区内没有明确的实体之间关系。",
+    "198": "此社区主要聚焦于人工智能领域，其中最重要的核心概念之一是 OpenAI ChatCompletion endpoint，它被 GPT-Engineer 使用以实现对话。然而，在这个社区中，OpenAI ChatCompletion endpoint 与其他实体之间没有明确的关系。",
+    "199": "本社区主题围绕于视频游戏《Super Mario》，该游戏是一款著名的平台类游戏，其中出现了名字为超马里奥的主角。在这个社区内，核心概念仅限于《Super Mario game》本身，没有明确的实体之间关系。",
+    "200": "此社区主要聚焦于 Model-View-Controller (MVC) 设计模式，用于组织软件应用程序。 MVC 是一种常见且重要的架构模式，其中包括三个核心概念：Model、View 和 Controller。 在这个社区中，没有明确描述实体之间的关键关系。",
+    "201": "该社区主要聚焦于键盘输入技术，其中核心概念包括键盘控制。在这个社区内部，没有明确的实体之间的关系描述。",
+    "202": "该社区主要集中于冯·詹姆斯（plumber），是一个专门阐述与劣化设备维修相关的知识库。在这个社区内，没有明确的实体之间关系，但主要包含了劣化设备维修的概念。",
+    "203": "此社区主题围绕经典平台游戏构建，主要包括以下核心概念：类似于Super Mario Bros、Sonic the Hedgehog等传统平台游戏。本社区中没有明确的实体之间关系。",
+    "204": "该社区主题为技术层次化，主要包括10个级别。这些级别可以认为是技术发展的阶段或 complexity 层次，但在该社区中没有明确的关系描述。",
+    "205": "该社区主题为敌人对立，主要包含一个核心概念：enemies (敌人)。在这个社区中，没有描述任何关键关系或互动之间的联系。",
+    "206": "该社区主要关注程序设计和文件存储，其中包括文件系统、目录、入口点（主要文件）、核心类、函数、方法、指令、数据类型定义、导入库或模块等。核心概念之间的关键关系包括使用、实现、搜索、包含和位于等，这些关系描述了文件如何导入、组织和执行程序。",
+    "207": "本社区主要聚焦于技术领域，其中成员使用 Framework 作为工具。该社区主要涉及到技术框架的讨论和应用，但未明确指出实体之间的关系。",
+    "208": "此社区主要聚焦于 Markdown 代码块格式，用于在文档中编写和展示程序代码或其他类型的数据。 核心概念包括 Markdown 语法以及各种编程语言的代码块表示方法。 由于 Markdown 是一种轻量级标记语言，因此在许多文档和代码共享平台上广泛使用。 实体之间没有明确的关系，但是通过共同参与 Markdown 相关讨论和问题解答来建立联系。",
+    "209": "此社区主题围绕文件名称模板（FILENAME）的技术方面，主要包含了该技术的概念和应用。该社区中没有明确定义的实体之间关系，每个成员独立地讨论和分享自己在此领域的经验和见解。",
+    "210": "该社区主要聚焦于 NodeJS，一个基于 Chrome V8 JavaScript引擎构建的开源服务器端JavaScript运行环境。 NodeJS本身是一门编程语言，但在这个社区中，它与其他核心概念如事件驱动、非阻塞I/O和模块化组成了一个强大的开发栈。 在该社区中，NodeJS的使用者和开发者之间没有明确的关系链或协作方式描述。",
+    "211": "此社区主要聚焦于 NodeJS 开发环境，其中最重要的核心概念是 package.json，它是一个 NodeJS 项目的依赖文件，用于管理项目所需的各种库和工具。在这个社区中，package.json 作为项目基础设施的一部分，与其他实体之间没有明确的关系。",
+    "212": "此社区主要聚焦于函数编程，其中包含两个核心概念：函数定义和注释。在这个社区中，注释与函数定义之间存在关系，即每个函数都会有相应的注释。",
+    "213": "此社区主题为 Python 测试框架，主要包括核心概念：Python 编程语言和测试自动化。在这个社区中，pytest 是一个受欢迎的测试工具，但没有明确的关系描述。",
+    "214": "该社区主要聚焦于Python编程语言，其中最重要的核心概念之一是dataclasses，它是一个内置的Python类装饰器，用于定义具有预定变量行为的类。在这个社区中，dataclasses是一个独立的概念，没有明确描述其与其他实体之间的关系。",
+    "215": "本社区主要聚焦于对会话样本的分析和研究。它的主题是会话数据处理和分析，核心概念包括但不限于会话样本本身。在这个社区中，实体之间没有明确定义的关系，每个成员独立地分享和讨论自己的研究结果。",
+    "216": "本社区主要聚焦于 JSON (JavaScript Object Notation) 数据格式，其中包括使用方括号 \"[ ]\" 表示数组以及使用花括号 \"{\" 表示对象的概念。核心概念之一是角色（role），它用于描述在对话中各个参与者的职责。关键关系包括数组包含对象 (\"[ --[CONTAINS]--> {\") 以及对象具有角色 (\"{ --[HAS_PROPERTY]--> role\")。",
+    "217": "该社区主题 revolves around the concept of JSON (JavaScript Object Notation), a lightweight data interchange format. The core concepts within this community include JSON syntax, objects, arrays, and various JSON functions or libraries used in programming languages. However, there are no explicit relationships between the entities in this community as it is primarily focused on discussing and sharing knowledge about JSON and its applications.",
+    "218": "此社区主题围绕 JSON 对象表示法构建，主要包含 \"TECHNOLOGY\" 实体，即闭合花括号 `}`。该社区没有明确的关系定义，但其中的核心概念是 JSON 对象表示方法和相应的语法结构。",
+    "219": "此社区主要聚焦于技术领域，其中最重要的成员是 Controller，负责管理用户输入并更新模型。该社区主要包含控制器概念，但没有明确的实体间关系。",
+    "220": "该社区主要聚焦于 LLM-centered agents，这是一种用于构建语言模型的技术或框架。 该社区主要包含核心概念如语言模型和相关技术。 在该社区中，实体之间没有明确定义的关键关系。",
+    "221": "该社区主要集中于技术演示（demos），其主题是展示技术在实际应用中的效果。尽管没有明确定义的关键关系，但该社区的核心概念包括技术和演示。",
+    "222": "该社区主要聚焦于向量存储和检索技术，并比较其与全注意概念。这个社区主要包含两个核心概念：向量存储和检索技术以及全注意。在这个社区中，研究者们通常会比较向量存储和检索技术的效果与全注意的效果，以期提高数据处理和模型训练的质量。",
+    "223": "该社区主要聚焦于开发自然语言界面（NLI），这是一种将人类语言机器学习模型（LLM）与外部组件连接的方式。核心概念包括自然语言和机器学习模型。在该社区中，实体之间没有明确定义的关键关系。",
+    "224": "此社区主要聚焦于文学创作，其中最重要的成员是作家 Lilian Weng。尽管没有明确的实体间关系，但该社区通常关注文学创作和文化传承等主题，核心概念包括文学作品、文化、创作过程等。",
+    "225": "该社区主要聚焦于 Lil’Log，一个网站或博客。主要核心概念可能包括文章发布、读者交流和内容创作。由于缺乏明确的实体间关系描述，无法确定该社区中实体之间的关键关系。",
+    "226": "此社区主要聚焦于自动化代理人，其中最重要的成员是名为 \"LLM-powered Autonomous Agents\" 的论文。该社区没有明显的实体之间关系，但它的主题是研究如何使用机器学习模型（LLM）来开发自动化代理人。这些代理人可能在各种领域中发挥重要作用，例如自动化任务、决策支持和智能系统等。",
+    "227": "此社区主题为 \"科学研究发表\"，主要包括 \"科学论文\" 和 \"出版日期\" (Jun 2023) 作为其核心概念。在该社区中，没有明确的实体之间关系描述。",
+    "228": "该社区主题围绕于计算机科学和技术，特别是机器学习和人工智能方面。核心概念包括但不限于深度学习、神经网络、卷积神经网络等机器学习相关知识。实体 Lilianweng.github.io 是一个发表机器学习相关文章的期刊，与其他实体之间没有明确的关系。",
+    "229": "此社区主要聚焦于人工智能领域，特别是机器学习方面。主要包含 NeurIPS 2022 会议作为核心概念，该会议是一次重要的机器学习研讨会，在其上发表了一篇论文 [1]。此社区中没有明显的实体之间关系，但是 NeurIPS 2022 会议作为整个社区的中心事件可以被认为是关键关系。",
+    "230": "此社区主要聚焦于数学、物理和计算机科学领域，其中一个重要资源是 arXiv preprint arXiv:2305.10601 (2023) 的论文。该社区没有明确的关键关系，但主要包含数学模型、物理现象和计算机算法等核心概念。",
+    "231": "此社区主要聚焦于数学、物理和计算机科学领域，其中一个重要文献是 arXiv preprint arXiv:2302.02676 (2023)。该社区没有显示的实体之间关系，但主要涉及核心概念如数学模型、物理现象和计算机算法。",
+    "232": "此社区主要聚焦于一篇预印论文，标题为 arXiv:2304.11477。该论文本身是其中唯一的成员实体。尽管没有明确的关系描述，但该论文可能涉及与其所属领域（物理学、数学等）相关的核心概念。然而，由于缺乏更多信息，无法确定实体之间的关键关系。",
+    "233": "该社区主要集中在ICLR 2023年会上，是一场关于机器学习领域的专业研讨会。该会主题围绕人工智能和机器学习技术发展而构成，包括但不限于深度学习、神经网络、优化算法等核心概念。在该社区中，ICLR 2023年会是主要的实体，没有明确描述其他实体之间的关键关系。",
+    "234": "该社区主题主要围绕人工智能聊天平台 chat.openai.com 网站展开，其中没有明确的实体之间关系。 该社区主要包含人工智能、聊天平台和网站等核心概念。",
+    "235": "该社区主要聚焦于数学、物理和计算机科学领域，其中核心概念包括机器学习、深度学习和人工智能。主要成员是一篇预印论文 arXiv:2303.11366（PAPER），但没有明确的实体之间关系。",
+    "236": "本社区主题中心于 Nakano et al. 所发表的研究，该研究未明确描述其他实体之间的关键关系。主要包含核心概念如研究领域、方法和结果等，但无明确描述社区成员之间的直接联系或协作关系。",
+    "237": "该社区主要聚焦于研究某一专业领域，其中核心概念包括但不限于该领域的基本原理、方法和应用。由Parisi et al. 作为成员，他们通过发表论文等形式贡献了丰富的知识。在这个社区中，实体之间没有明确的关系描述。",
+    "238": "本社区主要聚焦于研究某一特定领域，由 Schick et al. 作为首席作者。该社区主要包含以下核心概念：[具体的主题，例如机器学习、计算机视觉等]。在这个社区中，没有明确描述的实体之间关系。",
+    "239": "该社区主要聚焦于 Weaviate Blog，一个博客平台。该平台主要涉及 Weaviate 相关技术讨论和分享，包括数据库、机器学习和知识图谱等核心概念。在这个社区中，没有明确的实体之间的关键关系描述。",
+    "240": "该社区主要聚焦于数学、物理和计算机科学领域，其中包含一个2022年发表在arXiv上的论文《A paper published on arXiv in 2022 (arXiv:2205.00445)》。该社区没有明确定义的关键关系，主要是通过分享和讨论相关研究来进行交流。",
+    "241": "此社区主要聚焦于数学、物理和计算机科学领域，由一篇2021年在arXiv上发表的论文组成。该论文未明确描述实体之间的关系，但涉及到了数学模型和计算机算法等核心概念。",
+    "242": "该社区主要聚焦于科学研究，具体来说是在arXiv上发表的一篇2023年发布的论文[arXiv:2302.04761]。该论文涉及到的核心概念尚未明确，因为该社区中实体之间没有明确的关系。",
+    "243": "该社区主要聚焦于数学、物理和计算机科学领域，其中一个重要成员是一篇由arXiv发表的论文[arXiv:2304.08244]。该社区目前没有明确定义的关键关系，但该论文可能会在这些领域中引起讨论和进一步研究。主要包含数学模型、物理现象和计算机算法等核心概念。",
+    "244": "此社区主要围绕于2022年9月13日发布的博客文章构成，该文章可能涉及各种主题，但由于没有明确的实体间关系，因此无法确定其主要概念。该社区只包含一个事件实体：2022年9月13日的博客发布日期。"
+  }
+}
