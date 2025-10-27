@@ -155,7 +155,7 @@ def main():
     """主函数"""
     try:
         # 初始化系统
-        rag_system = AdaptiveRAGSystem()
+        rag_system: AdaptiveRAGSystem = AdaptiveRAGSystem()
         
         # 测试查询
         # test_question = "AlphaCodium论文讲的是什么？"
