@@ -194,6 +194,6 @@ class DocumentProcessor:
 
 def initialize_document_processor():
     """初始化文档处理器并设置知识库"""
-    processor = DocumentProcessor()
+    processor: DocumentProcessor = DocumentProcessor()
     vectorstore, retriever, doc_splits = processor.setup_knowledge_base()
     return processor, vectorstore, retriever, doc_splits

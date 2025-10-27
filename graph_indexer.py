@@ -189,7 +189,7 @@ class GraphRAGIndexer:
             # 异步执行当前批次
             try:
                 batch_results = asyncio.run(
-                    self.entity_extractor.extract_batch_async(async_batch)
+                    main=self.entity_extractor.extract_batch_async(async_batch)
                 )
                 extraction_results.extend(batch_results)
                 print(f"✅ 异步批次 {batch_num}/{total_batches} 完成")
