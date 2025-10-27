@@ -1,6 +1,7 @@
 """
 向量重排模块
 实现多种重排策略以提高检索质量
+支持 CrossEncoder 深度重排
 """
 
 import torch
@@ -11,6 +12,14 @@ from sklearn.metrics.pairwise import cosine_similarity
 import re
 from collections import Counter
 import math
+
+# CrossEncoder support
+try:
+    from sentence_transformers import CrossEncoder as SentenceTransformerCrossEncoder
+    CROSSENCODER_AVAILABLE = True
+except ImportError:
+    CROSSENCODER_AVAILABLE = False
+    print("⚠️ sentence-transformers not available. CrossEncoder reranking disabled.")
 
 
 class DocumentReranker:
@@ -162,6 +171,86 @@ class SemanticReranker(DocumentReranker):
         return results
 
 
+class CrossEncoderReranker(DocumentReranker):
+    """
+    基于 CrossEncoder 的重排器
+    使用联合编码，相比 Bi-Encoder 准确率提升 15-20%
+    适合精排阶段 (Top 20-100 文档)
+    """
+    
+    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2", max_length: int = 512):
+        """
+        初始化 CrossEncoder 重排器
+        
+        Args:
+            model_name: 模型名称，默认使用轻量级模型
+                - "cross-encoder/ms-marco-MiniLM-L-6-v2" (轻量级，推荐)
+                - "cross-encoder/ms-marco-MiniLM-L-12-v2" (平衡)
+                - "BAAI/bge-reranker-base" (中文优化)
+                - "BAAI/bge-reranker-large" (高精度)
+            max_length: 最大输入长度
+        """
+        super().__init__()
+        self.name = "CrossEncoderReranker"
+        self.model_name = model_name
+        self.max_length = max_length
+        
+        # 加载模型
+        if not CROSSENCODER_AVAILABLE:
+            raise ImportError(
+                "CrossEncoder requires sentence-transformers. "
+                "Install with: pip install sentence-transformers"
+            )
+        
+        try:
+            print(f"🔧 加载 CrossEncoder 模型: {model_name}...")
+            self.model = SentenceTransformerCrossEncoder(model_name, max_length=max_length)
+            print(f"✅ CrossEncoder 模型加载成功")
+        except Exception as e:
+            print(f"❌ CrossEncoder 模型加载失败: {e}")
+            raise
+    
+    def rerank(self, query: str, documents: List[dict], top_k: int = 5) -> List[Tuple[dict, float]]:
+        """
+        使用 CrossEncoder 重新排序文档
+        
+        Args:
+            query: 查询文本
+            documents: 候选文档列表
+            top_k: 返回结果数量
+            
+        Returns:
+            排序后的 (document, score) 元组列表
+        """
+        if not documents:
+            return []
+        
+        # 提取文档内容
+        doc_texts = [doc.page_content if hasattr(doc, 'page_content') else str(doc) for doc in documents]
+        
+        # 构造 [query, doc] 对
+        query_doc_pairs = [[query, doc_text] for doc_text in doc_texts]
+        
+        # CrossEncoder 评分 - 联合编码
+        try:
+            scores = self.model.predict(query_doc_pairs)
+            
+            # 排序
+            ranked_indices = np.argsort(scores)[::-1]
+            
+            # 返回 top_k 结果
+            results = []
+            for i in ranked_indices[:top_k]:
+                results.append((documents[i], float(scores[i])))
+            
+            return results
+            
+        except Exception as e:
+            print(f"⚠️ CrossEncoder 重排失败: {e}")
+            # 回退到原始顺序
+            return [(doc, 0.0) for doc in documents[:top_k]]
+
+
 class HybridReranker(DocumentReranker):
     """混合重排器，融合多种策略"""
     
@@ -302,26 +391,59 @@ class DiversityReranker(DocumentReranker):
 
 
 def create_reranker(reranker_type: str, embeddings_model=None, **kwargs) -> DocumentReranker:
-    """工厂函数：创建指定类型的重排器"""
+    """
+    工厂函数：创建指定类型的重排器
+    
+    Args:
+        reranker_type: 重排器类型
+            - 'tfidf': TF-IDF 重排
+            - 'bm25': BM25 重排
+            - 'semantic': Bi-Encoder 语义重排
+            - 'crossencoder': CrossEncoder 重排 (推荐) ⭐
+            - 'hybrid': 混合重排
+            - 'diversity': 多样性重排
+        embeddings_model: 嵌入模型 (某些重排器需要)
+        **kwargs: 其他参数
+            - model_name: CrossEncoder 模型名称
+            - max_length: CrossEncoder 最大长度
+            - weights: 混合重排权重
+    
+    Returns:
+        DocumentReranker: 重排器实例
+    """
     
     if reranker_type.lower() == 'tfidf':
         return TFIDFReranker()
+    
     elif reranker_type.lower() == 'bm25':
         return BM25Reranker(**kwargs)
+    
     elif reranker_type.lower() == 'semantic':
         if embeddings_model is None:
             raise ValueError("SemanticReranker requires embeddings_model")
         return SemanticReranker(embeddings_model)
+    
+    elif reranker_type.lower() in ['crossencoder', 'cross_encoder', 'cross-encoder']:
+        # CrossEncoder 不需要 embeddings_model，使用自己的模型
+        model_name = kwargs.get('model_name', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
+        max_length = kwargs.get('max_length', 512)
+        return CrossEncoderReranker(model_name=model_name, max_length=max_length)
+    
     elif reranker_type.lower() == 'hybrid':
         if embeddings_model is None:
             raise ValueError("HybridReranker requires embeddings_model")
         return HybridReranker(embeddings_model, **kwargs)
+    
     elif reranker_type.lower() == 'diversity':
         if embeddings_model is None:
             raise ValueError("DiversityReranker requires embeddings_model")
         return DiversityReranker(embeddings_model, **kwargs)
+    
     else:
-        raise ValueError(f"Unknown reranker type: {reranker_type}")
+        raise ValueError(
+            f"Unknown reranker type: {reranker_type}. "
+            f"Available types: tfidf, bm25, semantic, crossencoder, hybrid, diversity"
+        )
 
 
 # 使用示例

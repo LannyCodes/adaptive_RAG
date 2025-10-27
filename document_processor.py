@@ -62,14 +62,29 @@ class DocumentProcessor:
         self._setup_reranker()
     
     def _setup_reranker(self):
-        """设置重排器"""
+        """
+        设置重排器
+        使用 CrossEncoder 提升重排准确率
+        """
         try:
-            # 使用混合重排器获得最佳效果
-            self.reranker = create_reranker('hybrid', self.embeddings)
-            print("✅ 重排器初始化成功")
+            # 使用 CrossEncoder 重排器 (准确率最高) ⭐
+            print("🔧 正在初始化 CrossEncoder 重排器...")
+            self.reranker = create_reranker(
+                'crossencoder',
+                model_name='cross-encoder/ms-marco-MiniLM-L-6-v2',  # 轻量级模型
+                max_length=512
+            )
+            print("✅ CrossEncoder 重排器初始化成功")
         except Exception as e:
-            print(f"⚠️ 重排器初始化失败: {e}")
-            print("将使用基础检索，不进行重排")
+            print(f"⚠️ CrossEncoder 初始化失败: {e}")
+            print("🔄 尝试回退到混合重排器...")
+            try:
+                # 回退到混合重排器
+                self.reranker = create_reranker('hybrid', self.embeddings)
+                print("✅ 混合重排器初始化成功")
+            except Exception as e2:
+                print(f"⚠️ 重排器初始化完全失败: {e2}")
+                print("⚠️ 将使用基础检索，不进行重排")
     
     def load_documents(self, urls=None):
         """从URL加载文档"""
