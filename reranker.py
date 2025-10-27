@@ -39,7 +39,12 @@ class TFIDFReranker(DocumentReranker):
     def __init__(self):
         super().__init__()
         self.name = "TFIDFReranker"
-        self.vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
+        # 移除 stop_words 以支持中文，使用 char_wb 分词器
+        self.vectorizer = TfidfVectorizer(
+            analyzer='char_wb',  # 字符级分词，支持中文
+            ngram_range=(2, 4),  # 2-4 字符 n-gram
+            max_features=5000
+        )
     
     def rerank(self, query: str, documents: List[dict], top_k: int = 5) -> List[Tuple[dict, float]]:
         """使用TF-IDF重新排序文档"""
@@ -77,8 +82,22 @@ class BM25Reranker(DocumentReranker):
         self.b = b
     
     def _tokenize(self, text: str) -> List[str]:
-        """简单分词"""
-        return re.findall(r'\b\w+\b', text.lower())
+        """
+        改进的分词，支持中英文
+        中文使用字符级分词，英文使用单词分词
+        """
+        # 检测是否包含中文
+        has_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
+        
+        if has_chinese:
+            # 中文：使用字符级 + 2-gram
+            chars = list(text.lower())
+            # 生成 unigram 和 bigram
+            tokens = chars + [chars[i] + chars[i+1] for i in range(len(chars)-1)]
+            return [t for t in tokens if t.strip()]  # 移除空格
+        else:
+            # 英文：使用单词分词
+            return re.findall(r'\b\w+\b', text.lower())
     
     def _compute_idf(self, documents: List[str], query_terms: List[str]) -> Dict[str, float]:
         """计算IDF值"""
