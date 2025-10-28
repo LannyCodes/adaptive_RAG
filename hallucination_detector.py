@@ -104,16 +104,35 @@ class NLIHallucinationDetector:
         """初始化 NLI 模型"""
         print("🔧 初始化 NLI 幻觉检测模型...")
         
-        try:
-            self.nli_model = pipeline(
-                "text-classification",
-                model="microsoft/deberta-large-mnli",
-                device=0 if torch.cuda.is_available() else -1
-            )
-            print("✅ NLI 模型加载成功")
-        except Exception as e:
-            print(f"❌ NLI 模型加载失败: {e}")
-            self.nli_model = None
+        # 尝试多个模型，按照从小到大的顺序
+        models_to_try = [
+            "cross-encoder/nli-deberta-v3-xsmall",  # 最小 40MB
+            "cross-encoder/nli-deberta-v3-small",   # 小 150MB
+            "cross-encoder/nli-MiniLM2-L6-H768",    # 轻量 90MB
+            "facebook/bart-large-mnli",              # 备用
+        ]
+        
+        self.nli_model = None
+        
+        for model_name in models_to_try:
+            try:
+                print(f"   尝试加载: {model_name}...")
+                self.nli_model = pipeline(
+                    "text-classification",
+                    model=model_name,
+                    device=0 if torch.cuda.is_available() else -1,
+                    truncation=True,
+                    max_length=512
+                )
+                print(f"✅ NLI 模型加载成功: {model_name}")
+                self.model_name = model_name
+                break  # 成功加载，退出循环
+            except Exception as e:
+                print(f"   ⚠️ {model_name} 加载失败: {str(e)[:80]}")
+                continue
+        
+        if self.nli_model is None:
+            print("❌ 所有 NLI 模型加载失败，将禁用 NLI 检测")
     
     def split_sentences(self, text: str) -> List[str]:
         """分割句子"""
@@ -171,26 +190,44 @@ class NLIHallucinationDetector:
                 continue
             
             try:
-                # NLI 推理：premise (文档) → hypothesis (生成的句子)
-                result = self.nli_model({
-                    "text": documents[:500],  # 限制文档长度
-                    "text_pair": sentence
-                })
+                # 根据模型类型调整输入格式
+                if hasattr(self, 'model_name') and 'cross-encoder' in self.model_name:
+                    # Cross-encoder 模型：直接传入两个文本
+                    result = self.nli_model(
+                        f"{documents[:500]} [SEP] {sentence}",
+                        truncation=True,
+                        max_length=512
+                    )
+                else:
+                    # 传统 NLI 模型：使用 text 和 text_pair
+                    result = self.nli_model(
+                        sentence,
+                        documents[:500],
+                        truncation=True,
+                        max_length=512
+                    )
                 
-                label = result[0]['label'].lower()
+                # 处理结果
+                if isinstance(result, list) and len(result) > 0:
+                    label = result[0]['label'].lower()
+                else:
+                    print(f"⚠️ NLI 返回格式异常: {result}")
+                    continue
                 
-                if 'contradiction' in label:
+                if 'contradiction' in label or 'contradict' in label:
                     contradiction_count += 1
                     problematic_sentences.append(sentence)
                 elif 'neutral' in label:
                     neutral_count += 1
                     # neutral 也可能是幻觉（文档中没有支持）
                     problematic_sentences.append(sentence)
-                elif 'entailment' in label:
+                elif 'entailment' in label or 'entail' in label:
                     entailment_count += 1
             
             except Exception as e:
                 print(f"⚠️ NLI 检测句子失败: {str(e)[:100]}")
+                import traceback
+                print(f"   详细错误: {traceback.format_exc()[:200]}")
                 continue
         
         # 判断是否有幻觉
