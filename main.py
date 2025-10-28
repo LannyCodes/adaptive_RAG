@@ -86,8 +86,13 @@ class AdaptiveRAGSystem:
             },
         )
         
-        # 编译
-        return workflow.compile()
+        # 编译（设置递归限制以防止无限循环）
+        return workflow.compile(
+            checkpointer=None,
+            interrupt_before=None,
+            interrupt_after=None,
+            debug=False
+        )
     
     def query(self, question: str, verbose: bool = True):
         """
@@ -106,7 +111,10 @@ class AdaptiveRAGSystem:
         inputs = {"question": question}
         final_generation = None
         
-        for output in self.app.stream(inputs):
+        # 设置配置，增加递归限制
+        config = {"recursion_limit": 50}  # 增加到 50，默认是 25
+        
+        for output in self.app.stream(inputs, config=config):
             for key, value in output.items():
                 if verbose:
                     pprint(f"节点 '{key}':")
