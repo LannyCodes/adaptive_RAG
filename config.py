@@ -54,7 +54,7 @@ KNOWLEDGE_BASE_URLS = [
 
 # 文档分块配置
 CHUNK_SIZE = 250
-CHUNK_OVERLAP = 0
+CHUNK_OVERLAP = 50  # 添加重叠以保持上下文连贯性，提升检索准确率
 
 # 向量数据库配置
 COLLECTION_NAME = "rag-chroma"
