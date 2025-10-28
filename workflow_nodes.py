@@ -73,8 +73,8 @@ class WorkflowNodes:
         print("---检索---")
         question = state["question"]
         
-        # 检索
-        documents = self.retriever.get_relevant_documents(question)
+        # 检索 (使用 invoke 替代 get_relevant_documents)
+        documents = self.retriever.invoke(question)
         return {"documents": documents, "question": question}
     
     def generate(self, state):

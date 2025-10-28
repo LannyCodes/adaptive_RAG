@@ -139,15 +139,15 @@ class DocumentProcessor:
             print("⚠️ 检索器未初始化")
             return []
         
-        # 1. 初始检索：获取更多候选文档
-        initial_docs = self.retriever.get_relevant_documents(query)
+        # 1. 初始检索：获取更多候选文档 (使用 invoke 替代 get_relevant_documents)
+        initial_docs = self.retriever.invoke(query)
         
         # 获取更多候选（如果可能）
         if hasattr(self.retriever, 'search_kwargs'):
             # 修改检索参数以获取更多结果
             original_k = self.retriever.search_kwargs.get('k', 4)
             self.retriever.search_kwargs['k'] = min(rerank_candidates, len(initial_docs))
-            candidate_docs = self.retriever.get_relevant_documents(query)
+            candidate_docs = self.retriever.invoke(query)
             self.retriever.search_kwargs['k'] = original_k  # 恢复原设置
         else:
             candidate_docs = initial_docs
@@ -177,8 +177,8 @@ class DocumentProcessor:
         if not self.retriever:
             return {}
         
-        # 原始检索
-        original_docs = self.retriever.get_relevant_documents(query)[:top_k]
+        # 原始检索 (使用 invoke 替代 get_relevant_documents)
+        original_docs = self.retriever.invoke(query)[:top_k]
         
         # 增强检索（带重排）
         enhanced_docs = self.enhanced_retrieve(query, top_k)
