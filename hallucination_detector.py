@@ -139,6 +139,7 @@ class NLIHallucinationDetector:
             }
         """
         if self.nli_model is None:
+            print("⚠️ NLI 模型未加载，跳过检测")
             return {
                 "has_hallucination": False,
                 "contradiction_count": 0,
@@ -149,6 +150,16 @@ class NLIHallucinationDetector:
         
         # 分割成句子
         sentences = self.split_sentences(generation)
+        
+        if not sentences:
+            print("⚠️ 没有检测到有效句子")
+            return {
+                "has_hallucination": False,
+                "contradiction_count": 0,
+                "neutral_count": 0,
+                "entailment_count": 0,
+                "problematic_sentences": []
+            }
         
         contradiction_count = 0
         neutral_count = 0
@@ -179,7 +190,7 @@ class NLIHallucinationDetector:
                     entailment_count += 1
             
             except Exception as e:
-                print(f"⚠️ NLI 检测句子失败: {e}")
+                print(f"⚠️ NLI 检测句子失败: {str(e)[:100]}")
                 continue
         
         # 判断是否有幻觉
