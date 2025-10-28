@@ -219,8 +219,7 @@ class NLIHallucinationDetector:
                     problematic_sentences.append(sentence)
                 elif 'neutral' in label:
                     neutral_count += 1
-                    # neutral 也可能是幻觉（文档中没有支持）
-                    problematic_sentences.append(sentence)
+                    # neutral 只是中立，不一定是幻觉，不加入 problematic_sentences
                 elif 'entailment' in label or 'entail' in label:
                     entailment_count += 1
             
@@ -230,8 +229,16 @@ class NLIHallucinationDetector:
                 print(f"   详细错误: {traceback.format_exc()[:200]}")
                 continue
         
-        # 判断是否有幻觉
-        has_hallucination = contradiction_count > 0 or neutral_count > len(sentences) * 0.5
+        # 判断是否有幻觉（只有明确矛盾才算幻觉）
+        # neutral 表示文档中没有相关信息，但不一定是错误的
+        total_sentences = contradiction_count + neutral_count + entailment_count
+        
+        # 只有当矛盾句子超过 30% 或者 neutral 超过 80% 才算幻觉
+        has_hallucination = False
+        if total_sentences > 0:
+            contradiction_ratio = contradiction_count / total_sentences
+            neutral_ratio = neutral_count / total_sentences
+            has_hallucination = (contradiction_ratio > 0.3) or (neutral_ratio > 0.8)
         
         return {
             "has_hallucination": has_hallucination,
