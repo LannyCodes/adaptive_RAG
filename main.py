@@ -29,7 +29,7 @@ class AdaptiveRAGSystem:
         
         # 初始化文档处理器
         print("设置文档处理器...")
-        self.doc_processor, self.vectorstore, self.retriever = initialize_document_processor()
+        self.doc_processor, self.vectorstore, self.retriever, self.doc_splits = initialize_document_processor()
         
         # 初始化评分器和路由器
         print("初始化评分器和路由器...")
