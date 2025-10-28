@@ -166,8 +166,8 @@ def main():
         rag_system: AdaptiveRAGSystem = AdaptiveRAGSystem()
         
         # 测试查询
-        # test_question = "AlphaCodium论文讲的是什么？"
-        test_question = "解释embedding嵌入的原理，最好列举实现过程的具体步骤"
+        test_question = "AlphaCodium论文讲的是什么？"
+        # test_question = "解释embedding嵌入的原理，最好列举实现过程的具体步骤"
         rag_system.query(test_question)
         
         # 启动交互模式
