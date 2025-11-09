@@ -31,7 +31,10 @@ def setup_environment():
     tavily_key = os.environ.get("TAVILY_API_KEY")
     
     if tavily_key:
-        print("✅ TAVILY_API_KEY 已从环境变量中加载")
+        if tavily_key.startswith("tvly-"):
+            print(f"✅ TAVILY_API_KEY 已加载: {tavily_key[:10]}...")
+        else:
+            print(f"✅ TAVILY_API_KEY 已从环境变量中加载")
     else:
         print("⚠️  TAVILY_API_KEY 未找到")
 

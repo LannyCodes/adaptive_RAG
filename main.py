@@ -6,7 +6,7 @@
 from langgraph.graph import END, StateGraph, START
 from pprint import pprint
 
-from config import setup_environment
+from config import setup_environment, validate_api_keys
 from document_processor import initialize_document_processor
 from routers_and_graders import initialize_graders_and_router
 from workflow_nodes import WorkflowNodes, GraphState
@@ -21,7 +21,7 @@ class AdaptiveRAGSystem:
         # 设置环境和验证API密钥
         try:
             setup_environment()
-       
+            validate_api_keys()  # 验证API密钥是否正确设置
             print("✅ API密钥验证成功")
         except ValueError as e:
             print(f"❌ {e}")
