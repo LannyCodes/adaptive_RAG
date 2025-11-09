@@ -31,7 +31,6 @@ wheels/
 MANIFEST
 
 # 虚拟环境
-.env
 .venv
 env/
 venv/
