@@ -44,6 +44,8 @@ def setup_environment():
     if current_dir not in sys.path:
         sys.path.insert(0, current_dir)
         print(f"\n   ✅ 已添加到 Python 路径: {current_dir}")
+    
+    print("\n   💡 注意: 新增的多模态功能需要Pillow库，请确保已安装")
 
 # ============================================================
 # 2. 运行 main_graphrag.py

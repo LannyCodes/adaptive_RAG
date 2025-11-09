@@ -47,6 +47,12 @@ class AdaptiveRAGSystem:
     
     def _build_workflow(self):
         """构建工作流图"""
+        # 创建工作流节点实例，传递DocumentProcessor实例
+        self.workflow_nodes = WorkflowNodes(
+            doc_processor=self.doc_processor,
+            graders=self.graders
+        )
+        
         workflow = StateGraph(GraphState)
         
         # 定义节点

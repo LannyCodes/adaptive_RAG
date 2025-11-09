@@ -75,6 +75,28 @@ GRAPHRAG_MAX_HOPS = 2  # 本地查询最大跳数
 GRAPHRAG_TOP_K_COMMUNITIES = 5  # 全局查询使用的社区数量
 GRAPHRAG_BATCH_SIZE = 10  # 实体提取批处理大小
 
+# 混合检索策略配置
+ENABLE_HYBRID_SEARCH = True  # 是否启用混合检索策略
+HYBRID_SEARCH_WEIGHTS = {"vector": 0.7, "keyword": 0.3}  # 向量检索和关键词检索的权重
+KEYWORD_SEARCH_K = 5  # 关键词检索返回的文档数量
+BM25_K1 = 1.2  # BM25算法的k1参数
+BM25_B = 0.75  # BM25算法的b参数
+
+# 查询扩展优化配置
+ENABLE_QUERY_EXPANSION = True  # 是否启用查询扩展
+QUERY_EXPANSION_MODEL = "mistral"  # 用于查询扩展的模型
+QUERY_EXPANSION_PROMPT = """请为以下查询生成3-5个相关的扩展查询，这些查询应该从不同角度探索原始查询的主题。
+原始查询: {query}
+扩展查询: """  # 查询扩展提示模板
+MAX_EXPANDED_QUERIES = 3  # 最多使用的扩展查询数量
+
+# 多模态支持配置
+ENABLE_MULTIMODAL = True  # 是否启用多模态支持
+MULTIMODAL_IMAGE_MODEL = "openai/clip-vit-base-patch32"  # 图像嵌入模型
+SUPPORTED_IMAGE_FORMATS = ["jpg", "jpeg", "png", "gif", "bmp"]  # 支持的图像格式
+IMAGE_EMBEDDING_DIM = 512  # 图像嵌入维度
+MULTIMODAL_WEIGHTS = {"text": 0.7, "image": 0.3}  # 文本和图像检索的权重
+
 
 def get_api_keys():
     """获取API密钥并返回字典"""

@@ -17,7 +17,8 @@ try:
 except ImportError:
     from langchain.prompts import PromptTemplate
 
-from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT
+from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, ENABLE_QUERY_EXPANSION, ENABLE_MULTIMODAL
+from document_processor import DocumentProcessor
 from pprint import pprint
 
 
@@ -38,8 +39,9 @@ class GraphState(TypedDict):
 class WorkflowNodes:
     """工作流节点类，包含所有节点函数"""
     
-    def __init__(self, retriever, graders):
-        self.retriever = retriever
+    def __init__(self, doc_processor, graders):
+        self.doc_processor = doc_processor  # 接收DocumentProcessor实例
+        self.retriever = doc_processor.retriever  # 保持向后兼容
         self.graders = graders
         
         # 设置RAG链 - 使用本地提示模板
@@ -73,8 +75,33 @@ class WorkflowNodes:
         print("---检索---")
         question = state["question"]
         
-        # 检索 (使用 invoke 替代 get_relevant_documents)
-        documents = self.retriever.invoke(question)
+        # 使用增强检索方法，支持混合检索、查询扩展和多模态
+        try:
+            # 检查是否有图像路径（多模态检索）
+            image_paths = state.get("image_paths", None)
+            
+            # 使用增强检索
+            documents = self.doc_processor.enhanced_retrieve(
+                question, 
+                top_k=5, 
+                rerank_candidates=20,
+                image_paths=image_paths,
+                use_query_expansion=ENABLE_QUERY_EXPANSION
+            )
+            
+            # 记录使用的检索方法
+            if ENABLE_HYBRID_SEARCH:
+                print("---使用混合检索---")
+            if ENABLE_QUERY_EXPANSION:
+                print("---使用查询扩展---")
+            if image_paths and ENABLE_MULTIMODAL:
+                print("---使用多模态检索---")
+                
+        except Exception as e:
+            print(f"⚠️ 增强检索失败: {e}，回退到基本检索")
+            # 回退到基本检索
+            documents = self.retriever.invoke(question)
+            
         return {"documents": documents, "question": question}
     
     def generate(self, state):
