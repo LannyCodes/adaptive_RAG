@@ -48,6 +48,41 @@ import numpy as np
 from typing import List, Dict, Any, Optional, Union
 
 
+class CustomEnsembleRetriever:
+    """自定义集成检索器，结合向量检索和BM25检索"""
+    
+    def __init__(self, retrievers, weights):
+        self.retrievers = retrievers
+        self.weights = weights
+        
+    def invoke(self, query):
+        """执行检索并合并结果"""
+        # 获取各检索器的结果
+        all_results = []
+        for i, retriever in enumerate(self.retrievers):
+            results = retriever.invoke(query)
+            for doc in results:
+                # 添加检索器索引和权重信息
+                doc.metadata["retriever_index"] = i
+                doc.metadata["retriever_weight"] = self.weights[i]
+                all_results.append(doc)
+        
+        # 根据权重排序并去重
+        # 简单实现：先按检索器索引排序，再按权重排序
+        all_results.sort(key=lambda x: (x.metadata["retriever_index"], -x.metadata["retriever_weight"]))
+        
+        # 去重（基于文档内容）
+        unique_results = []
+        seen_content = set()
+        for doc in all_results:
+            content = doc.page_content
+            if content not in seen_content:
+                seen_content.add(content)
+                unique_results.append(doc)
+                
+        return unique_results
+
+
 class DocumentProcessor:
     """文档处理器类，负责文档加载、处理和向量化"""
     
@@ -200,7 +235,7 @@ class DocumentProcessor:
                 )
                 
                 # 创建集成检索器，结合向量检索和BM25检索
-                self.ensemble_retriever = EnsembleRetriever(
+                self.ensemble_retriever = CustomEnsembleRetriever(
                     retrievers=[self.retriever, self.bm25_retriever],
                     weights=[HYBRID_SEARCH_WEIGHTS["vector"], HYBRID_SEARCH_WEIGHTS["keyword"]]
                 )
