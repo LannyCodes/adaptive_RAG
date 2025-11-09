@@ -1,1 +1,103 @@
+# 操作系统生成的文件
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Python相关文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 虚拟环境
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE相关文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 模型和数据文件
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.bin
+*.pt
+*.pth
+*.onnx
+*.pb
+models/
+data/raw/
+data/processed/
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.temp
+.cache/
+
+# 测试覆盖率
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# 文档生成
+docs/_build/
+
+# PyBuilder
+target/
+
+# 单元测试 / 覆盖率报告
+.tox/
+.coverage
+.pytest_cache/
+
+# 环境变量文件
+.env.local
+.env.development
+.env.test
+.env.production
+
+# 特定于本项目的忽略
+data/knowledge_graph.json
+ollama_models.tar.gz
