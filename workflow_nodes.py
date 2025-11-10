@@ -30,10 +30,12 @@ class GraphState(TypedDict):
         question: 问题
         generation: LLM生成
         documents: 文档列表
+        retry_count: 重试计数器，防止无限循环
     """
     question: str
     generation: str
     documents: List[str]
+    retry_count: int
 
 
 class WorkflowNodes:
@@ -74,6 +76,7 @@ class WorkflowNodes:
         """
         print("---检索---")
         question = state["question"]
+        retry_count = state.get("retry_count", 0)
         
         # 使用增强检索方法，支持混合检索、查询扩展和多模态
         try:
@@ -116,7 +119,7 @@ class WorkflowNodes:
                 print(f"❌ 回退检索也失败: {fallback_e}")
                 documents = []
             
-        return {"documents": documents, "question": question}
+        return {"documents": documents, "question": question, "retry_count": retry_count}
     
     def generate(self, state):
         """
@@ -176,10 +179,13 @@ class WorkflowNodes:
         print("---转换查询---")
         question = state["question"]
         documents = state["documents"]
+        retry_count = state.get("retry_count", 0) + 1
+        
+        print(f"   重试次数: {retry_count}")
         
         # 重写问题
         better_question = self.graders["query_rewriter"].rewrite(question)
-        return {"documents": documents, "question": better_question}
+        return {"documents": documents, "question": better_question, "retry_count": retry_count}
     
     def web_search(self, state):
         """
@@ -260,6 +266,13 @@ class WorkflowNodes:
         question = state["question"]
         documents = state["documents"]
         generation = state["generation"]
+        retry_count = state.get("retry_count", 0)
+        
+        # 检查是否超过最大重试次数
+        MAX_RETRIES = 3
+        if retry_count >= MAX_RETRIES:
+            print(f"⚠️ 已达到最大重试次数 ({MAX_RETRIES})，返回当前生成结果")
+            return "useful"
         
         score = self.graders["hallucination_grader"].grade(generation, documents)
         grade = score
@@ -278,7 +291,7 @@ class WorkflowNodes:
                 print("---决策：生成没有解决问题---")
                 return "not useful"
         else:
-            print("---决策：生成不基于文档，重试---")
+            print("---决策：生成不基于文档，重新转换查询---")
             return "not supported"
 
 

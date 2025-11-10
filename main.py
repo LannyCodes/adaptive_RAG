@@ -87,7 +87,7 @@ class AdaptiveRAGSystem:
             "generate",
             self.workflow_nodes.grade_generation_v_documents_and_question,
             {
-                "not supported": "generate",
+                "not supported": "transform_query",  # 修复：有幻觉时重新转换查询，而不是再次生成
                 "useful": END,
                 "not useful": "transform_query",
             },
@@ -115,7 +115,7 @@ class AdaptiveRAGSystem:
         print(f"\n🔍 处理问题: {question}")
         print("=" * 50)
         
-        inputs = {"question": question}
+        inputs = {"question": question, "retry_count": 0}  # 初始化重试计数器
         final_generation = None
         
         # 设置配置，增加递归限制
