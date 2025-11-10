@@ -1,6 +1,6 @@
 """
 专业幻觉检测模块
-支持多种检测方法：NLI模型、专门检测模型、混合检测
+支持多种检测方法：NLI模型、专门检测模型、轻量级模型、混合检测
 """
 
 import re
@@ -13,6 +13,9 @@ from transformers import (
 )
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+
+# 导入轻量级检测器
+from lightweight_hallucination_detector import LightweightHallucinationDetector
 
 
 class VectaraHallucinationDetector:
@@ -387,12 +390,12 @@ class HybridHallucinationDetector:
         return "no" if result['has_hallucination'] else "yes"
 
 
-def initialize_hallucination_detector(method: str = "hybrid") -> object:
+def initialize_hallucination_detector(method: str = "lightweight") -> object:
     """
     初始化幻觉检测器
     
     Args:
-        method: 'vectara', 'nli', 或 'hybrid' (推荐)
+        method: 'vectara', 'nli', 'lightweight', 或 'hybrid' (推荐)
         
     Returns:
         幻觉检测器实例
@@ -401,7 +404,9 @@ def initialize_hallucination_detector(method: str = "hybrid") -> object:
         return VectaraHallucinationDetector()
     elif method == "nli":
         return NLIHallucinationDetector()
+    elif method == "lightweight":
+        return LightweightHallucinationDetector()
     elif method == "hybrid":
-        return HybridHallucinationDetector(use_vectara=True, use_nli=True)
+        return HybridHallucinationDetector(use_vectara=False, use_nli=True)  # 禁用Vectara，使用NLI
     else:
         raise ValueError(f"未知的检测方法: {method}")
