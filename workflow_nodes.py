@@ -39,9 +39,9 @@ class GraphState(TypedDict):
 class WorkflowNodes:
     """工作流节点类，包含所有节点函数"""
     
-    def __init__(self, doc_processor, graders):
+    def __init__(self, doc_processor, graders, retriever=None):
         self.doc_processor = doc_processor  # 接收DocumentProcessor实例
-        self.retriever = doc_processor.retriever  # 保持向后兼容
+        self.retriever = retriever if retriever is not None else getattr(doc_processor, 'retriever', None)
         self.graders = graders
         
         # 设置RAG链 - 使用本地提示模板
@@ -100,7 +100,21 @@ class WorkflowNodes:
         except Exception as e:
             print(f"⚠️ 增强检索失败: {e}，回退到基本检索")
             # 回退到基本检索
-            documents = self.retriever.invoke(question)
+            try:
+                if self.retriever is not None:
+                    documents = self.retriever.invoke(question)
+                elif hasattr(self.doc_processor, 'vector_retriever') and self.doc_processor.vector_retriever is not None:
+                    documents = self.doc_processor.vector_retriever.invoke(question)
+                    print("   使用 vector_retriever 作为备选")
+                elif hasattr(self.doc_processor, 'retriever') and self.doc_processor.retriever is not None:
+                    documents = self.doc_processor.retriever.invoke(question)
+                    print("   使用 doc_processor.retriever 作为备选")
+                else:
+                    print("❌ 检索器未正确初始化，返回空文档列表")
+                    documents = []
+            except Exception as fallback_e:
+                print(f"❌ 回退检索也失败: {fallback_e}")
+                documents = []
             
         return {"documents": documents, "question": question}
     
