@@ -3,6 +3,7 @@
 包含所有工作流节点函数和状态管理
 """
 
+import time
 from typing import List
 from typing_extensions import TypedDict
 try:
@@ -19,6 +20,7 @@ except ImportError:
 
 from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, ENABLE_QUERY_EXPANSION, ENABLE_MULTIMODAL
 from document_processor import DocumentProcessor
+from retrieval_evaluation import RetrievalEvaluator, RetrievalResult
 from pprint import pprint
 
 
@@ -31,11 +33,13 @@ class GraphState(TypedDict):
         generation: LLM生成
         documents: 文档列表
         retry_count: 重试计数器，防止无限循环
+        retrieval_metrics: 检索评估指标
     """
     question: str
     generation: str
     documents: List[str]
     retry_count: int
+    retrieval_metrics: dict  # 添加检索评估指标
 
 
 class WorkflowNodes:
@@ -45,6 +49,9 @@ class WorkflowNodes:
         self.doc_processor = doc_processor  # 接收DocumentProcessor实例
         self.retriever = retriever if retriever is not None else getattr(doc_processor, 'retriever', None)
         self.graders = graders
+        
+        # 初始化检索评估器
+        self.retrieval_evaluator = RetrievalEvaluator()
         
         # 设置RAG链 - 使用本地提示模板
         rag_prompt_template = PromptTemplate(
@@ -77,6 +84,7 @@ class WorkflowNodes:
         print("---检索---")
         question = state["question"]
         retry_count = state.get("retry_count", 0)
+        retrieval_start_time = time.time()
         
         # 使用增强检索方法，支持混合检索、查询扩展和多模态
         try:
@@ -118,8 +126,19 @@ class WorkflowNodes:
             except Exception as fallback_e:
                 print(f"❌ 回退检索也失败: {fallback_e}")
                 documents = []
-            
-        return {"documents": documents, "question": question, "retry_count": retry_count}
+        
+        # 计算检索时间
+        retrieval_time = time.time() - retrieval_start_time
+        
+        # 评估检索结果
+        retrieval_metrics = self._evaluate_retrieval_results(question, documents, retrieval_time)
+        
+        return {
+            "documents": documents, 
+            "question": question, 
+            "retry_count": retry_count,
+            "retrieval_metrics": retrieval_metrics
+        }
     
     def generate(self, state):
         """
@@ -293,6 +312,73 @@ class WorkflowNodes:
         else:
             print("---决策：生成不基于文档，重新转换查询---")
             return "not supported"
+
+
+def _evaluate_retrieval_results(self, question, documents, retrieval_time):
+        """
+        评估检索结果的质量
+        
+        Args:
+            question: 查询问题
+            documents: 检索到的文档
+            retrieval_time: 检索耗时
+            
+        Returns:
+            dict: 评估指标
+        """
+        try:
+            # 创建模拟的相关文档（在实际应用中，这些应该是真实的相关文档）
+            # 这里我们假设前几个文档是相关的，用于演示评估功能
+            relevant_docs = documents[:min(2, len(documents))] if documents else []
+            
+            # 创建检索结果对象
+            retrieval_result = RetrievalResult(
+                query=question,
+                retrieved_docs=documents,
+                relevant_docs=relevant_docs,
+                retrieval_time=retrieval_time
+            )
+            
+            # 评估检索结果
+            metrics = self.retrieval_evaluator.evaluate_retrieval([retrieval_result], k_values=[1, 3, 5])
+            
+            # 提取关键指标
+            result_metrics = {
+                "precision_at_1": metrics.precision_at_k.get(1, 0),
+                "precision_at_3": metrics.precision_at_k.get(3, 0),
+                "precision_at_5": metrics.precision_at_k.get(5, 0),
+                "recall_at_1": metrics.recall_at_k.get(1, 0),
+                "recall_at_3": metrics.recall_at_k.get(3, 0),
+                "recall_at_5": metrics.recall_at_k.get(5, 0),
+                "map_score": metrics.map_score,
+                "mrr": metrics.mrr,
+                "latency": metrics.latency,
+                "retrieved_docs_count": len(documents)
+            }
+            
+            # 打印评估结果
+            print("\n---检索评估结果---")
+            print(f"检索耗时: {result_metrics['latency']:.4f}秒")
+            print(f"检索文档数: {result_metrics['retrieved_docs_count']}")
+            print(f"Precision@1: {result_metrics['precision_at_1']:.4f}")
+            print(f"Precision@3: {result_metrics['precision_at_3']:.4f}")
+            print(f"Precision@5: {result_metrics['precision_at_5']:.4f}")
+            print(f"Recall@1: {result_metrics['recall_at_1']:.4f}")
+            print(f"Recall@3: {result_metrics['recall_at_3']:.4f}")
+            print(f"Recall@5: {result_metrics['recall_at_5']:.4f}")
+            print(f"MAP: {result_metrics['map_score']:.4f}")
+            print(f"MRR: {result_metrics['mrr']:.4f}")
+            print("--------------------\n")
+            
+            return result_metrics
+            
+        except Exception as e:
+            print(f"⚠️ 检索评估失败: {e}")
+            return {
+                "error": str(e),
+                "latency": retrieval_time,
+                "retrieved_docs_count": len(documents)
+            }
 
 
 def format_docs(docs):

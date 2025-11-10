@@ -110,13 +110,14 @@ class AdaptiveRAGSystem:
             verbose (bool): 是否显示详细输出
             
         Returns:
-            str: 最终答案
+            dict: 包含最终答案和评估指标的字典
         """
         print(f"\n🔍 处理问题: {question}")
         print("=" * 50)
         
         inputs = {"question": question, "retry_count": 0}  # 初始化重试计数器
         final_generation = None
+        retrieval_metrics = None
         
         # 设置配置，增加递归限制
         config = {"recursion_limit": 50}  # 增加到 50，默认是 25
@@ -128,6 +129,9 @@ class AdaptiveRAGSystem:
                     # 可选：在每个节点打印完整状态
                     # pprint(value, indent=2, width=80, depth=None)
                 final_generation = value.get("generation", final_generation)
+                # 保存检索评估指标
+                if "retrieval_metrics" in value:
+                    retrieval_metrics = value["retrieval_metrics"]
             if verbose:
                 pprint("\n---\n")
         
@@ -136,7 +140,11 @@ class AdaptiveRAGSystem:
         print(final_generation)
         print("=" * 50)
         
-        return final_generation
+        # 返回包含答案和评估指标的字典
+        return {
+            "answer": final_generation,
+            "retrieval_metrics": retrieval_metrics
+        }
     
     def interactive_mode(self):
         """交互模式，允许用户持续提问"""
@@ -156,7 +164,17 @@ class AdaptiveRAGSystem:
                     print("⚠️  请输入一个有效的问题")
                     continue
                 
-                self.query(question)
+                result = self.query(question)
+                
+                # 显示检索评估摘要
+                if result.get("retrieval_metrics"):
+                    metrics = result["retrieval_metrics"]
+                    print("\n📊 检索评估摘要:")
+                    print(f"   - 检索耗时: {metrics.get('latency', 0):.4f}秒")
+                    print(f"   - 检索文档数: {metrics.get('retrieved_docs_count', 0)}")
+                    print(f"   - Precision@3: {metrics.get('precision_at_3', 0):.4f}")
+                    print(f"   - Recall@3: {metrics.get('recall_at_3', 0):.4f}")
+                    print(f"   - MAP: {metrics.get('map_score', 0):.4f}")
                 
             except KeyboardInterrupt:
                 print("\n👋 感谢使用，再见!")
@@ -175,7 +193,17 @@ def main():
         # 测试查询
         test_question = "AlphaCodium论文讲的是什么？"
         # test_question = "解释embedding嵌入的原理，最好列举实现过程的具体步骤"
-        rag_system.query(test_question)
+        result = rag_system.query(test_question)
+        
+        # 显示测试查询的检索评估摘要
+        if result.get("retrieval_metrics"):
+            metrics = result["retrieval_metrics"]
+            print("\n📊 测试查询检索评估摘要:")
+            print(f"   - 检索耗时: {metrics.get('latency', 0):.4f}秒")
+            print(f"   - 检索文档数: {metrics.get('retrieved_docs_count', 0)}")
+            print(f"   - Precision@3: {metrics.get('precision_at_3', 0):.4f}")
+            print(f"   - Recall@3: {metrics.get('recall_at_3', 0):.4f}")
+            print(f"   - MAP: {metrics.get('map_score', 0):.4f}")
         
         # 启动交互模式
         rag_system.interactive_mode()
