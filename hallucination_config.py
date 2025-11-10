@@ -3,9 +3,9 @@ Hallucination Detector Configuration
 Configure which detection method to use
 """
 
-# Detection method: 'vectara', 'nli', 'lightweight', or 'hybrid' (recommended)
-# 注意: lightweight 是新添加的轻量级方案，无需特殊权限
-HALLUCINATION_DETECTION_METHOD = "lightweight"
+# Detection method: 'vectara', 'nli', or 'hybrid' (recommended)
+# 使用 'nli' 可以完全避免 Vectara 权限问题
+HALLUCINATION_DETECTION_METHOD = "nli"
 
 # Thresholds
 VECTARA_HALLUCINATION_THRESHOLD = 0.5  # Score above this = hallucination

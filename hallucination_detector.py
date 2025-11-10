@@ -390,12 +390,12 @@ class HybridHallucinationDetector:
         return "no" if result['has_hallucination'] else "yes"
 
 
-def initialize_hallucination_detector(method: str = "lightweight") -> object:
+def initialize_hallucination_detector(method: str = "nli") -> object:
     """
     初始化幻觉检测器
     
     Args:
-        method: 'vectara', 'nli', 'lightweight', 或 'hybrid' (推荐)
+        method: 'vectara', 'nli', 或 'hybrid' (推荐)
         
     Returns:
         幻觉检测器实例
@@ -404,8 +404,6 @@ def initialize_hallucination_detector(method: str = "lightweight") -> object:
         return VectaraHallucinationDetector()
     elif method == "nli":
         return NLIHallucinationDetector()
-    elif method == "lightweight":
-        return LightweightHallucinationDetector()
     elif method == "hybrid":
         return HybridHallucinationDetector(use_vectara=False, use_nli=True)  # 禁用Vectara，使用NLI
     else:
