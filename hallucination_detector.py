@@ -95,6 +95,38 @@ class VectaraHallucinationDetector:
         except Exception as e:
             print(f"❌ Vectara 检测失败: {e}")
             return {"has_hallucination": False, "hallucination_score": 0.0, "factuality_score": 1.0}
+    
+    def grade(self, generation: str, documents) -> str:
+        """
+        兼容原有接口的检测方法
+        
+        Args:
+            generation: LLM 生成的内容
+            documents: 参考文档（可以是字符串或列表）
+            
+        Returns:
+            "yes" 表示无幻觉，"no" 表示有幻觉
+        """
+        # 处理文档格式
+        if isinstance(documents, list):
+            doc_text = "\n\n".join([
+                doc.page_content if hasattr(doc, 'page_content') else str(doc)
+                for doc in documents
+            ])
+        else:
+            doc_text = str(documents)
+        
+        # 检测幻觉
+        result = self.detect(generation, doc_text)
+        
+        # 打印详细信息
+        if result['has_hallucination']:
+            print(f"⚠️ Vectara 检测到幻觉 (得分: {result['hallucination_score']:.2f})")
+        else:
+            print(f"✅ Vectara 未检测到幻觉 (真实性得分: {result['factuality_score']:.2f})")
+        
+        # 返回兼容格式
+        return "no" if result['has_hallucination'] else "yes"
 
 
 class NLIHallucinationDetector:
@@ -250,6 +282,43 @@ class NLIHallucinationDetector:
             "entailment_count": entailment_count,
             "problematic_sentences": problematic_sentences
         }
+    
+    def grade(self, generation: str, documents) -> str:
+        """
+        兼容原有接口的检测方法
+        
+        Args:
+            generation: LLM 生成的内容
+            documents: 参考文档（可以是字符串或列表）
+            
+        Returns:
+            "yes" 表示无幻觉，"no" 表示有幻觉
+        """
+        # 处理文档格式
+        if isinstance(documents, list):
+            doc_text = "\n\n".join([
+                doc.page_content if hasattr(doc, 'page_content') else str(doc)
+                for doc in documents
+            ])
+        else:
+            doc_text = str(documents)
+        
+        # 检测幻觉
+        result = self.detect(generation, doc_text)
+        
+        # 打印详细信息
+        if result['has_hallucination']:
+            print(f"⚠️ NLI 检测到幻觉")
+            print(f"   矛盾句子: {result['contradiction_count']}")
+            print(f"   中立句子: {result['neutral_count']}")
+            print(f"   蕴含句子: {result['entailment_count']}")
+            if result['problematic_sentences']:
+                print(f"   问题句子: {result['problematic_sentences'][:2]}")
+        else:
+            print(f"✅ NLI 未检测到幻觉")
+        
+        # 返回兼容格式
+        return "no" if result['has_hallucination'] else "yes"
 
 
 class HybridHallucinationDetector:
