@@ -321,9 +321,8 @@ class WorkflowNodes:
         else:
             print("---决策：生成不基于文档，重新转换查询---")
             return "not supported"
-
-
-def _evaluate_retrieval_results(self, question, documents, retrieval_time):
+    
+    def _evaluate_retrieval_results(self, question, documents, retrieval_time):
         """
         评估检索结果的质量
         
