@@ -127,8 +127,8 @@ def scan_and_copy_files():
     # 递归扫描所有文件
     for root, dirs, files in os.walk(input_dir):
         for file in files:
-            # 跳过无效文件名
-            if not file or file.startswith('.') or len(file) < 5:
+            # 跳过隐藏文件和空文件名
+            if not file or file.startswith('.'):
                 continue
             
             # 调试：显示所有文件
@@ -175,15 +175,14 @@ def main():
     # 检查文件
     working_dir = '/kaggle/working'
     
-    # 过滤有效的PDF文件（排除空文件名和隐藏文件）
+    # 过滤有效的PDF文件（排除隐藏文件）
     try:
         all_files = os.listdir(working_dir)
         
-        # 修复：使用小写比较，支持 .pdf, .PDF, .Pdf 等
+        # 修复：移除文件名长度限制，支持 .pdf 等短文件名
         pdf_files = [
             f for f in all_files 
-            if f.lower().endswith('.pdf')  # 改为小写比较
-            and len(f) > 4  # 确保不只是 '.pdf'
+            if f.lower().endswith('.pdf')  # 小写比较
             and not f.startswith('.')  # 排除隐藏文件
             and os.path.isfile(os.path.join(working_dir, f))  # 确保是文件
         ]
@@ -197,8 +196,31 @@ def main():
         print(f"❌ 扫描文件时出错: {e}")
         pdf_files = []
         image_files = []
+        all_files = []
     
     print(f"\n📁 /kaggle/working/ 中的文件:")
+    
+    # 调试：详细显示所有文件和过滤过程
+    print("\n🔍 详细调试信息:")
+    print(f"   目录中总共 {len(all_files)} 个项目")
+    for f in all_files:
+        f_path = os.path.join(working_dir, f)
+        is_file = os.path.isfile(f_path)
+        is_dir = os.path.isdir(f_path)
+        f_lower = f.lower()
+        
+        # 检查 PDF
+        if f_lower.endswith('.pdf'):
+            file_size = os.path.getsize(f_path) if is_file else 0
+            print(f"   📄 {f}: 是文件={is_file}, 大小={file_size/1024:.1f}KB, 长度={len(f)}")
+        # 检查图片
+        elif any(f_lower.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']):
+            file_size = os.path.getsize(f_path) if is_file else 0
+            print(f"   🖼️ {f}: 是文件={is_file}, 大小={file_size/1024:.1f}KB")
+        else:
+            print(f"   ⚪ {f}: 类型={'[目录]' if is_dir else '[文件]'}")
+    
+    print(f"\n📊 过滤结果:")
     print(f"   - PDF文件: {len(pdf_files)} 个")
     for pdf in pdf_files:
         pdf_path = os.path.join(working_dir, pdf)
