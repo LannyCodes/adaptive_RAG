@@ -37,7 +37,7 @@ class AdaptiveRAGSystem:
         
         # 初始化工作流节点
         print("设置工作流节点...")
-        self.workflow_nodes = WorkflowNodes(self.retriever, self.graders)
+        # WorkflowNodes 将在 _build_workflow 中初始化
         
         # 构建工作流
         print("构建工作流图...")
