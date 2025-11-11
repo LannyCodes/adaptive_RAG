@@ -10,12 +10,12 @@ try:
     from langchain_core.documents import Document
 except ImportError:
     try:
-    from langchain_core.documents import Document
-except ImportError:
-    try:
-    from langchain_core.documents import Document
-except ImportError:
-    from langchain.schema import Document
+        from langchain_core.documents import Document
+    except ImportError:
+        try:
+            from langchain_core.documents import Document
+        except ImportError:
+            from langchain.schema import Document
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.tools.tavily_search import TavilySearchResults
@@ -23,9 +23,9 @@ try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
     try:
-    from langchain_core.prompts import PromptTemplate
-except ImportError:
-    from langchain.prompts import PromptTemplate
+        from langchain_core.prompts import PromptTemplate
+    except ImportError:
+        from langchain.prompts import PromptTemplate
 
 from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, ENABLE_QUERY_EXPANSION, ENABLE_MULTIMODAL
 from document_processor import DocumentProcessor

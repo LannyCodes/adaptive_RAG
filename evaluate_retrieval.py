@@ -22,9 +22,9 @@ try:
     from langchain_core.documents import Document
 except ImportError:
     try:
-    from langchain_core.documents import Document
-except ImportError:
-    from langchain.schema import Document
+        from langchain_core.documents import Document
+    except ImportError:
+        from langchain.schema import Document
 
 # 导入LangChain相关模块
 from langchain_community.vectorstores import FAISS, Chroma
