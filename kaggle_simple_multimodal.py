@@ -127,17 +127,24 @@ def scan_and_copy_files():
     # 递归扫描所有文件
     for root, dirs, files in os.walk(input_dir):
         for file in files:
+            # 跳过无效文件名
+            if not file or file.startswith('.') or len(file) < 5:
+                continue
+                
             src = os.path.join(root, file)
             dst = os.path.join(working_dir, file)
             
-            if file.endswith('.pdf'):
-                shutil.copy(src, dst)
-                copied_pdfs.append(file)
-                print(f"   ✅ 复制 PDF: {file}")
-            elif any(file.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']):
-                shutil.copy(src, dst)
-                copied_images.append(file)
-                print(f"   ✅ 复制图片: {file}")
+            try:
+                if file.endswith('.pdf'):
+                    shutil.copy(src, dst)
+                    copied_pdfs.append(file)
+                    print(f"   ✅ 复制 PDF: {file}")
+                elif any(file.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']):
+                    shutil.copy(src, dst)
+                    copied_images.append(file)
+                    print(f"   ✅ 复制图片: {file}")
+            except Exception as e:
+                print(f"   ⚠️  复制文件失败 {file}: {e}")
     
     if copied_pdfs or copied_images:
         print(f"\n📁 复制完成: {len(copied_pdfs)} 个 PDF, {len(copied_images)} 张图片")
@@ -157,17 +164,40 @@ def main():
     
     # 检查文件
     working_dir = '/kaggle/working'
-    pdf_files = [f for f in os.listdir(working_dir) if f.endswith('.pdf')]
-    image_files = [f for f in os.listdir(working_dir) if any(f.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp'])]
+    
+    # 过滤有效的PDF文件（排除空文件名和隐藏文件）
+    try:
+        all_files = os.listdir(working_dir)
+        pdf_files = [
+            f for f in all_files 
+            if f.endswith('.pdf') 
+            and len(f) > 4  # 确保不只是 '.pdf'
+            and not f.startswith('.')  # 排除隐藏文件
+            and os.path.isfile(os.path.join(working_dir, f))  # 确保是文件
+        ]
+        image_files = [
+            f for f in all_files 
+            if any(f.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp'])
+            and not f.startswith('.')  # 排除隐藏文件
+            and os.path.isfile(os.path.join(working_dir, f))  # 确保是文件
+        ]
+    except Exception as e:
+        print(f"❌ 扫描文件时出错: {e}")
+        pdf_files = []
+        image_files = []
     
     print(f"\n📁 /kaggle/working/ 中的文件:")
     print(f"   - PDF文件: {len(pdf_files)} 个")
     for pdf in pdf_files:
-        print(f"     * {pdf}")
+        pdf_path = os.path.join(working_dir, pdf)
+        file_size = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
+        print(f"     * {pdf} ({file_size/1024:.1f} KB)")
     
     print(f"   - 图片文件: {len(image_files)} 个")
     for img in image_files:
-        print(f"     * {img}")
+        img_path = os.path.join(working_dir, img)
+        file_size = os.path.getsize(img_path) if os.path.exists(img_path) else 0
+        print(f"     * {img} ({file_size/1024:.1f} KB)")
     
     if not pdf_files and not image_files:
         print("\n💡 使用说明:")
@@ -175,11 +205,31 @@ def main():
         print("   2. 选择 'Upload' 标签")
         print("   3. 上传你的 PDF 和图片文件")
         print("   4. 重新运行此脚本")
+        print("\n🔍 当前目录内容:")
+        try:
+            print(f"   {os.listdir(working_dir)}")
+        except:
+            pass
         return
     
-    # 处理文件
-    pdf_path = os.path.join(working_dir, pdf_files[0]) if pdf_files else None
-    image_paths = [os.path.join(working_dir, img) for img in image_files] if image_files else None
+    # 处理文件（添加路径验证）
+    if pdf_files:
+        pdf_path = os.path.join(working_dir, pdf_files[0])
+        if not os.path.exists(pdf_path) or not os.path.isfile(pdf_path):
+            print(f"❌ PDF 文件路径无效: {pdf_path}")
+            pdf_path = None
+    else:
+        pdf_path = None
+    
+    if image_files:
+        image_paths = []
+        for img in image_files:
+            img_path = os.path.join(working_dir, img)
+            if os.path.exists(img_path) and os.path.isfile(img_path):
+                image_paths.append(img_path)
+        image_paths = image_paths if image_paths else None
+    else:
+        image_paths = None
     
     rag_system, doc_processor = process_uploaded_files(pdf_path, image_paths)
     
