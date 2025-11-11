@@ -19,7 +19,10 @@ _set_env("NOMIC_API_KEY")
 # Ollama model name
 local_llm = "mistral"
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except ImportError:
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_community.vectorstores import Chroma
 from langchain_nomic.embeddings import NomicEmbeddings
@@ -48,7 +51,10 @@ retriever = vectorstore.as_retriever()
 
 ### Router
 
-from langchain.prompts import PromptTemplate
+try:
+    from langchain_core.prompts import PromptTemplate
+except ImportError:
+    from langchain.prompts import PromptTemplate
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import JsonOutputParser
 
@@ -161,6 +167,12 @@ class GraphState(TypedDict):
     generation: str
     documents: List[str]
 
+    try:
+    from langchain_core.documents import Document
+except ImportError:
+    try:
+    from langchain_core.documents import Document
+except ImportError:
     from langchain.schema import Document
 
 

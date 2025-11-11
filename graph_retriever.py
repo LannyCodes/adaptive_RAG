@@ -7,6 +7,9 @@ from typing import List, Dict, Set, Tuple
 try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
+    try:
+    from langchain_core.prompts import PromptTemplate
+except ImportError:
     from langchain.prompts import PromptTemplate
 
 from langchain_community.chat_models import ChatOllama

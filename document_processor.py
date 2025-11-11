@@ -6,6 +6,9 @@
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 except ImportError:
+    try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except ImportError:
     from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from langchain_community.document_loaders import WebBaseLoader

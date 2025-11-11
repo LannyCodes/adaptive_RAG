@@ -9,11 +9,20 @@ from typing_extensions import TypedDict
 try:
     from langchain_core.documents import Document
 except ImportError:
+    try:
+    from langchain_core.documents import Document
+except ImportError:
+    try:
+    from langchain_core.documents import Document
+except ImportError:
     from langchain.schema import Document
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.tools.tavily_search import TavilySearchResults
 try:
+    from langchain_core.prompts import PromptTemplate
+except ImportError:
+    try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
     from langchain.prompts import PromptTemplate

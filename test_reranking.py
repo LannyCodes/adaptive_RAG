@@ -10,7 +10,13 @@ sys.path.append(os.path.dirname(__file__))
 
 from document_processor import DocumentProcessor
 from reranker import *
-from langchain.schema import Document
+try:
+    from langchain_core.documents import Document
+except ImportError:
+    try:
+    from langchain_core.documents import Document
+except ImportError:
+    from langchain.schema import Document
 import time
 
 

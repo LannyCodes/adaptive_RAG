@@ -8,7 +8,13 @@ import json
 import numpy as np
 from typing import List, Dict, Tuple, Any, Optional, Union
 from dataclasses import dataclass, asdict
-from langchain.schema import Document
+try:
+    from langchain_core.documents import Document
+except ImportError:
+    try:
+    from langchain_core.documents import Document
+except ImportError:
+    from langchain.schema import Document
 from sklearn.metrics import ndcg_score, precision_score, recall_score, f1_score
 from sentence_transformers import SentenceTransformer, util
 import matplotlib.pyplot as plt

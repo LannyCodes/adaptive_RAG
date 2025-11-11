@@ -18,14 +18,31 @@ load_dotenv()
 from main import AdaptiveRAGSystem
 from document_processor import DocumentProcessor
 from retrieval_evaluation import RetrievalEvaluator, RetrievalResult, RetrievalTestSet
-from langchain.schema import Document
+try:
+    from langchain_core.documents import Document
+except ImportError:
+    try:
+    from langchain_core.documents import Document
+except ImportError:
+    from langchain.schema import Document
 
 # 导入LangChain相关模块
 from langchain_community.vectorstores import FAISS, Chroma
 from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers import EnsembleRetriever
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import LLMChainExtractor
+try:
+    from langchain.retrievers import EnsembleRetriever
+    from langchain.retrievers import ContextualCompressionRetriever
+    from langchain.retrievers.document_compressors import LLMChainExtractor
+except ImportError:
+    try:
+        from langchain_core.retrievers import EnsembleRetriever
+        from langchain_core.retrievers import ContextualCompressionRetriever
+        from langchain.retrievers.document_compressors import LLMChainExtractor
+    except ImportError:
+        print("Warning: Could not import advanced retriever components. Some features may be limited.")
+        EnsembleRetriever = None
+        ContextualCompressionRetriever = None
+        LLMChainExtractor = None
 
 
 class AdaptiveRAGRetriever:
