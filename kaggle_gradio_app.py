@@ -172,13 +172,13 @@ class RAGChatInterface:
         return demo
 
 
-def launch_app(share=False, server_port=7860):
+def launch_app(share=False, server_port=None):
     """
     启动Gradio应用
     
     Args:
         share: 是否创建公开链接（Kaggle中建议False）
-        server_port: 服务器端口
+        server_port: 服务器端口（None表示自动选择）
     """
     print("=" * 60)
     print("🚀 启动 Gradio RAG 智能问答系统")
@@ -204,7 +204,7 @@ def launch_app(share=False, server_port=7860):
         demo.launch(
             share=True,  # Kaggle 中强制使用 share
             server_name="0.0.0.0",
-            server_port=server_port,
+            server_port=server_port,  # None会自动选择端口
             show_error=True,
             inline=True,  # 内嵌显示
             quiet=False
@@ -213,7 +213,7 @@ def launch_app(share=False, server_port=7860):
         # 本地环境配置
         demo.launch(
             share=share,
-            server_port=server_port,
+            server_port=server_port if server_port else 7860,
             server_name="0.0.0.0",
             show_error=True,
             quiet=False
@@ -222,4 +222,5 @@ def launch_app(share=False, server_port=7860):
 
 if __name__ == "__main__":
     # 在Kaggle Notebook中运行时自动启动
-    launch_app(share=False)
+    # server_port=None 会自动选择可用端口，避免端口冲突
+    launch_app(share=False, server_port=None)
