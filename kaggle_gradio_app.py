@@ -198,13 +198,26 @@ def launch_app(share=False, server_port=7860):
     # 启动服务
     print(f"\n🌐 正在启动服务...")
     
-    demo.launch(
-        share=share,
-        server_port=server_port,
-        server_name="0.0.0.0",  # 允许所有IP访问
-        show_error=True,
-        quiet=False
-    )
+    # Kaggle 环境特殊配置
+    if is_kaggle:
+        # 在 Kaggle 中必须使用 share=True 或 inline 模式
+        demo.launch(
+            share=True,  # Kaggle 中强制使用 share
+            server_name="0.0.0.0",
+            server_port=server_port,
+            show_error=True,
+            inline=True,  # 内嵌显示
+            quiet=False
+        )
+    else:
+        # 本地环境配置
+        demo.launch(
+            share=share,
+            server_port=server_port,
+            server_name="0.0.0.0",
+            show_error=True,
+            quiet=False
+        )
 
 
 if __name__ == "__main__":
