@@ -108,6 +108,42 @@ def query_with_multimodal(rag_system: AdaptiveRAGSystem, query: str, image_paths
         print(f"❌ 查询失败: {e}")
         return None
 
+def scan_and_copy_files():
+    """扫描 /kaggle/input/ 并复制文件到 /kaggle/working/"""
+    import shutil
+    
+    input_dir = '/kaggle/input'
+    working_dir = '/kaggle/working'
+    
+    if not os.path.exists(input_dir):
+        print("⚠️  /kaggle/input/ 目录不存在，跳过文件扫描")
+        return
+    
+    print("📂 扫描 /kaggle/input/ 目录...")
+    
+    copied_pdfs = []
+    copied_images = []
+    
+    # 递归扫描所有文件
+    for root, dirs, files in os.walk(input_dir):
+        for file in files:
+            src = os.path.join(root, file)
+            dst = os.path.join(working_dir, file)
+            
+            if file.endswith('.pdf'):
+                shutil.copy(src, dst)
+                copied_pdfs.append(file)
+                print(f"   ✅ 复制 PDF: {file}")
+            elif any(file.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']):
+                shutil.copy(src, dst)
+                copied_images.append(file)
+                print(f"   ✅ 复制图片: {file}")
+    
+    if copied_pdfs or copied_images:
+        print(f"\n📁 复制完成: {len(copied_pdfs)} 个 PDF, {len(copied_images)} 张图片")
+    else:
+        print("⚠️  未找到 PDF 或图片文件")
+
 def main():
     """主函数"""
     print("🚀 Kaggle简化多模态测试")
@@ -116,12 +152,15 @@ def main():
     # 设置环境
     setup_kaggle_environment()
     
-    # 检查上传的文件
+    # 从 /kaggle/input/ 复制文件到 /kaggle/working/
+    scan_and_copy_files()
+    
+    # 检查文件
     working_dir = '/kaggle/working'
     pdf_files = [f for f in os.listdir(working_dir) if f.endswith('.pdf')]
     image_files = [f for f in os.listdir(working_dir) if any(f.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp'])]
     
-    print(f"\n📁 发现文件:")
+    print(f"\n📁 /kaggle/working/ 中的文件:")
     print(f"   - PDF文件: {len(pdf_files)} 个")
     for pdf in pdf_files:
         print(f"     * {pdf}")
@@ -129,6 +168,14 @@ def main():
     print(f"   - 图片文件: {len(image_files)} 个")
     for img in image_files:
         print(f"     * {img}")
+    
+    if not pdf_files and not image_files:
+        print("\n💡 使用说明:")
+        print("   1. 在 Kaggle Notebook 右侧点击 '+ Add data'")
+        print("   2. 选择 'Upload' 标签")
+        print("   3. 上传你的 PDF 和图片文件")
+        print("   4. 重新运行此脚本")
+        return
     
     # 处理文件
     pdf_path = os.path.join(working_dir, pdf_files[0]) if pdf_files else None
