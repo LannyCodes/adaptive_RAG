@@ -130,12 +130,16 @@ def scan_and_copy_files():
             # 跳过无效文件名
             if not file or file.startswith('.') or len(file) < 5:
                 continue
+            
+            # 调试：显示所有文件
+            print(f"   🔍 扫描到: {file}")
                 
             src = os.path.join(root, file)
             dst = os.path.join(working_dir, file)
             
             try:
-                if file.endswith('.pdf'):
+                # 修复：使用小写比较，支持 .pdf, .PDF, .Pdf 等
+                if file.lower().endswith('.pdf'):
                     shutil.copy(src, dst)
                     copied_pdfs.append(file)
                     print(f"   ✅ 复制 PDF: {file}")
@@ -143,6 +147,8 @@ def scan_and_copy_files():
                     shutil.copy(src, dst)
                     copied_images.append(file)
                     print(f"   ✅ 复制图片: {file}")
+                else:
+                    print(f"   ⚪ 跳过非目标文件: {file}")
             except Exception as e:
                 print(f"   ⚠️  复制文件失败 {file}: {e}")
     
@@ -150,6 +156,10 @@ def scan_and_copy_files():
         print(f"\n📁 复制完成: {len(copied_pdfs)} 个 PDF, {len(copied_images)} 张图片")
     else:
         print("⚠️  未找到 PDF 或图片文件")
+        print("\n🔍 请检查:")
+        print("   1. 文件是否已上传到 Kaggle")
+        print("   2. 文件是否在 /kaggle/input/ 目录下")
+        print("   3. 文件扩展名是否正确 (.pdf, .jpg, .png 等)")
 
 def main():
     """主函数"""
@@ -168,9 +178,11 @@ def main():
     # 过滤有效的PDF文件（排除空文件名和隐藏文件）
     try:
         all_files = os.listdir(working_dir)
+        
+        # 修复：使用小写比较，支持 .pdf, .PDF, .Pdf 等
         pdf_files = [
             f for f in all_files 
-            if f.endswith('.pdf') 
+            if f.lower().endswith('.pdf')  # 改为小写比较
             and len(f) > 4  # 确保不只是 '.pdf'
             and not f.startswith('.')  # 排除隐藏文件
             and os.path.isfile(os.path.join(working_dir, f))  # 确保是文件
