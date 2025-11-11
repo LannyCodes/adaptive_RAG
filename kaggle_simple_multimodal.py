@@ -29,38 +29,182 @@ def setup_kaggle_environment():
 
 def process_uploaded_files(pdf_path: str = None, image_paths: List[str] = None):
     """
-    处理已上传的文件
+    处理已上传的文件，向量化并持久化到项目目录
+    支持文件去重，避免重复处理
     
     Args:
         pdf_path: PDF文件路径
         image_paths: 图片路径列表
     """
-    # 初始化文档处理器
-    print("🔧 正在初始化文档处理器...")
-    doc_processor = DocumentProcessor()
+    import hashlib
+    import json
     
-    # 处理PDF文件
-    if pdf_path and os.path.exists(pdf_path):
-        print(f"📄 处理PDF文件: {pdf_path}")
+    # 设置向量数据库持久化目录（相对路径）
+    # 获取当前脚本所在目录
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    persist_dir = os.path.join(current_dir, 'chroma_db')
+    metadata_file = os.path.join(current_dir, 'document_metadata.json')
+    os.makedirs(persist_dir, exist_ok=True)
+    
+    print(f"💾 向量数据库持久化目录: {persist_dir}")
+    
+    # 加载已处理文件的元数据（用于去重）
+    processed_files = {}
+    if os.path.exists(metadata_file):
         try:
-            from langchain_community.document_loaders import PyPDFLoader
-            loader = PyPDFLoader(pdf_path)
-            docs = loader.load()
-            
-            # 分割文档
-            doc_splits = doc_processor.split_documents(docs)
-            
-            # 创建向量数据库
-            vectorstore, retriever = doc_processor.create_vectorstore(doc_splits)
-            
-            print(f"✅ PDF处理完成，共 {len(doc_splits)} 个文档块")
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+                processed_files = metadata.get('processed_files', {})
+                print(f"📊 已加载元数据，发现 {len(processed_files)} 个已处理的文件")
         except Exception as e:
-            print(f"❌ PDF处理失败: {e}")
+            print(f"⚠️  加载元数据失败: {e}")
+    
+    # 计算文件哈希值（用于去重检测）
+    def get_file_hash(file_path: str) -> str:
+        """计算文件的MD5哈希值"""
+        if not os.path.exists(file_path):
             return None
+        try:
+            with open(file_path, 'rb') as f:
+                file_hash = hashlib.md5(f.read()).hexdigest()
+            return file_hash
+        except Exception as e:
+            print(f"⚠️  计算文件哈希失败: {e}")
+            return None
+    
+    # 检查是否已存在向量数据库
+    if os.path.exists(persist_dir) and os.listdir(persist_dir):
+        print("✅ 检测到已存在的向量数据库，加载中...")
+        try:
+            # 加载已存在的向量数据库
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+            from langchain_community.vectorstores import Chroma
+            from config import EMBEDDING_MODEL, COLLECTION_NAME
+            
+            embeddings = HuggingFaceEmbeddings(
+                model_name=EMBEDDING_MODEL,
+                model_kwargs={'device': 'cpu'}
+            )
+            
+            vectorstore = Chroma(
+                persist_directory=persist_dir,
+                embedding_function=embeddings,
+                collection_name=COLLECTION_NAME
+            )
+            
+            retriever = vectorstore.as_retriever()
+            print(f"✅ 已加载持久化的向量数据库，共 {vectorstore._collection.count()} 个文档块")
+            
+            # 初始化文档处理器
+            doc_processor = DocumentProcessor()
+            
+            # 检查PDF文件是否需要处理
+            if pdf_path and os.path.exists(pdf_path):
+                file_hash = get_file_hash(pdf_path)
+                if file_hash and file_hash in processed_files:
+                    print(f"⏭️  PDF文件已处理过（{pdf_path}），跳过")
+                else:
+                    print(f"🆕 检测到新PDF文件，正在添加: {pdf_path}")
+                    try:
+                        from langchain_community.document_loaders import PyPDFLoader
+                        loader = PyPDFLoader(pdf_path)
+                        docs = loader.load()
+                        doc_splits = doc_processor.split_documents(docs)
+                        
+                        # 添加到现有向量数据库
+                        vectorstore.add_documents(doc_splits)
+                        print(f"✅ 已添加 {len(doc_splits)} 个新文档块")
+                        
+                        # 更新元数据
+                        if file_hash:
+                            processed_files[file_hash] = {
+                                'path': pdf_path,
+                                'type': 'pdf',
+                                'chunks': len(doc_splits),
+                                'processed_at': time.time()
+                            }
+                            with open(metadata_file, 'w', encoding='utf-8') as f:
+                                json.dump({'processed_files': processed_files}, f, ensure_ascii=False, indent=2)
+                            print(f"💾 元数据已更新")
+                    except Exception as e:
+                        print(f"⚠️  添加新PDF失败: {e}")
+            
+        except Exception as e:
+            print(f"⚠️  加载向量数据库失败: {e}，将重新创建")
+            vectorstore, retriever, doc_processor = None, None, None
     else:
-        # 使用默认知识库
-        print("📄 使用默认知识库...")
-        vectorstore, retriever, doc_splits = doc_processor.setup_knowledge_base()
+        vectorstore, retriever, doc_processor = None, None, None
+    
+    # 如果没有加载成功，则创建新的向量数据库
+    if vectorstore is None:
+        print("🔧 正在创建新的向量数据库...")
+        
+        # 初始化文档处理器
+        doc_processor = DocumentProcessor()
+        
+        # 处理PDF文件
+        if pdf_path and os.path.exists(pdf_path):
+            print(f"📄 处理PDF文件: {pdf_path}")
+            try:
+                from langchain_community.document_loaders import PyPDFLoader
+                loader = PyPDFLoader(pdf_path)
+                docs = loader.load()
+                
+                # 分割文档
+                doc_splits = doc_processor.split_documents(docs)
+                
+                # 创建向量数据库（带持久化）
+                from langchain_community.embeddings import HuggingFaceEmbeddings
+                from langchain_community.vectorstores import Chroma
+                from config import EMBEDDING_MODEL, COLLECTION_NAME
+                
+                embeddings = HuggingFaceEmbeddings(
+                    model_name=EMBEDDING_MODEL,
+                    model_kwargs={'device': 'cpu'}
+                )
+                
+                vectorstore = Chroma.from_documents(
+                    documents=doc_splits,
+                    embedding=embeddings,
+                    collection_name=COLLECTION_NAME,
+                    persist_directory=persist_dir  # 持久化目录
+                )
+                
+                retriever = vectorstore.as_retriever()
+                
+                print(f"✅ PDF处理完成，共 {len(doc_splits)} 个文档块")
+                print(f"💾 向量数据库已持久化到: {persist_dir}")
+                
+                # 保存元数据
+                file_hash = get_file_hash(pdf_path)
+                if file_hash:
+                    processed_files[file_hash] = {
+                        'path': pdf_path,
+                        'type': 'pdf',
+                        'chunks': len(doc_splits),
+                        'processed_at': time.time()
+                    }
+                    with open(metadata_file, 'w', encoding='utf-8') as f:
+                        json.dump({'processed_files': processed_files}, f, ensure_ascii=False, indent=2)
+                    print(f"💾 元数据已保存")
+                
+            except Exception as e:
+                print(f"❌ PDF处理失败: {e}")
+                return None, None
+        else:
+            # 使用默认知识库
+            print("📄 使用默认知识库...")
+            try:
+                vectorstore, retriever, doc_splits = doc_processor.setup_knowledge_base()
+                
+                # 将默认知识库也持久化
+                if vectorstore and hasattr(vectorstore, '_persist_directory'):
+                    vectorstore._persist_directory = persist_dir
+                    print(f"💾 默认知识库已持久化到: {persist_dir}")
+                    
+            except Exception as e:
+                print(f"❌ 默认知识库加载失败: {e}")
+                return None, None
     
     # 初始化RAG系统
     print("🤖 正在初始化自适应RAG系统...")

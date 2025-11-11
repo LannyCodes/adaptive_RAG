@@ -214,13 +214,28 @@ class DocumentProcessor:
         print(f"文档分割完成，共 {len(doc_splits)} 个文档块")
         return doc_splits
     
-    def create_vectorstore(self, doc_splits):
-        """创建向量数据库"""
+    def create_vectorstore(self, doc_splits, persist_directory=None):
+        """创建向量数据库
+        
+        Args:
+            doc_splits: 文档块列表
+            persist_directory: 持久化目录（可选）
+        """
         print("正在创建向量数据库...")
+        
+        # 如果没有指定持久化目录，使用默认相对路径
+        if persist_directory is None:
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            persist_directory = os.path.join(current_dir, 'chroma_db')
+            os.makedirs(persist_directory, exist_ok=True)
+            print(f"💾 使用默认持久化目录: {persist_directory}")
+        
         self.vectorstore = Chroma.from_documents(
             documents=doc_splits,
             collection_name=COLLECTION_NAME,
             embedding=self.embeddings,
+            persist_directory=persist_directory  # 添加持久化目录
         )
         self.retriever = self.vectorstore.as_retriever()
         
@@ -247,7 +262,7 @@ class DocumentProcessor:
                 print("⚠️ 将仅使用向量检索")
                 self.ensemble_retriever = None
         
-        print("向量数据库创建完成")
+        print(f"✅ 向量数据库创建完成并持久化到: {persist_directory}")
         return self.vectorstore, self.retriever
     
     def setup_knowledge_base(self, urls=None, enable_graphrag=False):
@@ -520,7 +535,95 @@ class DocumentProcessor:
 
 
 def initialize_document_processor():
-    """初始化文档处理器并设置知识库"""
+    """初始化文档处理器并设置知识库，支持持久化加载和去重"""
+    import os
+    import json
+    import hashlib
+    
+    # 设置持久化目录（相对路径）
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    persist_dir = os.path.join(current_dir, 'chroma_db')
+    metadata_file = os.path.join(current_dir, 'document_metadata.json')
+    
     processor: DocumentProcessor = DocumentProcessor()
+    
+    # 加载已处理文档的元数据
+    processed_sources = set()
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+                processed_sources = set(metadata.get('processed_sources', []))
+                print(f"📊 已加载元数据，发现 {len(processed_sources)} 个已处理的数据源")
+        except Exception as e:
+            print(f"⚠️  加载元数据失败: {e}")
+    
+    # 检查是否已存在持久化的向量数据库
+    if os.path.exists(persist_dir) and os.listdir(persist_dir):
+        print(f"✅ 检测到已存在的向量数据库: {persist_dir}")
+        print("📂 正在加载持久化的向量数据库...")
+        try:
+            # 加载已有的向量数据库
+            vectorstore = Chroma(
+                persist_directory=persist_dir,
+                embedding_function=processor.embeddings,
+                collection_name=COLLECTION_NAME
+            )
+            retriever = vectorstore.as_retriever()
+            
+            # 获取文档数量
+            doc_count = vectorstore._collection.count()
+            print(f"✅ 已加载持久化的向量数据库，共 {doc_count} 个文档块")
+            
+            # 设置processor的vectorstore和retriever
+            processor.vectorstore = vectorstore
+            processor.retriever = retriever
+            
+            # 检查是否需要添加新数据源
+            default_urls = set(KNOWLEDGE_BASE_URLS)
+            new_urls = default_urls - processed_sources
+            
+            if new_urls:
+                print(f"🆕 检测到 {len(new_urls)} 个新的数据源，正在添加...")
+                try:
+                    # 加载新数据源
+                    new_docs = processor.load_documents(list(new_urls))
+                    new_doc_splits = processor.split_documents(new_docs)
+                    
+                    # 添加到现有向量数据库
+                    vectorstore.add_documents(new_doc_splits)
+                    print(f"✅ 已添加 {len(new_doc_splits)} 个新文档块")
+                    
+                    # 更新元数据
+                    processed_sources.update(new_urls)
+                    with open(metadata_file, 'w', encoding='utf-8') as f:
+                        json.dump({'processed_sources': list(processed_sources)}, f, ensure_ascii=False, indent=2)
+                    
+                except Exception as e:
+                    print(f"⚠️  添加新数据源失败: {e}")
+            else:
+                print("✅ 所有默认数据源已处理，无需重复加载")
+            
+            # doc_splits 设置为 None，因为已经持久化了
+            doc_splits = None
+            
+            return processor, vectorstore, retriever, doc_splits
+            
+        except Exception as e:
+            print(f"⚠️  加载持久化向量数据库失败: {e}")
+            print("🔧 将重新创建向量数据库...")
+    
+    # 如果没有持久化数据或加载失败，创建新的
+    print("🔧 正在创建新的向量数据库...")
     vectorstore, retriever, doc_splits = processor.setup_knowledge_base()
+    
+    # 保存元数据
+    try:
+        processed_sources.update(KNOWLEDGE_BASE_URLS)
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump({'processed_sources': list(processed_sources)}, f, ensure_ascii=False, indent=2)
+        print(f"✅ 元数据已保存到: {metadata_file}")
+    except Exception as e:
+        print(f"⚠️  保存元数据失败: {e}")
+    
     return processor, vectorstore, retriever, doc_splits
