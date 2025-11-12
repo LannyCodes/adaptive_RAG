@@ -68,53 +68,36 @@ class RAGChatInterface:
             return f"❌ 查询失败: {str(e)}"
     
     def create_interface(self):
-        """创建Gradio界面"""
+        """创建Gradio界面（兼容性增强版）"""
         
-        # 自定义CSS样式
-        custom_css = """
-        .gradio-container {
-            font-family: 'Arial', sans-serif;
-        }
-        .chatbot {
-            height: 500px;
-        }
-        """
-        
-        # 创建聊天界面
-        with gr.Blocks(css=custom_css, title="🤖 自适应RAG智能问答") as demo:
+        # 创建简单的聊天界面（避免版本兼容问题）
+        with gr.Blocks(title="🤖 自适应RAG智能问答") as demo:
             gr.Markdown(
                 """
                 # 🤖 自适应RAG智能问答系统
                 
-                基于LangGraph的自适应检索增强生成系统，支持：
-                - 🔍 智能路由（本地知识库 vs 网络搜索）
-                - 📚 混合检索（向量 + BM25）
-                - 🎯 多重质量控制（文档评分、幻觉检测）
-                - 🔄 自适应查询重写
+                基于LangGraph的自适应检索增强生成系统
                 
                 **使用方法**: 在下方输入框输入问题，系统会自动选择最佳检索策略并生成答案。
                 """
             )
             
-            # 聊天界面
+            # 聊天界面（使用最简单的配置）
             chatbot = gr.Chatbot(
                 label="对话历史",
-                height=500,
-                show_label=True,
-                avatar_images=(None, "🤖")
+                height=500
+            )
+            
+            # 输入框
+            msg = gr.Textbox(
+                label="输入问题",
+                placeholder="例如: AlphaCodium论文讲的是什么？",
+                lines=2
             )
             
             with gr.Row():
-                msg = gr.Textbox(
-                    label="输入问题",
-                    placeholder="例如: AlphaCodium论文讲的是什么？",
-                    lines=2,
-                    scale=4
-                )
-                submit_btn = gr.Button("🚀 发送", scale=1, variant="primary")
-            
-            with gr.Row():
-                clear_btn = gr.Button("🗑️ 清空对话", scale=1)
+                submit_btn = gr.Button("🚀 发送", variant="primary")
+                clear_btn = gr.Button("🗑️ 清空对话")
                 
             # 示例问题
             gr.Examples(
@@ -123,7 +106,6 @@ class RAGChatInterface:
                     "解释embedding嵌入的原理",
                     "什么是LLM Agent？",
                     "如何防止LLM产生幻觉？",
-                    "Prompt Engineering的最佳实践是什么？"
                 ],
                 inputs=msg,
                 label="💡 示例问题"
