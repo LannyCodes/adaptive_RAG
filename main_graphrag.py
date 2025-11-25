@@ -146,7 +146,7 @@ class AdaptiveRAGWithGraph:
         vector_context = self.doc_processor.format_docs(vector_docs[:3])
         
         # 图谱查询
-        graph_results = self.graph_retriever.hybrid_query(question)
+        graph_results = self.graph_retriever.hybrid_query_with_metrics(question)
         
         result = {
             "question": question,
@@ -155,7 +155,11 @@ class AdaptiveRAGWithGraph:
                 "context": vector_context[:500] + "..." if len(vector_context) > 500 else vector_context
             },
             "graph_local": graph_results["local"],
-            "graph_global": graph_results["global"]
+            "graph_global": graph_results["global"],
+            "graph_local_hallucination": graph_results.get("local_hallucination"),
+            "graph_global_hallucination": graph_results.get("global_hallucination"),
+            "graph_local_metrics": graph_results.get("local_metrics"),
+            "graph_global_metrics": graph_results.get("global_metrics")
         }
         
         print("\n📊 结果汇总:")

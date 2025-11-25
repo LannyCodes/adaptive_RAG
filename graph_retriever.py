@@ -4,6 +4,15 @@ GraphRAG检索器
 """
 
 from typing import List, Dict, Set, Tuple
+import time
+import networkx as nx
+try:
+    from langchain_core.documents import Document
+except ImportError:
+    try:
+        from langchain_core.documents import Document
+    except ImportError:
+        from langchain.schema import Document
 try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
@@ -17,6 +26,8 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 
 from knowledge_graph import KnowledgeGraph
 from config import LOCAL_LLM
+from retrieval_evaluation import RetrievalEvaluator, RetrievalResult
+from routers_and_graders import HallucinationGrader
 
 
 class GraphRetriever:
@@ -25,6 +36,7 @@ class GraphRetriever:
     def __init__(self, knowledge_graph: KnowledgeGraph):
         self.kg = knowledge_graph
         self.llm = ChatOllama(model=LOCAL_LLM, temperature=0.3)
+        self.hallucination_grader = HallucinationGrader()
         
         # 实体识别提示
         self.entity_recognition_prompt = PromptTemplate(
@@ -124,6 +136,54 @@ class GraphRetriever:
             print(f"❌ 实体识别失败: {e}")
             return []
     
+    def _normalize_map(self, values: Dict[str, float], keys: List[str]) -> Dict[str, float]:
+        arr = [values.get(k, 0.0) for k in keys]
+        if not arr:
+            return {k: 0.0 for k in keys}
+        mn = min(arr)
+        mx = max(arr)
+        if mx == mn:
+            return {k: 0.5 for k in keys}
+        return {k: (values.get(k, 0.0) - mn) / (mx - mn) for k in keys}
+    
+    def _rank_entities(self, mentioned_entities: List[str], candidate_entities: List[str]) -> List[str]:
+        G = self.kg.graph
+        nodes = list(set(candidate_entities) | set(mentioned_entities))
+        if not nodes:
+            return []
+        subG = G.subgraph(nodes)
+        deg = nx.degree_centrality(subG)
+        btw = nx.betweenness_centrality(subG, normalized=True)
+        weight_to_mentioned = {}
+        path_prox = {}
+        for n in candidate_entities:
+            w_sum = 0.0
+            best_len = None
+            for m in mentioned_entities:
+                if G.has_edge(n, m):
+                    data = G.get_edge_data(n, m)
+                    if isinstance(data, dict):
+                        w_sum += float(data.get('weight', 1.0))
+                    else:
+                        w_sum += 1.0
+                try:
+                    l = nx.shortest_path_length(G, source=m, target=n)
+                    if best_len is None or l < best_len:
+                        best_len = l
+                except nx.NetworkXNoPath:
+                    pass
+            weight_to_mentioned[n] = w_sum
+            path_prox[n] = 0.0 if best_len is None else 1.0 / (1.0 + best_len)
+        deg_n = self._normalize_map(deg, candidate_entities)
+        btw_n = self._normalize_map(btw, candidate_entities)
+        w_n = self._normalize_map(weight_to_mentioned, candidate_entities)
+        prox_n = self._normalize_map(path_prox, candidate_entities)
+        scores = {}
+        for n in candidate_entities:
+            scores[n] = 0.3 * deg_n.get(n, 0.0) + 0.3 * btw_n.get(n, 0.0) + 0.2 * w_n.get(n, 0.0) + 0.2 * prox_n.get(n, 0.0)
+        ranked = sorted(candidate_entities, key=lambda x: scores.get(x, 0.0), reverse=True)
+        return ranked
+    
     def local_query(self, question: str, max_hops: int = 2, top_k: int = 10) -> str:
         """
         本地查询 - 基于问题中的实体及其邻域进行检索
@@ -152,8 +212,8 @@ class GraphRetriever:
         for entity in mentioned_entities:
             neighbors = self.kg.get_node_neighbors(entity, depth=max_hops)
             relevant_entities.update(neighbors)
-        
-        relevant_entities = list(relevant_entities)[:top_k]
+        ranked_entities = self._rank_entities(mentioned_entities, list(relevant_entities))
+        relevant_entities = ranked_entities[:top_k]
         
         # 3. 收集实体信息
         entity_info_list = []
@@ -225,6 +285,156 @@ class GraphRetriever:
         except Exception as e:
             print(f"❌ 全局查询失败: {e}")
             return "查询失败，请重试。"
+    
+    def local_query_with_metrics(self, question: str, max_hops: int = 2, top_k: int = 10, k_values: List[int] = [1, 3, 5]) -> tuple:
+        print(f"\n🔎 执行本地查询并评估...")
+        start_t = time.time()
+        mentioned_entities = self.recognize_entities(question)
+        if not mentioned_entities:
+            return "未能在知识图谱中找到相关实体。", {
+                "error": "no_entities",
+                "latency": 0.0,
+                "retrieved_docs_count": 0
+            }
+        relevant_entities = set()
+        for entity in mentioned_entities:
+            neighbors = self.kg.get_node_neighbors(entity, depth=max_hops)
+            relevant_entities.update(neighbors)
+        ranked_entities = self._rank_entities(mentioned_entities, list(relevant_entities))
+        relevant_entities = ranked_entities[:top_k]
+        entity_info_list = []
+        for entity in relevant_entities:
+            info = self.kg.get_entity_info(entity)
+            if info:
+                entity_info_list.append(f"- {info['name']} ({info.get('type', 'UNKNOWN')}): {info.get('description', '无描述')}")
+        relation_list = []
+        for u, v, data in self.kg.graph.edges(data=True):
+            if u in relevant_entities and v in relevant_entities:
+                relation_list.append(f"- {u} --[{data.get('relation_type', 'RELATED')}]--> {v}: {data.get('description', '')}")
+        entity_info_text = "\n".join(entity_info_list) if entity_info_list else "无相关实体信息"
+        relations_text = "\n".join(relation_list[:20]) if relation_list else "无相关关系"
+        try:
+            answer = self.local_query_chain.invoke({
+                "question": question,
+                "entity_info": entity_info_text,
+                "relations": relations_text
+            }).strip()
+        except Exception:
+            answer = "查询失败，请重试。"
+        retrieved_docs = []
+        for entity in relevant_entities:
+            info = self.kg.get_entity_info(entity) or {"name": entity}
+            content = f"{info.get('name', entity)} {info.get('type', '')} {info.get('description', '')}".strip()
+            retrieved_docs.append(Document(page_content=content, metadata={"entity": info.get('name', entity)}))
+        try:
+            hallucination_grade = self.hallucination_grader.grade(answer, retrieved_docs)
+        except Exception:
+            hallucination_grade = "unknown"
+        relevant_docs = []
+        for entity in mentioned_entities:
+            info = self.kg.get_entity_info(entity) or {"name": entity}
+            content = f"{info.get('name', entity)} {info.get('type', '')} {info.get('description', '')}".strip()
+            relevant_docs.append(Document(page_content=content, metadata={"entity": info.get('name', entity)}))
+        latency = time.time() - start_t
+        try:
+            evaluator = RetrievalEvaluator()
+            result = RetrievalResult(query=question, retrieved_docs=retrieved_docs, relevant_docs=relevant_docs, retrieval_time=latency)
+            metrics_obj = evaluator.evaluate_retrieval([result], k_values=k_values)
+            metrics = {
+                "precision_at_1": metrics_obj.precision_at_k.get(1, 0),
+                "precision_at_3": metrics_obj.precision_at_k.get(3, 0),
+                "precision_at_5": metrics_obj.precision_at_k.get(5, 0),
+                "recall_at_1": metrics_obj.recall_at_k.get(1, 0),
+                "recall_at_3": metrics_obj.recall_at_k.get(3, 0),
+                "recall_at_5": metrics_obj.recall_at_k.get(5, 0),
+                "map_score": metrics_obj.map_score,
+                "mrr": metrics_obj.mrr,
+                "latency": metrics_obj.latency,
+                "retrieved_docs_count": len(retrieved_docs),
+                "hallucination": hallucination_grade
+            }
+        except Exception:
+            metrics = {"latency": latency, "retrieved_docs_count": len(retrieved_docs), "hallucination": hallucination_grade}
+        return answer, metrics
+    
+    def global_query_with_metrics(self, question: str, top_k_communities: int = 5, k_values: List[int] = [1, 3, 5]) -> tuple:
+        print(f"\n🌍 执行全局查询并评估...")
+        start_t = time.time()
+        mentioned_entities = self.recognize_entities(question)
+        if not self.kg.community_summaries:
+            return "知识图谱尚未生成社区摘要，请先运行索引流程。", {
+                "error": "no_summaries",
+                "latency": 0.0,
+                "retrieved_docs_count": 0
+            }
+        community_summaries = []
+        for cid, summary in list(self.kg.community_summaries.items())[:top_k_communities]:
+            community_summaries.append((cid, summary))
+        summaries_text = "\n".join([f"社区 {cid}:\n{summary}\n" for cid, summary in community_summaries])
+        try:
+            answer = self.global_query_chain.invoke({
+                "question": question,
+                "community_summaries": summaries_text
+            }).strip()
+        except Exception:
+            answer = "查询失败，请重试。"
+        retrieved_docs = []
+        for cid, summary in community_summaries:
+            retrieved_docs.append(Document(page_content=summary, metadata={"community_id": str(cid)}))
+        try:
+            hallucination_grade = self.hallucination_grader.grade(answer, retrieved_docs)
+        except Exception:
+            hallucination_grade = "unknown"
+        relevant_docs = []
+        query_tokens = [t for t in question.split() if t]
+        for cid, summary in community_summaries:
+            ok = False
+            for ent in mentioned_entities:
+                if ent and ent.lower() in summary.lower():
+                    ok = True
+                    break
+            if not ok:
+                for t in query_tokens:
+                    if t and t.lower() in summary.lower():
+                        ok = True
+                        break
+            if ok:
+                relevant_docs.append(Document(page_content=summary, metadata={"community_id": str(cid)}))
+        latency = time.time() - start_t
+        try:
+            evaluator = RetrievalEvaluator()
+            result = RetrievalResult(query=question, retrieved_docs=retrieved_docs, relevant_docs=relevant_docs, retrieval_time=latency)
+            metrics_obj = evaluator.evaluate_retrieval([result], k_values=k_values)
+            metrics = {
+                "precision_at_1": metrics_obj.precision_at_k.get(1, 0),
+                "precision_at_3": metrics_obj.precision_at_k.get(3, 0),
+                "precision_at_5": metrics_obj.precision_at_k.get(5, 0),
+                "recall_at_1": metrics_obj.recall_at_k.get(1, 0),
+                "recall_at_3": metrics_obj.recall_at_k.get(3, 0),
+                "recall_at_5": metrics_obj.recall_at_k.get(5, 0),
+                "map_score": metrics_obj.map_score,
+                "mrr": metrics_obj.mrr,
+                "latency": metrics_obj.latency,
+                "retrieved_docs_count": len(retrieved_docs),
+                "hallucination": hallucination_grade
+            }
+        except Exception:
+            metrics = {"latency": latency, "retrieved_docs_count": len(retrieved_docs), "hallucination": hallucination_grade}
+        return answer, metrics
+    
+    def hybrid_query_with_metrics(self, question: str) -> Dict[str, str]:
+        print(f"\n🔀 执行混合查询并评估...")
+        local_answer, local_metrics = self.local_query_with_metrics(question)
+        global_answer, global_metrics = self.global_query_with_metrics(question)
+        return {
+            "local": local_answer,
+            "global": global_answer,
+            "local_hallucination": local_metrics.get("hallucination"),
+            "global_hallucination": global_metrics.get("hallucination"),
+            "local_metrics": local_metrics,
+            "global_metrics": global_metrics,
+            "question": question
+        }
     
     def hybrid_query(self, question: str) -> Dict[str, str]:
         """
