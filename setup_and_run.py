@@ -51,14 +51,13 @@ def setup_environment():
 # 2. 运行 main_graphrag.py
 # ============================================================
 def run_main_graphrag():
-    """运行 main.py"""
-    # print("\n🚀 步骤 2/2: 运行 main_graphrag.py...")
-    print("\n🚀 步骤 2/2: 运行 main.py...")
+    """运行 main_graphrag.py"""
+    print("\n🚀 步骤 2/2: 运行 main_graphrag.py...")
     print("="*60)
     
     # 检查文件是否存在
-    if not os.path.exists("main.py"):
-        print("\n❌ 错误: 未找到 main.py 文件")
+    if not os.path.exists("main_graphrag.py"):
+        print("\n❌ 错误: 未找到 main_graphrag.py 文件")
         print("   请确保在正确的目录中运行此脚本")
         return False
     
@@ -67,7 +66,7 @@ def run_main_graphrag():
     try:
         # 运行 main.py
         result = subprocess.run(
-            [sys.executable, "main.py"],
+            [sys.executable, "main_graphrag.py"],
             capture_output=False,  # 实时显示输出
         )
         
