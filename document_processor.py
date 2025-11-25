@@ -49,6 +49,14 @@ from PIL import Image
 import numpy as np
 from typing import List, Dict, Any, Optional, Union
 
+try:
+    from langchain_core.documents import Document
+except ImportError:
+    try:
+        from langchain_core.documents import Document
+    except ImportError:
+        from langchain.schema import Document
+
 
 class CustomEnsembleRetriever:
     """自定义集成检索器，结合向量检索和BM25检索"""
@@ -264,6 +272,26 @@ class DocumentProcessor:
         
         print(f"✅ 向量数据库创建完成并持久化到: {persist_directory}")
         return self.vectorstore, self.retriever
+
+    def get_all_documents_from_vectorstore(self, limit: Optional[int] = None) -> List[Document]:
+        """从已持久化的向量数据库读取所有文档内容并构造 Document 列表"""
+        if not self.vectorstore:
+            return []
+        try:
+            data = self.vectorstore._collection.get(include=["documents", "metadatas"])  # type: ignore
+            docs_raw = data.get("documents") or []
+            metas = data.get("metadatas") or []
+            docs: List[Document] = []
+            for i, content in enumerate(docs_raw):
+                if content:
+                    meta = metas[i] if i < len(metas) else {}
+                    docs.append(Document(page_content=content, metadata=meta))
+            if limit:
+                return docs[:limit]
+            return docs
+        except Exception as e:
+            print(f"⚠️ 读取向量库文档失败: {e}")
+            return []
     
     def setup_knowledge_base(self, urls=None, enable_graphrag=False):
         """设置完整的知识库（加载、分割、向量化）
