@@ -70,6 +70,16 @@ class AdaptiveRAGWithGraph:
             else:
                 print("📝 首次构建索引...")
             
+            # 当持久化向量库已加载时，doc_splits 可能为 None；为 GraphRAG 索引补齐文档块
+            if self.doc_splits is None:
+                print("   ℹ️ 未提供文档块，重新加载默认数据源以供GraphRAG索引...")
+                try:
+                    docs = self.doc_processor.load_documents()
+                    self.doc_splits = self.doc_processor.split_documents(docs)
+                except Exception as e:
+                    print(f"   ❌ 重新加载文档失败: {e}")
+                    raise
+
             # 构建索引
             self.knowledge_graph = self.graph_indexer.index_documents(
                 documents=self.doc_splits,
