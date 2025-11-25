@@ -8,9 +8,9 @@ try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
     try:
-    from langchain_core.prompts import PromptTemplate
-except ImportError:
-    from langchain.prompts import PromptTemplate
+        from langchain_core.prompts import PromptTemplate
+    except ImportError:
+        from langchain.prompts import PromptTemplate
 
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
