@@ -364,6 +364,35 @@ class EntityDeduplicator:
         
         self.merge_chain = self.merge_prompt | self.llm | JsonOutputParser()
     
+    def _is_same_entity(self, entity1: Dict, entity2: Dict) -> bool:
+        """
+        使用LLM判断两个实体是否指向同一个对象
+        
+        Args:
+            entity1: 实体1字典
+            entity2: 实体2字典
+            
+        Returns:
+            bool: 是否相同
+        """
+        try:
+            # 准备输入
+            input_data = {
+                "entity1_name": entity1["name"],
+                "entity1_desc": entity1.get("description", "无描述"),
+                "entity2_name": entity2["name"],
+                "entity2_desc": entity2.get("description", "无描述")
+            }
+            
+            # 调用LLM
+            result = self.merge_chain.invoke(input_data)
+            
+            # 解析结果
+            return result.get("is_same", False)
+        except Exception as e:
+            print(f"   ⚠️ LLM判重失败 ({entity1['name']} vs {entity2['name']}): {e}")
+            return False
+
     def deduplicate_entities(self, entities: List[Dict]) -> Dict:
         """
         去重实体列表
@@ -384,7 +413,7 @@ class EntityDeduplicator:
         
         print(f"🔄 开始去重 {len(entities)} 个实体...")
         
-        # 简单的基于名称的去重
+        # 基于名称和LLM的智能去重
         unique_entities = {}
         entity_mapping = {}  # 映射别名到标准名称
         
@@ -394,16 +423,29 @@ class EntityDeduplicator:
             # 查找是否有相似实体
             merged = False
             for canonical_name, canonical_entity in unique_entities.items():
-                # 简单的字符串匹配（可以用LLM做更智能的判断）
-                if name in canonical_name or canonical_name in name:
-                    entity_mapping[entity["name"]] = canonical_name
+                # 1. 简单的字符串匹配（作为预筛选）
+                # 如果名称完全相同，或者是子串关系，则考虑合并
+                is_substring = name in canonical_name or canonical_name in name
+                
+                if name == canonical_name:
+                    # 完全匹配（忽略大小写），直接合并
+                    entity_mapping[entity["name"]] = canonical_entity["name"]
                     merged = True
                     break
+                elif is_substring:
+                    # 子串匹配，使用LLM进行智能确认
+                    # 例如："Python" 和 "Python Programming Language" -> 合并
+                    # "Java" 和 "JavaScript" -> 不合并
+                    if self._is_same_entity(entity, canonical_entity):
+                        print(f"   ✨ 合并: {entity['name']} -> {canonical_entity['name']}")
+                        entity_mapping[entity["name"]] = canonical_entity["name"]
+                        merged = True
+                        break
             
             if not merged:
                 unique_entities[name] = entity
-                entity_mapping[entity["name"]] = name
-        
+                entity_mapping[entity["name"]] = entity["name"]
+                
         print(f"✅ 去重完成，剩余 {len(unique_entities)} 个唯一实体")
         
         return {
