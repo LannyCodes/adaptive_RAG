@@ -168,12 +168,13 @@ class GraphState(TypedDict):
     documents: List[str]
 
     try:
-    from langchain_core.documents import Document
-except ImportError:
+        from langchain_core.documents import Document
+    except ImportError:
+        print("langchain_core.documents not found, using langchain.schema")
     try:
-    from langchain_core.documents import Document
-except ImportError:
-    from langchain.schema import Document
+        from langchain_core.documents import Document
+    except ImportError:
+        from langchain.schema import Document
 
 
 def retrieve(state):
