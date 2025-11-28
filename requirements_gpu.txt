@@ -55,3 +55,7 @@ psutil>=5.9.0
 # 可选：Jupyter支持
 jupyter>=1.0.0
 ipykernel>=6.0.0
+fastapi>=0.104.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+pyngrok>=7.0.0

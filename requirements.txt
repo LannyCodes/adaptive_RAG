@@ -48,3 +48,7 @@ seaborn>=0.12.0
 # GraphRAG相关（可选）
 networkx>=3.1  # 图结构处理
 python-louvain>=0.16  # 社区检测
+fastapi>=0.104.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+pyngrok>=7.0.0
