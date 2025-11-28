@@ -51,8 +51,8 @@ LOCAL_LLM = "mistral"  # 在Kaggle中可改为 "phi" 或 "tinyllama"
 # 知识库URL配置
 KNOWLEDGE_BASE_URLS = [
     "https://lilianweng.github.io/posts/2023-06-23-agent/",
-    "https://lilianweng.github.io/posts/2023-03-15-prompt-engineering/",
-    "https://lilianweng.github.io/posts/2023-10-25-adv-attack-llm/",
+    # "https://lilianweng.github.io/posts/2023-03-15-prompt-engineering/",
+    # "https://lilianweng.github.io/posts/2023-10-25-adv-attack-llm/",
 ]
 
 # 文档分块配置

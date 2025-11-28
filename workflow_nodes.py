@@ -49,6 +49,9 @@ class GraphState(TypedDict):
     documents: List[str]
     retry_count: int
     retrieval_metrics: dict  # 添加检索评估指标
+    sub_queries: List[str]  # 分解后的子问题列表
+    current_query_index: int  # 当前处理的子问题索引
+    original_question: str # 原始问题，用于早期终止检查
 
 
 class WorkflowNodes:
@@ -64,14 +67,18 @@ class WorkflowNodes:
         
         # 设置RAG链 - 使用本地提示模板
         rag_prompt_template = PromptTemplate(
-            template="""你是一个问答助手。使用以下检索到的上下文来回答问题。
-如果你不知道答案，就说你不知道。最多使用三句话并保持答案简洁。
-
-问题: {question}
-
-上下文: {context}
-
-答案:""",
+            template="""你是一个智能问答助手。使用以下检索到的上下文来回答问题。
+            
+            规则：
+            1. 如果你不知道答案，就说你不知道。
+            2. 如果用户请求特定格式（如Markdown、列表、代码块等），请严格遵守。
+            3. 如果没有特定格式要求，保持答案简洁。
+            
+            问题: {question}
+            
+            上下文: {context}
+            
+            答案:""",
             input_variables=["question", "context"]
         )
         llm = ChatOllama(model=LOCAL_LLM, temperature=0)
@@ -80,6 +87,37 @@ class WorkflowNodes:
         # 设置网络搜索
         self.web_search_tool = TavilySearchResults(k=WEB_SEARCH_RESULTS_COUNT)
     
+    def decompose_query(self, state):
+        """
+        将初始查询分解为子查询
+        
+        Args:
+            state (dict): 当前图状态
+            
+        Returns:
+            state (dict): 更新sub_queries和current_query_index
+        """
+        print("---查询分解---")
+        question = state["question"]
+        
+        # 使用分解器
+        sub_queries = self.graders["query_decomposer"].decompose(question)
+        
+        # 如果分解器返回空或只有一个问题，我们仍然将其视为列表
+        if not sub_queries:
+            sub_queries = [question]
+            
+        print(f"   生成了 {len(sub_queries)} 个子查询")
+        
+        return {
+            "sub_queries": sub_queries, 
+            "current_query_index": 0,
+            "question": sub_queries[0], # 将当前问题设置为第一个子查询
+            "original_question": question, # 保存原始问题
+            "documents": [], # 清空文档，准备开始新的检索
+            "retry_count": 0
+        }
+
     def retrieve(self, state):
         """
         检索文档
@@ -111,7 +149,7 @@ class WorkflowNodes:
             
             # 记录使用的检索方法
             if ENABLE_HYBRID_SEARCH:
-                print("---使用混合检索---")
+                print("---使用混合检索(向量+关键词)---")
             if ENABLE_QUERY_EXPANSION:
                 print("---使用查询扩展---")
             if image_paths and ENABLE_MULTIMODAL:
@@ -135,6 +173,26 @@ class WorkflowNodes:
             except Exception as fallback_e:
                 print(f"❌ 回退检索也失败: {fallback_e}")
                 documents = []
+        
+        # === 向量多跳检索支持：合并上下文 ===
+        # 如果这不是第一次检索（即重试次数 > 0 或 正在处理后续子查询），说明之前的检索结果可能不完整或问题被重写了
+        # 我们应该保留之前的有价值文档，实现 "累积式上下文" (Accumulated Context)
+        current_query_index = state.get("current_query_index", 0)
+        if (retry_count > 0 or current_query_index > 0) and "documents" in state and state["documents"]:
+            print(f"---多跳上下文合并 (轮次 {retry_count}, 子查询 {current_query_index})---")
+            previous_docs = state["documents"]
+            if previous_docs:
+                # 简单的去重合并（基于内容）
+                current_content = {d.page_content for d in documents}
+                merged_count = 0
+                for prev_doc in previous_docs:
+                    # 只有当内容不重复时才添加
+                    if prev_doc.page_content not in current_content:
+                        documents.append(prev_doc)
+                        current_content.add(prev_doc.page_content)
+                        merged_count += 1
+                print(f"   合并了 {merged_count} 个来自上一轮/上一跳的文档，当前总文档数: {len(documents)}")
+        # =================================
         
         # 计算检索时间
         retrieval_time = time.time() - retrieval_start_time
@@ -161,10 +219,12 @@ class WorkflowNodes:
         """
         print("---生成---")
         question = state["question"]
+        original_question = state.get("original_question", question) # 优先使用原始问题
         documents = state["documents"]
         
-        # RAG生成
-        generation = self.rag_chain.invoke({"context": documents, "question": question})
+        # RAG生成 - 使用原始问题以确保回答用户的初始意图
+        # 如果用户有特定的格式要求（如Markdown），通常包含在original_question中
+        generation = self.rag_chain.invoke({"context": documents, "question": original_question})
         return {"documents": documents, "question": question, "generation": generation}
     
     def grade_documents(self, state):
@@ -211,8 +271,18 @@ class WorkflowNodes:
         
         print(f"   重试次数: {retry_count}")
         
-        # 重写问题
-        better_question = self.graders["query_rewriter"].rewrite(question)
+        # 提取当前上下文摘要，帮助重写器理解缺失信息
+        context_summary = ""
+        if documents:
+            # 只提取前两个文档的摘要，避免上下文过长
+            docs_content = [d.page_content for d in documents[:2]]
+            context_summary = "\n---\n".join(docs_content)
+            # 截断以防止过长
+            if len(context_summary) > 2000:
+                context_summary = context_summary[:2000] + "...(截断)"
+        
+        # 重写问题，传入上下文
+        better_question = self.graders["query_rewriter"].rewrite(question, context=context_summary)
         return {"documents": documents, "question": better_question, "retry_count": retry_count}
     
     def web_search(self, state):
@@ -257,18 +327,65 @@ class WorkflowNodes:
             print("---将问题路由到RAG---")
             return "vectorstore"
     
-    def decide_to_generate(self, state):
+    def prepare_next_query(self, state):
         """
-        确定是生成答案还是重新生成问题
+        准备下一个子查询：提取桥接实体并重写查询
         
         Args:
             state (dict): 当前图状态
             
         Returns:
-            str: 要调用的下一个节点的二进制决策
+            state (dict): 更新question, current_query_index, retry_count
+        """
+        print("---准备下一个子查询---")
+        current_query_index = state.get("current_query_index", 0)
+        sub_queries = state.get("sub_queries", [])
+        documents = state["documents"]
+        
+        # 移动到下一个索引
+        next_index = current_query_index + 1
+        next_query_raw = sub_queries[next_index]
+        
+        print(f"   原始下一个子查询: {next_query_raw}")
+        
+        # 提取上下文摘要用于重写（桥接实体提取）
+        context_summary = ""
+        if documents:
+            # 使用所有相关文档作为上下文
+            docs_content = [d.page_content for d in documents]
+            context_summary = "\n---\n".join(docs_content)
+            # 截断
+            if len(context_summary) > 3000:
+                context_summary = context_summary[:3000] + "...(截断)"
+                
+        # 使用重写器将上下文（包含桥接实体）注入到下一个查询中
+        # 例如：Q1结果是"作者是J.K. Rowling"，Q2是"她出生在哪里？" -> "J.K. Rowling出生在哪里？"
+        better_next_query = self.graders["query_rewriter"].rewrite(next_query_raw, context=context_summary)
+        
+        print(f"   优化后的下一个子查询: {better_next_query}")
+        
+        return {
+            "question": better_next_query,
+            "current_query_index": next_index,
+            "retry_count": 0, # 重置重试计数
+            "documents": documents # 保留文档作为上下文
+        }
+
+    def decide_to_generate(self, state):
+        """
+        确定是生成答案、继续下一个子查询还是重新生成问题
+        
+        Args:
+            state (dict): 当前图状态
+            
+        Returns:
+            str: 要调用的下一个节点的决策
         """
         print("---评估已评分的文档---")
         filtered_documents = state["documents"]
+        current_query_index = state.get("current_query_index", 0)
+        sub_queries = state.get("sub_queries", [])
+        original_question = state.get("original_question", "")
         
         if not filtered_documents:
             # 所有文档都被过滤掉了
@@ -276,9 +393,34 @@ class WorkflowNodes:
             print("---决策：所有文档都与问题不相关，转换查询---")
             return "transform_query"
         else:
-            # 我们有相关文档，所以生成答案
-            print("---决策：生成---")
-            return "generate"
+            # 我们有相关文档
+            # 检查是否有更多子查询
+            if sub_queries and current_query_index < len(sub_queries) - 1:
+                # === 早期终止检查 ===
+                # 检查当前累积的文档是否已经足以回答原始问题
+                if original_question:
+                    print("---检查是否已获取足够信息 (早期终止)---")
+                    
+                    # 准备文档上下文
+                    docs_content = [d.page_content for d in filtered_documents]
+                    context_summary = "\n---\n".join(docs_content)
+                    if len(context_summary) > 5000: # 限制上下文长度
+                        context_summary = context_summary[:5000]
+                        
+                    score = self.graders["answerability_grader"].grade(original_question, context_summary)
+                    
+                    if score == "yes":
+                        print(f"---决策：当前信息已足够回答原始问题，跳过剩余 {len(sub_queries) - 1 - current_query_index} 个子查询---")
+                        return "generate"
+                    else:
+                        print("---决策：信息尚不完整，继续下一个子查询---")
+                
+                print(f"---决策：当前子查询 ({current_query_index + 1}/{len(sub_queries)}) 完成，准备下一个---")
+                return "prepare_next_query"
+            else:
+                # 所有子查询都完成（或没有子查询），生成答案
+                print("---决策：所有子查询完成，生成---")
+                return "generate"
     
     def grade_generation_v_documents_and_question(self, state):
         """

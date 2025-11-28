@@ -3,13 +3,20 @@
 集成所有模块，构建工作流并运行自适应RAG系统
 """
 
+import time
 from langgraph.graph import END, StateGraph, START
 from pprint import pprint
 
-from config import setup_environment, validate_api_keys
+from config import setup_environment, validate_api_keys, ENABLE_GRAPHRAG
 from document_processor import initialize_document_processor
 from routers_and_graders import initialize_graders_and_router
 from workflow_nodes import WorkflowNodes, GraphState
+try:
+    from knowledge_graph import initialize_knowledge_graph, initialize_community_summarizer
+    from graph_retriever import initialize_graph_retriever
+except ImportError:
+    print("⚠️ 无法导入知识图谱模块，GraphRAG功能将不可用")
+    ENABLE_GRAPHRAG = False
 
 
 class AdaptiveRAGSystem:
@@ -54,6 +61,23 @@ class AdaptiveRAGSystem:
         print("初始化评分器和路由器...")
         self.graders = initialize_graders_and_router()
         
+        # 初始化知识图谱 (如果启用)
+        self.graph_retriever = None
+        if ENABLE_GRAPHRAG:
+            print("初始化 GraphRAG...")
+            try:
+                kg = initialize_knowledge_graph()
+                # 尝试加载已有的图谱数据
+                try:
+                    kg.load_from_file("knowledge_graph.json")
+                except FileNotFoundError:
+                    print("   未找到 existing knowledge_graph.json, 将使用空图谱")
+                
+                self.graph_retriever = initialize_graph_retriever(kg)
+                print("✅ GraphRAG 初始化成功")
+            except Exception as e:
+                print(f"⚠️ GraphRAG 初始化失败: {e}")
+        
         # 初始化工作流节点
         print("设置工作流节点...")
         # WorkflowNodes 将在 _build_workflow 中初始化
@@ -91,6 +115,8 @@ class AdaptiveRAGSystem:
         workflow.add_node("grade_documents", self.workflow_nodes.grade_documents)
         workflow.add_node("generate", self.workflow_nodes.generate)
         workflow.add_node("transform_query", self.workflow_nodes.transform_query)
+        workflow.add_node("decompose_query", self.workflow_nodes.decompose_query)
+        workflow.add_node("prepare_next_query", self.workflow_nodes.prepare_next_query)
         
         # 构建图
         workflow.add_conditional_edges(
@@ -98,20 +124,23 @@ class AdaptiveRAGSystem:
             self.workflow_nodes.route_question,
             {
                 "web_search": "web_search",
-                "vectorstore": "retrieve",
+                "vectorstore": "decompose_query", # 向量检索前先进行查询分解
             },
         )
         workflow.add_edge("web_search", "generate")
+        workflow.add_edge("decompose_query", "retrieve")
         workflow.add_edge("retrieve", "grade_documents")
         workflow.add_conditional_edges(
             "grade_documents",
             self.workflow_nodes.decide_to_generate,
             {
                 "transform_query": "transform_query",
+                "prepare_next_query": "prepare_next_query",
                 "generate": "generate",
             },
         )
         workflow.add_edge("transform_query", "retrieve")
+        workflow.add_edge("prepare_next_query", "retrieve")
         workflow.add_conditional_edges(
             "generate",
             self.workflow_nodes.grade_generation_v_documents_and_question,
@@ -151,10 +180,16 @@ class AdaptiveRAGSystem:
         # 设置配置，增加递归限制
         config = {"recursion_limit": 50}  # 增加到 50，默认是 25
         
+        print("\n🤖 思考过程:")
         for output in self.app.stream(inputs, config=config):
             for key, value in output.items():
                 if verbose:
-                    pprint(f"节点 '{key}':")
+                    # 简单的节点执行提示，模拟流式感
+                    print(f"  ↳ 执行节点: {key}...", end="\r")
+                    time.sleep(0.1) # 视觉暂停
+                    print(f"  ✅ 完成节点: {key}      ")
+                    
+                    # pprint(f"节点 '{key}':")
                     # 可选：在每个节点打印完整状态
                     # pprint(value, indent=2, width=80, depth=None)
                 final_generation = value.get("generation", final_generation)
@@ -162,11 +197,25 @@ class AdaptiveRAGSystem:
                 if "retrieval_metrics" in value:
                     retrieval_metrics = value["retrieval_metrics"]
             if verbose:
-                pprint("\n---\n")
+                # pprint("\n---\n")
+                pass
         
+        print("\n" + "=" * 50)
         print("🎯 最终答案:")
         print("-" * 30)
-        print(final_generation)
+        
+        # 模拟流式输出效果 (打字机效果)
+        if final_generation:
+            import sys
+            import time
+            for char in final_generation:
+                sys.stdout.write(char)
+                sys.stdout.flush()
+                time.sleep(0.01) # 控制打字速度
+            print() # 换行
+        else:
+            print("未生成答案")
+            
         print("=" * 50)
         
         # 返回包含答案和评估指标的字典
@@ -220,7 +269,8 @@ def main():
         rag_system: AdaptiveRAGSystem = AdaptiveRAGSystem()
         
         # 测试查询
-        test_question = "AlphaCodium论文讲的是什么？"
+        # test_question = "AlphaCodium论文讲的是什么？"
+        test_question = "LangGraph的作者目前在哪家公司工作？"
         # test_question = "解释embedding嵌入的原理，最好列举实现过程的具体步骤"
         result = rag_system.query(test_question)
         
