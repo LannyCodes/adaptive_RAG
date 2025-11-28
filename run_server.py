@@ -49,11 +49,17 @@ def start_ngrok():
 
 def start_cloudflared():
     try:
-        if not shutil.which("cloudflared"):
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "cloudflared"])
-        proc = subprocess.Popen([
-            "cloudflared", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"
-        ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        cmd = None
+        if shutil.which("cloudflared"):
+            cmd = ["cloudflared", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"]
+        else:
+            try:
+                __import__("cloudflared")
+                cmd = [sys.executable, "-m", "cloudflared", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"]
+            except Exception:
+                print("⚠️ 未找到 cloudflared，可通过 'pip install cloudflared' 安装，或跳过穿透")
+                return
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         url = None
         while True:
             line = proc.stdout.readline()
@@ -98,6 +104,18 @@ if __name__ == "__main__":
     # 等待服务器启动
     time.sleep(3)
     
-    ok = start_ngrok()
-    if not ok:
-        start_cloudflared()
+    use_tunnel = os.environ.get("USE_TUNNEL", "true").lower() == "true"
+    if use_tunnel:
+        ok = start_ngrok()
+        if not ok:
+            start_cloudflared()
+    else:
+        print("\n" + "="*60)
+        print("✅ 服务器已启动，局域网访问地址:")
+        print("👉 http://127.0.0.1:8000")
+        print("="*60 + "\n")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass

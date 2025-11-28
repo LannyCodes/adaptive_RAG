@@ -26,13 +26,8 @@ import shutil
 sys.path.append(os.getcwd())
 
 try:
-    from main import AdaptiveRAGSystem
     from config import ENABLE_MULTIMODAL
-except ImportError:
-    # 模拟导入，防止在没有依赖的环境下报错
-    class AdaptiveRAGSystem:
-        def __init__(self, *args, **kwargs): pass
-        def query(self, _): return {"answer": "系统未正确初始化", "sources": []}
+except Exception:
     ENABLE_MULTIMODAL = False
 
 # ============================================================
@@ -62,6 +57,7 @@ def get_rag_system():
     if rag_system is None:
         try:
             print("🔄 初始化 RAG 系统...")
+            from main import AdaptiveRAGSystem
             rag_system = AdaptiveRAGSystem()
             print("✅ RAG 系统初始化完成")
         except Exception as e:
