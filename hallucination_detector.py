@@ -175,13 +175,13 @@ class NLIHallucinationDetector:
         sentences = re.split(r'[。！？\.\!\?]\s*', text)
         return [s.strip() for s in sentences if s.strip()]
     
-    def detect(self, generation: str, documents: str) -> Dict:
+    def detect(self, generation: str, documents) -> Dict:
         """
-        检测幻觉
+        检测幻觉（支持多文档最大匹配策略）
         
         Args:
             generation: LLM 生成的内容
-            documents: 参考文档
+            documents: 参考文档 (str 或 List[Document/str])
             
         Returns:
             {
@@ -202,7 +202,19 @@ class NLIHallucinationDetector:
                 "problematic_sentences": []
             }
         
-        # 分割成句子
+        # 1. 预处理文档列表
+        docs_content = []
+        if isinstance(documents, list):
+            for doc in documents:
+                if hasattr(doc, 'page_content'):
+                    docs_content.append(doc.page_content)
+                else:
+                    docs_content.append(str(doc))
+        else:
+            # 如果是单个字符串，尝试按换行符分割，或者作为单文档处理
+            docs_content = [str(documents)]
+
+        # 2. 分割生成内容为句子
         sentences = self.split_sentences(generation)
         
         if not sentences:
@@ -220,60 +232,88 @@ class NLIHallucinationDetector:
         entailment_count = 0
         problematic_sentences = []
         
+        # 3. 逐句检测 (Max-Entailment Strategy)
         for sentence in sentences:
             if len(sentence) < 10:  # 跳过太短的句子
                 continue
             
-            try:
-                # 根据模型类型调整输入格式
-                if hasattr(self, 'model_name') and 'cross-encoder' in self.model_name:
-                    # Cross-encoder 模型：直接传入两个文本
-                    result = self.nli_model(
-                        f"{documents[:500]} [SEP] {sentence}",
-                        truncation=True,
-                        max_length=512
-                    )
-                else:
-                    # 传统 NLI 模型：使用 text 和 text_pair
-                    result = self.nli_model(
-                        sentence,
-                        documents[:500],
-                        truncation=True,
-                        max_length=512
-                    )
-                
-                # 处理结果
-                if isinstance(result, list) and len(result) > 0:
-                    label = result[0]['label'].lower()
-                else:
-                    print(f"⚠️ NLI 返回格式异常: {result}")
-                    continue
-                
-                if 'contradiction' in label or 'contradict' in label:
-                    contradiction_count += 1
-                    problematic_sentences.append(sentence)
-                elif 'neutral' in label:
-                    neutral_count += 1
-                    # neutral 只是中立，不一定是幻觉，不加入 problematic_sentences
-                elif 'entailment' in label or 'entail' in label:
-                    entailment_count += 1
+            # 默认为 Neutral (找不到支持)
+            best_label = "neutral"
+            best_score = 0.0
             
-            except Exception as e:
-                print(f"⚠️ NLI 检测句子失败: {str(e)[:100]}")
-                import traceback
-                print(f"   详细错误: {traceback.format_exc()[:200]}")
-                continue
-        
-        # 判断是否有幻觉（只有明确矛盾才算幻觉）
-        # neutral 表示文档中没有相关信息，但不一定是错误的
+            # 遍历所有文档块，寻找最佳匹配
+            # 只要有一个文档能 Entail (支持) 这个句子，就算通过
+            sentence_supported = False
+            
+            for doc_content in docs_content:
+                # 截断单个文档块以适应模型 (保留前 800 字符，通常足够覆盖 512 tokens)
+                # 注意：这里是对单个文档块截断，而不是对所有文档拼接后截断
+                premise = doc_content[:800]
+                
+                try:
+                    # NLI 推理
+                    if hasattr(self, 'model_name') and 'cross-encoder' in self.model_name:
+                        result = self.nli_model(
+                            f"{premise} [SEP] {sentence}",
+                            truncation=True,
+                            max_length=512
+                        )
+                    else:
+                        result = self.nli_model(
+                            sentence,
+                            premise,
+                            truncation=True,
+                            max_length=512
+                        )
+                    
+                    # 解析结果
+                    if isinstance(result, list) and len(result) > 0:
+                        current_label = result[0]['label'].lower()
+                        current_score = result[0]['score']
+                        
+                        # 优先级逻辑：Entailment > Contradiction > Neutral
+                        # 如果找到 Entailment，立即停止查找（已验证）
+                        if 'entailment' in current_label or 'entail' in current_label:
+                            best_label = "entailment"
+                            sentence_supported = True
+                            break
+                        
+                        # 如果是 Contradiction，记录下来，但继续找（也许其他文档能解释）
+                        if 'contradiction' in current_label or 'contradict' in current_label:
+                            # 只有当目前是 Neutral 时才更新为 Contradiction
+                            # 这样防止 Contradiction 覆盖了潜在的 Entailment (虽然上面break了，但这逻辑保持严谨)
+                            if best_label == "neutral":
+                                best_label = "contradiction"
+                                best_score = current_score
+                                
+                    else:
+                        continue
+                        
+                except Exception as e:
+                    print(f"⚠️ NLI 子任务失败: {str(e)[:50]}")
+                    continue
+            
+            # 统计该句子的最终判定
+            if best_label == "entailment":
+                entailment_count += 1
+            elif best_label == "contradiction":
+                contradiction_count += 1
+                problematic_sentences.append(sentence)
+            else: # neutral
+                neutral_count += 1
+                
+        # 4. 综合评分
         total_sentences = contradiction_count + neutral_count + entailment_count
         
-        # 只有当矛盾句子超过 30% 或者 neutral 超过 80% 才算幻觉
         has_hallucination = False
         if total_sentences > 0:
             contradiction_ratio = contradiction_count / total_sentences
             neutral_ratio = neutral_count / total_sentences
+            # 阈值判断
             has_hallucination = (contradiction_ratio > 0.3) or (neutral_ratio > 0.8)
+            
+            # Debug 信息
+            print(f"📊 NLI 检测结果: Entail={entailment_count}, Contra={contradiction_count}, Neutral={neutral_count}")
         
         return {
             "has_hallucination": has_hallucination,
