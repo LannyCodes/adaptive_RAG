@@ -307,6 +307,119 @@ class DocumentProcessor:
         # 返回doc_splits用于GraphRAG索引
         return vectorstore, retriever, doc_splits
     
+    async def async_expand_query(self, query: str) -> List[str]:
+        """异步扩展查询"""
+        if not self.query_expansion_model:
+            return [query]
+            
+        try:
+            # 使用LLM生成扩展查询
+            prompt = QUERY_EXPANSION_PROMPT.format(query=query)
+            expanded_queries_text = await self.query_expansion_model.ainvoke(prompt)
+            
+            # 解析扩展查询
+            expanded_queries = [query]  # 包含原始查询
+            for line in expanded_queries_text.strip().split('\n'):
+                line = line.strip()
+                if line and not line.startswith('#') and not line.startswith('//'):
+                    # 移除可能的编号前缀
+                    if line[0].isdigit() and '.' in line[:5]:
+                        line = line.split('.', 1)[1].strip()
+                    expanded_queries.append(line)
+            
+            # 限制扩展查询数量
+            return expanded_queries[:MAX_EXPANDED_QUERIES + 1]
+        except Exception as e:
+            print(f"⚠️ 异步查询扩展失败: {e}")
+            return [query]
+
+    async def async_hybrid_retrieve(self, query: str, top_k: int = 5) -> List:
+        """异步混合检索"""
+        if not ENABLE_HYBRID_SEARCH or not self.ensemble_retriever:
+            return await self.retriever.ainvoke(query)
+            
+        try:
+            results = await self.ensemble_retriever.ainvoke(query)
+            return results[:top_k]
+        except Exception as e:
+            print(f"⚠️ 异步混合检索失败: {e}")
+            print("回退到向量检索")
+            return await self.retriever.ainvoke(query)
+
+    async def async_enhanced_retrieve(self, query: str, top_k: int = 5, rerank_candidates: int = 20, 
+                         image_paths: List[str] = None, use_query_expansion: bool = None):
+        """异步增强检索"""
+        import asyncio
+        
+        # 确定是否使用查询扩展
+        if use_query_expansion is None:
+            use_query_expansion = ENABLE_QUERY_EXPANSION
+            
+        # 如果启用查询扩展，生成扩展查询
+        if use_query_expansion:
+            expanded_queries = await self.async_expand_query(query)
+            print(f"查询扩展: {len(expanded_queries)} 个查询")
+        else:
+            expanded_queries = [query]
+            
+        # 多模态检索（暂时保持同步，使用线程池）
+        if image_paths and ENABLE_MULTIMODAL:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.multimodal_retrieve, query, image_paths, top_k)
+            
+        # 混合检索或向量检索
+        all_candidate_docs = []
+        
+        async def retrieve_single(q):
+            if ENABLE_HYBRID_SEARCH:
+                docs = await self.async_hybrid_retrieve(q, rerank_candidates)
+            else:
+                docs = await self.retriever.ainvoke(q)
+                if len(docs) > rerank_candidates:
+                    docs = docs[:rerank_candidates]
+            return docs
+
+        # 并发执行所有查询的检索
+        results = await asyncio.gather(*[retrieve_single(q) for q in expanded_queries])
+        
+        for docs in results:
+            all_candidate_docs.extend(docs)
+            
+        # 去重（基于文档内容）
+        unique_docs = []
+        seen_content = set()
+        for doc in all_candidate_docs:
+            content = doc.page_content
+            if content not in seen_content:
+                seen_content.add(content)
+                unique_docs.append(doc)
+                
+        print(f"检索获得 {len(unique_docs)} 个候选文档")
+        
+        # 重排（如果重排器可用）
+        # 注意：重排通常是计算密集型，建议放入线程池
+        if self.reranker and len(unique_docs) > top_k:
+            try:
+                loop = asyncio.get_running_loop()
+                # rerank 方法内部可能也比较耗时
+                reranked_results = await loop.run_in_executor(
+                    None, 
+                    self.reranker.rerank, 
+                    query, unique_docs, top_k
+                )
+                final_docs = [doc for doc, score in reranked_results]
+                scores = [score for doc, score in reranked_results]
+                
+                print(f"重排后返回 {len(final_docs)} 个文档")
+                print(f"重排分数范围: {min(scores):.4f} - {max(scores):.4f}")
+                
+                return final_docs
+            except Exception as e:
+                print(f"⚠️ 重排失败: {e}，使用原始检索结果")
+                return unique_docs[:top_k]
+        else:
+            return unique_docs[:top_k]
+    
     def expand_query(self, query: str) -> List[str]:
         """扩展查询，生成相关查询"""
         if not self.query_expansion_model:

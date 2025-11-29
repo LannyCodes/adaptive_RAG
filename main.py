@@ -159,9 +159,9 @@ class AdaptiveRAGSystem:
             debug=False
         )
     
-    def query(self, question: str, verbose: bool = True):
+    async def query(self, question: str, verbose: bool = True):
         """
-        处理查询
+        处理查询 (异步版本)
         
         Args:
             question (str): 用户问题
@@ -170,6 +170,7 @@ class AdaptiveRAGSystem:
         Returns:
             dict: 包含最终答案和评估指标的字典
         """
+        import asyncio
         print(f"\n🔍 处理问题: {question}")
         print("=" * 50)
         
@@ -181,24 +182,19 @@ class AdaptiveRAGSystem:
         config = {"recursion_limit": 50}  # 增加到 50，默认是 25
         
         print("\n🤖 思考过程:")
-        for output in self.app.stream(inputs, config=config):
+        async for output in self.app.astream(inputs, config=config):
             for key, value in output.items():
                 if verbose:
                     # 简单的节点执行提示，模拟流式感
                     print(f"  ↳ 执行节点: {key}...", end="\r")
-                    time.sleep(0.1) # 视觉暂停
+                    # 异步暂停
+                    await asyncio.sleep(0.1) 
                     print(f"  ✅ 完成节点: {key}      ")
                     
-                    # pprint(f"节点 '{key}':")
-                    # 可选：在每个节点打印完整状态
-                    # pprint(value, indent=2, width=80, depth=None)
                 final_generation = value.get("generation", final_generation)
                 # 保存检索评估指标
                 if "retrieval_metrics" in value:
                     retrieval_metrics = value["retrieval_metrics"]
-            if verbose:
-                # pprint("\n---\n")
-                pass
         
         print("\n" + "=" * 50)
         print("🎯 最终答案:")
@@ -207,11 +203,11 @@ class AdaptiveRAGSystem:
         # 模拟流式输出效果 (打字机效果)
         if final_generation:
             import sys
-            import time
             for char in final_generation:
                 sys.stdout.write(char)
                 sys.stdout.flush()
-                time.sleep(0.01) # 控制打字速度
+                # 异步暂停
+                await asyncio.sleep(0.01) # 控制打字速度
             print() # 换行
         else:
             print("未生成答案")
@@ -226,6 +222,7 @@ class AdaptiveRAGSystem:
     
     def interactive_mode(self):
         """交互模式，允许用户持续提问"""
+        import asyncio
         print("\n🤖 欢迎使用自适应RAG系统!")
         print("💡 输入问题开始对话，输入 'quit' 或 'exit' 退出")
         print("-" * 50)
@@ -242,7 +239,8 @@ class AdaptiveRAGSystem:
                     print("⚠️  请输入一个有效的问题")
                     continue
                 
-                result = self.query(question)
+                # 使用 asyncio.run 执行异步查询
+                result = asyncio.run(self.query(question))
                 
                 # 显示检索评估摘要
                 if result.get("retrieval_metrics"):
@@ -259,11 +257,14 @@ class AdaptiveRAGSystem:
                 break
             except Exception as e:
                 print(f"❌ 发生错误: {e}")
+                import traceback
+                traceback.print_exc()
                 print("请重试或输入 'quit' 退出")
 
 
 def main():
     """主函数"""
+    import asyncio
     try:
         # 初始化系统
         rag_system: AdaptiveRAGSystem = AdaptiveRAGSystem()
@@ -272,7 +273,9 @@ def main():
         # test_question = "AlphaCodium论文讲的是什么？"
         test_question = "LangGraph的作者目前在哪家公司工作？"
         # test_question = "解释embedding嵌入的原理，最好列举实现过程的具体步骤"
-        result = rag_system.query(test_question)
+        
+        # 使用 asyncio.run 执行异步查询
+        result = asyncio.run(rag_system.query(test_question))
         
         # 显示测试查询的检索评估摘要
         if result.get("retrieval_metrics"):
@@ -289,6 +292,8 @@ def main():
         
     except Exception as e:
         print(f"❌ 系统初始化失败: {e}")
+        import traceback
+        traceback.print_exc()
         print("请检查配置和依赖是否正确安装")
 
 
