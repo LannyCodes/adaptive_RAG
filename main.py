@@ -137,6 +137,7 @@ class AdaptiveRAGSystem:
                 "transform_query": "transform_query",
                 "prepare_next_query": "prepare_next_query",
                 "generate": "generate",
+                "web_search": "web_search", # 添加 web_search 作为回退选项
             },
         )
         workflow.add_edge("transform_query", "retrieve")

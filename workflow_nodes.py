@@ -298,10 +298,14 @@ class WorkflowNodes:
         print("---网络搜索---")
         question = state["question"]
         
-        # 网络搜索
-        docs = self.web_search_tool.invoke({"query": question})
-        web_results = "\n".join([d["content"] for d in docs])
-        web_results = Document(page_content=web_results)
+        try:
+            # 网络搜索
+            docs = self.web_search_tool.invoke({"query": question})
+            web_results = "\n".join([d["content"] for d in docs])
+            web_results = [Document(page_content=web_results)]
+        except Exception as e:
+            print(f"⚠️ 网络搜索失败: {e}")
+            web_results = [Document(page_content="无法进行网络搜索，请根据已有知识回答。")]
         
         return {"documents": web_results, "question": question}
     
@@ -386,8 +390,14 @@ class WorkflowNodes:
         current_query_index = state.get("current_query_index", 0)
         sub_queries = state.get("sub_queries", [])
         original_question = state.get("original_question", "")
+        retry_count = state.get("retry_count", 0)
         
         if not filtered_documents:
+            # 检查是否超过最大重试次数
+            if retry_count >= 3:
+                print(f"⚠️ 已达到最大重试次数 ({retry_count}) 且无相关文档，回退到网络搜索")
+                return "web_search"
+                
             # 所有文档都被过滤掉了
             # 我们将重新生成一个新查询
             print("---决策：所有文档都与问题不相关，转换查询---")
