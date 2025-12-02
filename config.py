@@ -60,8 +60,20 @@ CHUNK_SIZE = 250
 CHUNK_OVERLAP = 50  # 添加重叠以保持上下文连贯性，提升检索准确率
 
 # 向量数据库配置
+VECTOR_STORE_TYPE = os.environ.get("VECTOR_STORE_TYPE", "chroma")  # 可选: "chroma", "milvus"
 COLLECTION_NAME = "rag-chroma"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # HuggingFace嵌入模型
+
+# Milvus 配置 (仅当 VECTOR_STORE_TYPE="milvus" 时生效)
+# 1. Milvus Lite (本地文件模式): 仅需设置 MILVUS_URI，无需 User/Password。适合 Kaggle/本地开发。
+# 2. Zilliz Cloud (云服务): 需要设置 MILVUS_URI (https://...) 和 MILVUS_PASSWORD (API Key/Token)。需官网注册。
+# 3. Milvus Server (Docker/K8s): 需要设置 HOST/PORT，可选 User/Password。
+MILVUS_HOST = os.environ.get("MILVUS_HOST", "localhost")
+MILVUS_PORT = os.environ.get("MILVUS_PORT", "19530")
+MILVUS_USER = os.environ.get("MILVUS_USER", "")      # 仅在自建 Server 开启认证或使用 Zilliz Cloud 时需要
+MILVUS_PASSWORD = os.environ.get("MILVUS_PASSWORD", "") # Zilliz Cloud 的 API Key 也填在这里
+# Milvus Lite 配置: 如果设置了 MILVUS_URI (如 "./milvus_demo.db")，将优先使用本地文件模式
+MILVUS_URI = os.environ.get("MILVUS_URI", "./milvus_rag.db")
 
 # 搜索配置
 WEB_SEARCH_RESULTS_COUNT = 3

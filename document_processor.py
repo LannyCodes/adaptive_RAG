@@ -25,6 +25,13 @@ from config import (
     KEYWORD_SEARCH_K,
     BM25_K1,
     BM25_B,
+    # 向量库配置
+    VECTOR_STORE_TYPE,
+    MILVUS_HOST,
+    MILVUS_PORT,
+    MILVUS_USER,
+    MILVUS_PASSWORD,
+    MILVUS_URI,
     # 查询扩展配置
     ENABLE_QUERY_EXPANSION,
     QUERY_EXPANSION_MODEL,
@@ -236,12 +243,66 @@ class DocumentProcessor:
             os.makedirs(persist_directory, exist_ok=True)
             print(f"💾 使用默认持久化目录: {persist_directory}")
         
-        self.vectorstore = Chroma.from_documents(
-            documents=doc_splits,
-            collection_name=COLLECTION_NAME,
-            embedding=self.embeddings,
-            persist_directory=persist_directory  # 添加持久化目录
-        )
+        if VECTOR_STORE_TYPE.lower() == "milvus":
+            try:
+                from langchain_community.vectorstores import Milvus
+                
+                # 准备连接参数
+                connection_args = {}
+                
+                # 优先使用 URI (支持 Milvus Lite 本地文件 或 Zilliz Cloud)
+                # 只要 MILVUS_URI 被设置（config中默认是 ./milvus_rag.db），且不是空字符串
+                if MILVUS_URI and len(MILVUS_URI.strip()) > 0:
+                    # 判断是本地文件还是云服务
+                    is_local_file = not (MILVUS_URI.startswith("http://") or MILVUS_URI.startswith("https://"))
+                    mode_name = "Lite (Local File)" if is_local_file else "Cloud (HTTP)"
+                    
+                    print(f"🔄 正在连接 Milvus {mode_name} ({MILVUS_URI})...")
+                    connection_args["uri"] = MILVUS_URI
+                    
+                    # 如果是云服务，通常需要 token (使用 password 字段作为 token)
+                    if not is_local_file and MILVUS_PASSWORD:
+                         connection_args["token"] = MILVUS_PASSWORD
+                else:
+                    # 传统的 Host/Port 连接
+                    print(f"🔄 正在连接 Milvus Server ({MILVUS_HOST}:{MILVUS_PORT})...")
+                    connection_args = {
+                        "host": MILVUS_HOST,
+                        "port": MILVUS_PORT,
+                        "user": MILVUS_USER,
+                        "password": MILVUS_PASSWORD
+                    }
+
+                self.vectorstore = Milvus.from_documents(
+                    documents=doc_splits,
+                    embedding=self.embeddings,
+                    collection_name=COLLECTION_NAME,
+                    connection_args=connection_args,
+                    drop_old=True  # 重新创建索引
+                )
+                print("✅ Milvus 向量数据库初始化成功")
+            except ImportError:
+                print("❌ 未安装 pymilvus，请运行: pip install pymilvus")
+                raise
+            except Exception as e:
+                print(f"❌ Milvus 连接失败: {e}")
+                print("⚠️ 回退到 Chroma 数据库...")
+                # Fallback to Chroma
+                self.vectorstore = Chroma.from_documents(
+                    documents=doc_splits,
+                    collection_name=COLLECTION_NAME,
+                    embedding=self.embeddings,
+                    persist_directory=persist_directory
+                )
+        else:
+            # Default: Chroma
+            self.vectorstore = Chroma.from_documents(
+                documents=doc_splits,
+                collection_name=COLLECTION_NAME,
+                embedding=self.embeddings,
+                persist_directory=persist_directory  # 添加持久化目录
+            )
+            
         self.retriever = self.vectorstore.as_retriever()
         
         # 如果启用混合检索，创建BM25检索器和集成检索器
