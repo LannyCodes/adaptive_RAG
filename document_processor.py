@@ -9,7 +9,7 @@ except ImportError:
     from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from langchain_community.document_loaders import WebBaseLoader
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import Milvus
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.retrievers import BM25Retriever
 
@@ -32,6 +32,9 @@ from config import (
     MILVUS_USER,
     MILVUS_PASSWORD,
     MILVUS_URI,
+    MILVUS_INDEX_TYPE,
+    MILVUS_INDEX_PARAMS,
+    MILVUS_SEARCH_PARAMS,
     # 查询扩展配置
     ENABLE_QUERY_EXPANSION,
     QUERY_EXPANSION_MODEL,
@@ -81,6 +84,29 @@ class CustomEnsembleRetriever:
                 doc.metadata["retriever_weight"] = self.weights[i]
                 all_results.append(doc)
         
+        return self._process_results(all_results)
+    
+    async def ainvoke(self, query):
+        """异步执行检索并合并结果"""
+        import asyncio
+        
+        # 并发获取各检索器的结果
+        # 注意：假设所有 retriever 都支持 ainvoke
+        tasks = [retriever.ainvoke(query) for retriever in self.retrievers]
+        results_list = await asyncio.gather(*tasks)
+        
+        all_results = []
+        for i, results in enumerate(results_list):
+            for doc in results:
+                # 添加检索器索引和权重信息
+                doc.metadata["retriever_index"] = i
+                doc.metadata["retriever_weight"] = self.weights[i]
+                all_results.append(doc)
+                
+        return self._process_results(all_results)
+
+    def _process_results(self, all_results):
+        """排序和去重处理"""
         # 根据权重排序并去重
         # 简单实现：先按检索器索引排序，再按权重排序
         all_results.sort(key=lambda x: (x.metadata["retriever_index"], -x.metadata["retriever_weight"]))
@@ -239,71 +265,86 @@ class DocumentProcessor:
         if persist_directory is None:
             import os
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            persist_directory = os.path.join(current_dir, 'chroma_db')
+            persist_directory = os.path.join(current_dir, 'milvus_data')
             os.makedirs(persist_directory, exist_ok=True)
-            print(f"💾 使用默认持久化目录: {persist_directory}")
+            # print(f"💾 使用默认持久化目录: {persist_directory}") # Milvus 不需要这个
         
-        if VECTOR_STORE_TYPE.lower() == "milvus":
-            try:
-                from langchain_community.vectorstores import Milvus
-                
-                # 准备连接参数
-                connection_args = {}
-                
-                # 优先使用 URI (支持 Milvus Lite 本地文件 或 Zilliz Cloud)
-                # 只要 MILVUS_URI 被设置（config中默认是 ./milvus_rag.db），且不是空字符串
-                if MILVUS_URI and len(MILVUS_URI.strip()) > 0:
-                    # 判断是本地文件还是云服务
-                    is_local_file = not (MILVUS_URI.startswith("http://") or MILVUS_URI.startswith("https://"))
-                    mode_name = "Lite (Local File)" if is_local_file else "Cloud (HTTP)"
-                    
-                    print(f"🔄 正在连接 Milvus {mode_name} ({MILVUS_URI})...")
-                    connection_args["uri"] = MILVUS_URI
-                    
-                    # 如果是云服务，通常需要 token (使用 password 字段作为 token)
-                    if not is_local_file and MILVUS_PASSWORD:
-                         connection_args["token"] = MILVUS_PASSWORD
-                else:
-                    # 传统的 Host/Port 连接
-                    print(f"🔄 正在连接 Milvus Server ({MILVUS_HOST}:{MILVUS_PORT})...")
-                    connection_args = {
-                        "host": MILVUS_HOST,
-                        "port": MILVUS_PORT,
-                        "user": MILVUS_USER,
-                        "password": MILVUS_PASSWORD
-                    }
-
-                self.vectorstore = Milvus.from_documents(
-                    documents=doc_splits,
-                    embedding=self.embeddings,
-                    collection_name=COLLECTION_NAME,
-                    connection_args=connection_args,
-                    drop_old=True  # 重新创建索引
-                )
-                print("✅ Milvus 向量数据库初始化成功")
-            except ImportError:
-                print("❌ 未安装 pymilvus，请运行: pip install pymilvus")
-                raise
-            except Exception as e:
-                print(f"❌ Milvus 连接失败: {e}")
-                print("⚠️ 回退到 Chroma 数据库...")
-                # Fallback to Chroma
-                self.vectorstore = Chroma.from_documents(
-                    documents=doc_splits,
-                    collection_name=COLLECTION_NAME,
-                    embedding=self.embeddings,
-                    persist_directory=persist_directory
-                )
-        else:
-            # Default: Chroma
-            self.vectorstore = Chroma.from_documents(
-                documents=doc_splits,
-                collection_name=COLLECTION_NAME,
-                embedding=self.embeddings,
-                persist_directory=persist_directory  # 添加持久化目录
-            )
+        # 强制使用 Milvus
+        try:
+            # 准备连接参数
+            connection_args = {}
             
-        self.retriever = self.vectorstore.as_retriever()
+            # 优先使用 URI (支持 Milvus Lite 本地文件 或 Zilliz Cloud)
+            # 只要 MILVUS_URI 被设置（config中默认是 ./milvus_rag.db），且不是空字符串
+            if MILVUS_URI and len(MILVUS_URI.strip()) > 0:
+                # 判断是本地文件还是云服务
+                is_local_file = not (MILVUS_URI.startswith("http://") or MILVUS_URI.startswith("https://"))
+                mode_name = "Lite (Local File)" if is_local_file else "Cloud (HTTP)"
+                
+                print(f"🔄 正在连接 Milvus {mode_name} ({MILVUS_URI})...")
+                connection_args["uri"] = MILVUS_URI
+                
+                # 如果是云服务，通常需要 token (使用 password 字段作为 token)
+                if not is_local_file and MILVUS_PASSWORD:
+                        connection_args["token"] = MILVUS_PASSWORD
+            else:
+                # 传统的 Host/Port 连接
+                print(f"🔄 正在连接 Milvus Server ({MILVUS_HOST}:{MILVUS_PORT})...")
+                connection_args = {
+                    "host": MILVUS_HOST,
+                    "port": MILVUS_PORT,
+                    "user": MILVUS_USER,
+                    "password": MILVUS_PASSWORD
+                }
+
+            # 添加元数据标签 (Metadata Filtering)
+            # 假设 doc_splits 中的文档根据来源或其他属性进行了分类
+            # 这里简单示例：如果文档有 'source_type' 元数据，可以利用它
+            # 实际应用中，你应该在 split_documents 阶段就给文档打好标签
+            for doc in doc_splits:
+                if 'source_type' not in doc.metadata:
+                    # 简单逻辑：根据内容判断是文本还是图像描述（如果是多模态）
+                    # 或者根据文件名后缀判断
+                    source = doc.metadata.get('source', '')
+                    if any(fmt in source.lower() for fmt in SUPPORTED_IMAGE_FORMATS):
+                        doc.metadata['data_type'] = 'image'
+                    else:
+                        doc.metadata['data_type'] = 'text'
+
+            self.vectorstore = Milvus.from_documents(
+                documents=doc_splits,
+                embedding=self.embeddings,
+                collection_name=COLLECTION_NAME,
+                connection_args=connection_args,
+                index_params={
+                    "metric_type": "L2",
+                    "index_type": MILVUS_INDEX_TYPE,
+                    "params": MILVUS_INDEX_PARAMS
+                },
+                search_params={
+                    "metric_type": "L2", 
+                    "params": MILVUS_SEARCH_PARAMS
+                },
+                drop_old=True  # 重新创建索引
+            )
+            print("✅ Milvus 向量数据库初始化成功")
+        except ImportError:
+            print("❌ 未安装 pymilvus，请运行: pip install pymilvus")
+            raise
+        except Exception as e:
+            print(f"❌ Milvus 连接失败: {e}")
+            raise # 不再回退到 Chroma
+            
+        # 配置检索器参数，应用元数据过滤
+        # 默认情况下不添加严格过滤，由上层逻辑决定
+        # 但如果只启用纯文本检索，可以默认只检索文本
+        retriever_kwargs = {}
+        # if ENABLE_MULTIMODAL:
+            # 针对文本检索，过滤出 data_type='text' 的数据
+            # 注意：这里注释掉是为了支持通过文本检索图像的场景
+            # retriever_kwargs["expr"] = "data_type == 'text'"
+            
+        self.retriever = self.vectorstore.as_retriever(search_kwargs=retriever_kwargs)
         
         # 如果启用混合检索，创建BM25检索器和集成检索器
         if ENABLE_HYBRID_SEARCH:
@@ -394,17 +435,48 @@ class DocumentProcessor:
             print(f"⚠️ 异步查询扩展失败: {e}")
             return [query]
 
-    async def async_hybrid_retrieve(self, query: str, top_k: int = 5) -> List:
-        """异步混合检索"""
+    async def async_hybrid_retrieve(self, query: str, top_k: int = 5, filter_type: str = "text") -> List:
+        """异步混合检索
+        
+        Args:
+            filter_type: 数据类型过滤，"text" (默认), "image", 或 "all" (不过滤)
+        """
+        # 构建搜索参数
+        search_kwargs = {}
+        if filter_type != "all" and ENABLE_MULTIMODAL:
+            search_kwargs["expr"] = f"data_type == '{filter_type}'"
+
         if not ENABLE_HYBRID_SEARCH or not self.ensemble_retriever:
+            # 纯向量检索，直接支持 search_kwargs
+            if self.vectorstore:
+                return await self.vectorstore.asimilarity_search(query, k=top_k, **search_kwargs)
             return await self.retriever.ainvoke(query)
             
         try:
+            # 混合检索
+            # 注意：目前 CustomEnsembleRetriever 的 invoke/ainvoke 尚未透传 search_kwargs
+            # 为了让混合检索也享受到过滤优化，我们需要修改 CustomEnsembleRetriever 或者在这里处理
+            # 鉴于 CustomEnsembleRetriever 比较简单，我们假设它主要用于文本
+            # 如果需要严格过滤，最好在 vectorstore 层面处理
+            
+            # 临时方案：如果是混合检索且需要过滤，我们可能需要传递给 retriever
+            # 但标准 retriever 接口不支持动态传参。
+            # 策略：如果 filter_type 是 text (默认)，且我们在 init 时已经设置了默认不严格过滤，
+            # 这里其实无法动态改变 retriever 的行为，除非我们重新生成一个 retriever 或者修改 retriever.search_kwargs
+            
+            # 动态修改 retriever 的 search_kwargs (这是 LangChain retriever 的特性)
+            if filter_type != "all" and ENABLE_MULTIMODAL:
+                self.retriever.search_kwargs["expr"] = f"data_type == '{filter_type}'"
+            else:
+                self.retriever.search_kwargs.pop("expr", None)
+                
             results = await self.ensemble_retriever.ainvoke(query)
             return results[:top_k]
         except Exception as e:
             print(f"⚠️ 异步混合检索失败: {e}")
             print("回退到向量检索")
+            if self.vectorstore:
+                return await self.vectorstore.asimilarity_search(query, k=top_k, **search_kwargs)
             return await self.retriever.ainvoke(query)
 
     async def async_enhanced_retrieve(self, query: str, top_k: int = 5, rerank_candidates: int = 20, 
@@ -431,11 +503,34 @@ class DocumentProcessor:
         # 混合检索或向量检索
         all_candidate_docs = []
         
+        # 决定过滤策略
+        # 默认情况下，如果只是文本查询，为了性能优化，我们只检索文本数据
+        # 如果提供了图像，或者用户显式要求，可以放开限制
+        filter_type = "text" # 默认只搜文本，实现百万级数据的性能优化
+        if image_paths:
+            filter_type = "all" # 跨模态时搜所有
+            
+        # 构建过滤表达式 (仅用于直接调用 vectorstore 的情况，async_hybrid_retrieve 内部已处理)
+        search_kwargs = {}
+        if filter_type != "all" and ENABLE_MULTIMODAL:
+             search_kwargs["expr"] = f"data_type == '{filter_type}'"
+
         async def retrieve_single(q):
             if ENABLE_HYBRID_SEARCH:
-                docs = await self.async_hybrid_retrieve(q, rerank_candidates)
+                # 使用支持动态过滤的 hybrid retrieve
+                 docs = await self.async_hybrid_retrieve(q, rerank_candidates, filter_type=filter_type)
             else:
-                docs = await self.retriever.ainvoke(q)
+                # 使用带有过滤条件的检索
+                if self.vectorstore:
+                    docs = await self.vectorstore.asimilarity_search(
+                        q, 
+                        k=rerank_candidates,
+                        **search_kwargs # 传入 expr
+                    )
+                else:
+                    # Fallback
+                    docs = await self.retriever.ainvoke(q)
+                
                 if len(docs) > rerank_candidates:
                     docs = docs[:rerank_candidates]
             return docs
@@ -534,15 +629,23 @@ class DocumentProcessor:
             # 如果多模态未启用，回退到文本检索
             return self.hybrid_retrieve(query, top_k) if ENABLE_HYBRID_SEARCH else self.retriever.invoke(query)[:top_k]
         
-        # 文本检索
-        text_docs = self.hybrid_retrieve(query, top_k) if ENABLE_HYBRID_SEARCH else self.retriever.invoke(query)[:top_k]
+        # 1. 文本查询 (Text-to-Text & Text-to-Image)
+        # 如果提供了文本查询，我们希望它能检索到文本和相关图像
+        # 此时不应该限制 data_type，或者应该显式包含两者
         
-        # 如果没有提供图像，直接返回文本检索结果
+        # 如果没有提供图像，这可能是一个纯文本查询，但也可能想搜图
+        # 这里我们让 self.retriever (或 hybrid) 负责所有模态的检索
+        # (前提是它们都在同一个向量空间，CLIP 可以做到这一点)
+        text_docs = []
+        if query:
+             text_docs = self.hybrid_retrieve(query, top_k) if ENABLE_HYBRID_SEARCH else self.retriever.invoke(query)[:top_k]
+        
+        # 如果没有提供图像输入，直接返回文本查询的结果
         if not image_paths:
             return text_docs
             
         try:
-            # 图像检索
+            # 2. 图像查询 (Image-to-Text & Image-to-Image)
             image_results = []
             for image_path in image_paths:
                 # 检查文件格式
@@ -554,13 +657,30 @@ class DocumentProcessor:
                 # 编码图像
                 image_embedding = self.encode_image(image_path)
                 
-                # 这里应该实现图像到文本的匹配逻辑
-                # 由于原始实现中没有图像数据库，我们简化处理
-                # 在实际应用中，应该有一个图像数据库和相应的检索逻辑
+                # 使用图像嵌入进行检索
+                if self.vectorstore:
+                    # 图像可以检索文本描述，也可以检索相似图像
+                    # 这里我们不做限制，检索所有类型
+                    img_docs = self.vectorstore.similarity_search_by_vector(
+                        embedding=image_embedding,
+                        k=top_k
+                    )
+                    image_results.extend(img_docs)
                 
-            # 合并文本和图像结果（简化版本）
-            # 在实际应用中，应该有更复杂的融合逻辑
-            final_docs = text_docs  # 简化版本，仅返回文本结果
+            # 合并文本查询结果和图像查询结果
+            # 简单合并并去重
+            all_docs = text_docs + image_results
+            
+            # 去重
+            unique_docs = []
+            seen_content = set()
+            for doc in all_docs:
+                content = doc.page_content
+                if content not in seen_content:
+                    seen_content.add(content)
+                    unique_docs.append(doc)
+            
+            final_docs = unique_docs[:top_k]
             
             print(f"✅ 多模态检索完成，返回 {len(final_docs)} 个结果")
             return final_docs
@@ -734,95 +854,12 @@ class DocumentProcessor:
 
 
 def initialize_document_processor():
-    """初始化文档处理器并设置知识库，支持持久化加载和去重"""
-    import os
-    import json
-    import hashlib
+    """初始化文档处理器并设置知识库"""
+    print("🚀 初始化文档处理器 (Milvus 版)...")
+    processor = DocumentProcessor()
     
-    # 设置持久化目录（相对路径）
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    persist_dir = os.path.join(current_dir, 'chroma_db')
-    metadata_file = os.path.join(current_dir, 'document_metadata.json')
-    
-    processor: DocumentProcessor = DocumentProcessor()
-    
-    # 加载已处理文档的元数据
-    processed_sources = set()
-    if os.path.exists(metadata_file):
-        try:
-            with open(metadata_file, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-                processed_sources = set(metadata.get('processed_sources', []))
-                print(f"📊 已加载元数据，发现 {len(processed_sources)} 个已处理的数据源")
-        except Exception as e:
-            print(f"⚠️  加载元数据失败: {e}")
-    
-    # 检查是否已存在持久化的向量数据库
-    if os.path.exists(persist_dir) and os.listdir(persist_dir):
-        print(f"✅ 检测到已存在的向量数据库: {persist_dir}")
-        print("📂 正在加载持久化的向量数据库...")
-        try:
-            # 加载已有的向量数据库
-            vectorstore = Chroma(
-                persist_directory=persist_dir,
-                embedding_function=processor.embeddings,
-                collection_name=COLLECTION_NAME
-            )
-            retriever = vectorstore.as_retriever()
-            
-            # 获取文档数量
-            doc_count = vectorstore._collection.count()
-            print(f"✅ 已加载持久化的向量数据库，共 {doc_count} 个文档块")
-            
-            # 设置processor的vectorstore和retriever
-            processor.vectorstore = vectorstore
-            processor.retriever = retriever
-            
-            # 检查是否需要添加新数据源
-            default_urls = set(KNOWLEDGE_BASE_URLS)
-            new_urls = default_urls - processed_sources
-            
-            if new_urls:
-                print(f"🆕 检测到 {len(new_urls)} 个新的数据源，正在添加...")
-                try:
-                    # 加载新数据源
-                    new_docs = processor.load_documents(list(new_urls))
-                    new_doc_splits = processor.split_documents(new_docs)
-                    
-                    # 添加到现有向量数据库
-                    vectorstore.add_documents(new_doc_splits)
-                    print(f"✅ 已添加 {len(new_doc_splits)} 个新文档块")
-                    
-                    # 更新元数据
-                    processed_sources.update(new_urls)
-                    with open(metadata_file, 'w', encoding='utf-8') as f:
-                        json.dump({'processed_sources': list(processed_sources)}, f, ensure_ascii=False, indent=2)
-                    
-                except Exception as e:
-                    print(f"⚠️  添加新数据源失败: {e}")
-            else:
-                print("✅ 所有默认数据源已处理，无需重复加载")
-            
-            # doc_splits 设置为 None，因为已经持久化了
-            doc_splits = None
-            
-            return processor, vectorstore, retriever, doc_splits
-            
-        except Exception as e:
-            print(f"⚠️  加载持久化向量数据库失败: {e}")
-            print("🔧 将重新创建向量数据库...")
-    
-    # 如果没有持久化数据或加载失败，创建新的
-    print("🔧 正在创建新的向量数据库...")
+    # 直接设置知识库
+    # Milvus 的连接和索引逻辑在 DocumentProcessor.create_vectorstore 中处理
     vectorstore, retriever, doc_splits = processor.setup_knowledge_base()
-    
-    # 保存元数据
-    try:
-        processed_sources.update(KNOWLEDGE_BASE_URLS)
-        with open(metadata_file, 'w', encoding='utf-8') as f:
-            json.dump({'processed_sources': list(processed_sources)}, f, ensure_ascii=False, indent=2)
-        print(f"✅ 元数据已保存到: {metadata_file}")
-    except Exception as e:
-        print(f"⚠️  保存元数据失败: {e}")
     
     return processor, vectorstore, retriever, doc_splits
