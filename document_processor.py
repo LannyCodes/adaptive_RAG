@@ -267,9 +267,19 @@ class DocumentProcessor:
             # 优先使用 URI
             if MILVUS_URI and len(MILVUS_URI.strip()) > 0:
                 is_local_file = not (MILVUS_URI.startswith("http://") or MILVUS_URI.startswith("https://"))
+                
+                real_uri = MILVUS_URI
+                if is_local_file:
+                    import os
+                    # Milvus Lite requires absolute path in some versions/environments
+                    if not os.path.isabs(real_uri):
+                        real_uri = os.path.abspath(real_uri)
+                        print(f"📂 将相对路径转换为绝对路径: {real_uri}")
+                
                 mode_name = "Lite (Local File)" if is_local_file else "Cloud (HTTP)"
-                print(f"🔄 正在连接 Milvus {mode_name} ({MILVUS_URI})...")
-                connection_args["uri"] = MILVUS_URI
+                print(f"🔄 正在连接 Milvus {mode_name} ({real_uri})...")
+                connection_args["uri"] = real_uri
+                
                 if not is_local_file and MILVUS_PASSWORD:
                         connection_args["token"] = MILVUS_PASSWORD
             else:
