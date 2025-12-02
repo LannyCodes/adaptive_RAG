@@ -322,6 +322,22 @@ class DocumentProcessor:
                     "password": MILVUS_PASSWORD
                 }
 
+            # 显式建立全局连接 (修复 ConnectionNotExistException)
+            try:
+                from pymilvus import connections
+                print(f"🔌 尝试建立 pymilvus 全局连接 (Alias: default)...")
+                # 移除旧连接（如果存在）以防参数变更
+                if connections.has_connection("default"):
+                    connections.disconnect("default")
+                
+                connections.connect(alias="default", **connection_args)
+                print("✅ pymilvus 全局连接建立成功")
+            except ImportError:
+                print("⚠️ 未找到 pymilvus 库，跳过显式连接")
+            except Exception as e:
+                print(f"⚠️ 显式连接尝试失败: {e}")
+                # 继续尝试，也许 LangChain 内部能处理
+
             # 初始化 Milvus 连接 (不删除旧数据)
             self.vectorstore = Milvus(
                 embedding_function=self.embeddings,
