@@ -61,7 +61,7 @@ CHUNK_OVERLAP = 50  # 添加重叠以保持上下文连贯性，提升检索准�
 
 # 向量数据库配置
 VECTOR_STORE_TYPE = "milvus"  # 强制使用 Milvus
-COLLECTION_NAME = "rag-milvus"
+COLLECTION_NAME = "rag_milvus"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # HuggingFace嵌入模型
 
 # Milvus 配置 (仅当 VECTOR_STORE_TYPE="milvus" 时生效)
