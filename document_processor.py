@@ -324,7 +324,7 @@ class DocumentProcessor:
 
             # 显式建立全局连接 (修复 ConnectionNotExistException)
             try:
-                from pymilvus import connections
+                from pymilvus import connections, utility
                 print(f"🔌 尝试建立 pymilvus 全局连接 (Alias: default)...")
                 # 移除旧连接（如果存在）以防参数变更
                 if connections.has_connection("default"):
@@ -332,6 +332,13 @@ class DocumentProcessor:
                 
                 connections.connect(alias="default", **connection_args)
                 print("✅ pymilvus 全局连接建立成功")
+                
+                # 检查集合是否存在 (提前检查，避免 LangChain 内部出错)
+                if utility.has_collection(COLLECTION_NAME, using="default"):
+                    print(f"✅ 集合 {COLLECTION_NAME} 已存在")
+                else:
+                    print(f"ℹ️ 集合 {COLLECTION_NAME} 不存在，将由 Milvus 类自动创建")
+                    
             except ImportError:
                 print("⚠️ 未找到 pymilvus 库，跳过显式连接")
             except Exception as e:
@@ -339,10 +346,13 @@ class DocumentProcessor:
                 # 继续尝试，也许 LangChain 内部能处理
 
             # 初始化 Milvus 连接 (不删除旧数据)
+            # 注意：由于我们已经手动建立了全局连接 'default'，
+            # 这里我们将 connection_args 简化为仅指向该 alias，
+            # 避免 LangChain 再次尝试连接或因参数问题覆盖连接。
             self.vectorstore = Milvus(
                 embedding_function=self.embeddings,
                 collection_name=COLLECTION_NAME,
-                connection_args=connection_args,
+                connection_args={"alias": "default"}, # ✅ 复用已建立的连接
                 index_params={
                     "metric_type": "L2",
                     "index_type": MILVUS_INDEX_TYPE,
