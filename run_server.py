@@ -12,9 +12,13 @@ import re
 import shutil
 
 def install_ngrok():
-    """安装 pyngrok"""
-    print("🔧 正在安装 pyngrok...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyngrok"])
+    """安装 pyngrok 和 cloudflared"""
+    print("🔧 正在安装 Web 穿透工具...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyngrok", "cloudflared"])
+        print("✅ 穿透工具安装完成")
+    except Exception as e:
+        print(f"⚠️ 安装穿透工具失败: {e}")
 
 def run_server():
     """在后台运行服务器"""
@@ -95,6 +99,13 @@ if __name__ == "__main__":
         import pyngrok
     except ImportError:
         install_ngrok()
+        
+    # 检查 cloudflared 是否存在，如果不存在尝试安装
+    if not shutil.which("cloudflared"):
+        try:
+            __import__("cloudflared")
+        except ImportError:
+            install_ngrok()
 
     # 2. 启动 FastAPI
     server_thread = threading.Thread(target=run_server)

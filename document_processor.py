@@ -288,6 +288,7 @@ class DocumentProcessor:
         try:
             # 准备连接参数
             connection_args = {}
+            is_local_file = False
             
             # 优先使用 URI
             if MILVUS_URI and len(MILVUS_URI.strip()) > 0:
@@ -345,6 +346,16 @@ class DocumentProcessor:
                 print(f"⚠️ 显式连接尝试失败: {e}")
                 # 继续尝试，也许 LangChain 内部能处理
 
+            # 确定索引类型
+            # Milvus Lite (本地模式) 仅支持 FLAT, IVF_FLAT, AUTOINDEX，不支持 HNSW
+            final_index_type = MILVUS_INDEX_TYPE
+            final_index_params = MILVUS_INDEX_PARAMS
+            
+            if is_local_file and MILVUS_INDEX_TYPE == "HNSW":
+                print("⚠️ 检测到 Milvus Lite (本地模式)，HNSW 索引不受支持，自动切换为 AUTOINDEX")
+                final_index_type = "AUTOINDEX"
+                final_index_params = {} # AUTOINDEX 不需要复杂参数
+
             # 初始化 Milvus 连接 (不删除旧数据)
             # 注意：由于我们已经手动建立了全局连接 'default'，
             # 这里我们将 connection_args 简化为仅指向该 alias，
@@ -355,8 +366,8 @@ class DocumentProcessor:
                 connection_args={"alias": "default"}, # ✅ 复用已建立的连接
                 index_params={
                     "metric_type": "L2",
-                    "index_type": MILVUS_INDEX_TYPE,
-                    "params": MILVUS_INDEX_PARAMS
+                    "index_type": final_index_type,
+                    "params": final_index_params
                 },
                 search_params={
                     "metric_type": "L2", 
