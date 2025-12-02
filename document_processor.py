@@ -252,43 +252,27 @@ class DocumentProcessor:
         print(f"文档分割完成，共 {len(doc_splits)} 个文档块")
         return doc_splits
     
-    def create_vectorstore(self, doc_splits, persist_directory=None):
-        """创建向量数据库
-        
-        Args:
-            doc_splits: 文档块列表
-            persist_directory: 持久化目录（可选）
-        """
-        print("正在创建向量数据库...")
-        
-        # 如果没有指定持久化目录，使用默认相对路径
-        if persist_directory is None:
-            import os
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            persist_directory = os.path.join(current_dir, 'milvus_data')
-            os.makedirs(persist_directory, exist_ok=True)
-            # print(f"💾 使用默认持久化目录: {persist_directory}") # Milvus 不需要这个
+    def initialize_vectorstore(self):
+        """初始化向量数据库连接"""
+        if self.vectorstore:
+            return
+
+        print("正在连接向量数据库...")
         
         # 强制使用 Milvus
         try:
             # 准备连接参数
             connection_args = {}
             
-            # 优先使用 URI (支持 Milvus Lite 本地文件 或 Zilliz Cloud)
-            # 只要 MILVUS_URI 被设置（config中默认是 ./milvus_rag.db），且不是空字符串
+            # 优先使用 URI
             if MILVUS_URI and len(MILVUS_URI.strip()) > 0:
-                # 判断是本地文件还是云服务
                 is_local_file = not (MILVUS_URI.startswith("http://") or MILVUS_URI.startswith("https://"))
                 mode_name = "Lite (Local File)" if is_local_file else "Cloud (HTTP)"
-                
                 print(f"🔄 正在连接 Milvus {mode_name} ({MILVUS_URI})...")
                 connection_args["uri"] = MILVUS_URI
-                
-                # 如果是云服务，通常需要 token (使用 password 字段作为 token)
                 if not is_local_file and MILVUS_PASSWORD:
                         connection_args["token"] = MILVUS_PASSWORD
             else:
-                # 传统的 Host/Port 连接
                 print(f"🔄 正在连接 Milvus Server ({MILVUS_HOST}:{MILVUS_PORT})...")
                 connection_args = {
                     "host": MILVUS_HOST,
@@ -297,23 +281,9 @@ class DocumentProcessor:
                     "password": MILVUS_PASSWORD
                 }
 
-            # 添加元数据标签 (Metadata Filtering)
-            # 假设 doc_splits 中的文档根据来源或其他属性进行了分类
-            # 这里简单示例：如果文档有 'source_type' 元数据，可以利用它
-            # 实际应用中，你应该在 split_documents 阶段就给文档打好标签
-            for doc in doc_splits:
-                if 'source_type' not in doc.metadata:
-                    # 简单逻辑：根据内容判断是文本还是图像描述（如果是多模态）
-                    # 或者根据文件名后缀判断
-                    source = doc.metadata.get('source', '')
-                    if any(fmt in source.lower() for fmt in SUPPORTED_IMAGE_FORMATS):
-                        doc.metadata['data_type'] = 'image'
-                    else:
-                        doc.metadata['data_type'] = 'text'
-
-            self.vectorstore = Milvus.from_documents(
-                documents=doc_splits,
-                embedding=self.embeddings,
+            # 初始化 Milvus 连接 (不删除旧数据)
+            self.vectorstore = Milvus(
+                embedding_function=self.embeddings,
                 collection_name=COLLECTION_NAME,
                 connection_args=connection_args,
                 index_params={
@@ -325,51 +295,93 @@ class DocumentProcessor:
                     "metric_type": "L2", 
                     "params": MILVUS_SEARCH_PARAMS
                 },
-                drop_old=True  # 重新创建索引
+                drop_old=False,  # ✅ 持久化关键：不删除旧索引
+                auto_id=True
             )
-            print("✅ Milvus 向量数据库初始化成功")
+            print("✅ Milvus 向量数据库连接成功")
         except ImportError:
             print("❌ 未安装 pymilvus，请运行: pip install pymilvus")
             raise
         except Exception as e:
             print(f"❌ Milvus 连接失败: {e}")
-            raise # 不再回退到 Chroma
-            
-        # 配置检索器参数，应用元数据过滤
-        # 默认情况下不添加严格过滤，由上层逻辑决定
-        # 但如果只启用纯文本检索，可以默认只检索文本
+            raise
+
+        # 配置检索器
         retriever_kwargs = {}
         # if ENABLE_MULTIMODAL:
-            # 针对文本检索，过滤出 data_type='text' 的数据
-            # 注意：这里注释掉是为了支持通过文本检索图像的场景
             # retriever_kwargs["expr"] = "data_type == 'text'"
-            
         self.retriever = self.vectorstore.as_retriever(search_kwargs=retriever_kwargs)
+
+    def check_existing_urls(self, urls: List[str]) -> set:
+        """检查哪些URL已经存在于向量库中"""
+        if not self.vectorstore:
+            return set()
+            
+        existing = set()
+        print("正在检查已存在的文档...")
+        try:
+            # 尝试通过检索来检查
+            # 注意：这里假设 source 字段可以作为过滤条件
+            for url in urls:
+                # 使用 similarity_search 但带有严格过滤，且只取1条
+                # 这里的 query 没关系，主要看 filter
+                try:
+                    # 注意：Milvus 的 expr 语法
+                    expr = f'source == "{url}"'
+                    res = self.vectorstore.similarity_search(
+                        "test", 
+                        k=1, 
+                        expr=expr
+                    )
+                    if res:
+                        existing.add(url)
+                except Exception as e:
+                    # 如果失败，可能是 schema 问题，尝试 metadata 字段
+                    try:
+                        expr = f'metadata["source"] == "{url}"'
+                        res = self.vectorstore.similarity_search(
+                            "test", 
+                            k=1, 
+                            expr=expr
+                        )
+                        if res:
+                            existing.add(url)
+                    except:
+                        pass
+                        
+            print(f"✅ 发现 {len(existing)} 个已存在的 URL")
+        except Exception as e:
+            print(f"⚠️ 检查现有URL失败: {e}")
+            
+        return existing
+
+    def add_documents_to_vectorstore(self, doc_splits):
+        """添加文档到向量库"""
+        if not doc_splits:
+            return
+
+        print(f"正在添加 {len(doc_splits)} 个文档块到向量数据库...")
+        if not self.vectorstore:
+            self.initialize_vectorstore()
+            
+        # 添加元数据
+        for doc in doc_splits:
+            if 'source_type' not in doc.metadata:
+                source = doc.metadata.get('source', '')
+                if any(fmt in source.lower() for fmt in SUPPORTED_IMAGE_FORMATS):
+                    doc.metadata['data_type'] = 'image'
+                else:
+                    doc.metadata['data_type'] = 'text'
+
+        self.vectorstore.add_documents(doc_splits)
+        print("✅ 文档添加完成")
         
-        # 如果启用混合检索，创建BM25检索器和集成检索器
-        if ENABLE_HYBRID_SEARCH:
-            print("正在初始化混合检索...")
-            try:
-                # 创建BM25检索器
-                self.bm25_retriever = BM25Retriever.from_documents(
-                    doc_splits, 
-                    k=KEYWORD_SEARCH_K,
-                    k1=BM25_K1,
-                    b=BM25_B
-                )
-                
-                # 创建集成检索器，结合向量检索和BM25检索
-                self.ensemble_retriever = CustomEnsembleRetriever(
-                    retrievers=[self.retriever, self.bm25_retriever],
-                    weights=[HYBRID_SEARCH_WEIGHTS["vector"], HYBRID_SEARCH_WEIGHTS["keyword"]]
-                )
-                print("✅ 混合检索初始化成功")
-            except Exception as e:
-                print(f"⚠️ 混合检索初始化失败: {e}")
-                print("⚠️ 将仅使用向量检索")
-                self.ensemble_retriever = None
-        
-        print(f"✅ 向量数据库创建完成并持久化到: {persist_directory}")
+    def create_vectorstore(self, doc_splits, persist_directory=None):
+        """(已弃用) 兼容旧接口，但使用新逻辑"""
+        print("⚠️ create_vectorstore 已弃用，请使用 initialize_vectorstore 和 add_documents_to_vectorstore")
+        self.initialize_vectorstore()
+        if doc_splits:
+            self.add_documents_to_vectorstore(doc_splits)
         return self.vectorstore, self.retriever
 
     def get_all_documents_from_vectorstore(self, limit: Optional[int] = None) -> List[Document]:
@@ -402,12 +414,63 @@ class DocumentProcessor:
         Returns:
             vectorstore, retriever, doc_splits
         """
-        docs = self.load_documents(urls)
-        doc_splits = self.split_documents(docs)
-        vectorstore, retriever = self.create_vectorstore(doc_splits)
+        if urls is None:
+            urls = KNOWLEDGE_BASE_URLS
+            
+        # 1. 初始化向量库连接
+        self.initialize_vectorstore()
         
-        # 返回doc_splits用于GraphRAG索引
-        return vectorstore, retriever, doc_splits
+        # 2. 检查已存在的 URL (去重)
+        existing_urls = self.check_existing_urls(urls)
+        new_urls = [url for url in urls if url not in existing_urls]
+        
+        doc_splits = []
+        if new_urls:
+            print(f"🔄 发现 {len(new_urls)} 个新 URL，开始处理...")
+            docs = self.load_documents(new_urls)
+            doc_splits = self.split_documents(docs)
+            self.add_documents_to_vectorstore(doc_splits)
+        else:
+            print("✅ 所有 URL 已存在，跳过文档加载和向量化")
+            
+        # 3. 初始化混合检索 (BM25)
+        if ENABLE_HYBRID_SEARCH:
+            print("正在初始化混合检索 (BM25)...")
+            try:
+                bm25_docs = []
+                # 如果有旧数据且这次没有加载全部数据，必须从 DB 加载所有文档以重建 BM25
+                # 注意：如果只有新文档，BM25 只会包含新文档，这是不对的。
+                # 只要有 existing_urls，说明库里有旧数据。
+                if len(existing_urls) > 0:
+                    print("🔄 正在从向量库加载所有文档以重建 BM25 索引...")
+                    # 注意：这里假设内存够大
+                    all_docs = self.get_all_documents_from_vectorstore()
+                    bm25_docs = all_docs
+                else:
+                    # 全新构建
+                    bm25_docs = doc_splits
+                
+                if bm25_docs:
+                    self.bm25_retriever = BM25Retriever.from_documents(
+                        bm25_docs, 
+                        k=KEYWORD_SEARCH_K,
+                        k1=BM25_K1,
+                        b=BM25_B
+                    )
+                    
+                    self.ensemble_retriever = CustomEnsembleRetriever(
+                        retrievers=[self.retriever, self.bm25_retriever],
+                        weights=[HYBRID_SEARCH_WEIGHTS["vector"], HYBRID_SEARCH_WEIGHTS["keyword"]]
+                    )
+                    print("✅ 混合检索初始化成功")
+                else:
+                    print("⚠️ 没有文档用于初始化 BM25")
+            except Exception as e:
+                print(f"⚠️ 混合检索初始化失败: {e}")
+                self.ensemble_retriever = None
+        
+        # 返回 doc_splits用于GraphRAG索引 (注意：这里只返回了新增的)
+        return self.vectorstore, self.retriever, doc_splits
     
     async def async_expand_query(self, query: str) -> List[str]:
         """异步扩展查询"""
