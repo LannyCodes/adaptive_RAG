@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-环境配置和运行脚本
-简化版：只负责配置环境和运行 main_graphrag.py
+知识图谱检索启动脚本
+负责配置环境并运行 main_graphrag.py
 
 使用方法:
-python colab_setup_and_run.py
+python run_graphrag.py
 """
 
 import os
@@ -12,7 +12,7 @@ import sys
 import subprocess
 
 print("="*60)
-print("🚀 GraphRAG 环境配置和运行")
+print("🚀 启动知识图谱检索 (GraphRAG)")
 print("="*60)
 
 # ============================================================
