@@ -7,9 +7,7 @@ try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 except ImportError:
     from langchain.text_splitter import RecursiveCharacterTextSplitter
-
 from langchain_community.document_loaders import WebBaseLoader
-
 # 尝试导入 langchain_milvus，如果失败则回退到 langchain_community 并应用补丁
 try:
     from langchain_milvus import MilvusVectorStore as Milvus
@@ -284,97 +282,82 @@ class DocumentProcessor:
 
         print("正在连接向量数据库...")
         
-        # 强制使用 Milvus
         try:
-            # 准备连接参数
-            connection_args = {}
+            connection_args: Dict[str, Any] = {}
             is_local_file = False
-            
-            # 优先使用 URI
+
             if MILVUS_URI and len(MILVUS_URI.strip()) > 0:
                 is_local_file = not (MILVUS_URI.startswith("http://") or MILVUS_URI.startswith("https://"))
-                
                 real_uri = MILVUS_URI
+
                 if is_local_file:
                     import os
-                    # Milvus Lite requires absolute path in some versions/environments
                     if not os.path.isabs(real_uri):
                         real_uri = os.path.abspath(real_uri)
                         print(f"📂 将相对路径转换为绝对路径: {real_uri}")
-                    
-                    # 确保父目录存在
+
                     parent_dir = os.path.dirname(real_uri)
                     if parent_dir and not os.path.exists(parent_dir):
                         print(f"📂 创建 Milvus 存储目录: {parent_dir}")
                         os.makedirs(parent_dir, exist_ok=True)
-                
+
                 mode_name = "Lite (Local File)" if is_local_file else "Cloud (HTTP)"
                 print(f"🔄 正在连接 Milvus {mode_name} ({real_uri})...")
                 connection_args["uri"] = real_uri
-                
+
                 if not is_local_file and MILVUS_PASSWORD:
-                        connection_args["token"] = MILVUS_PASSWORD
+                    connection_args["token"] = MILVUS_PASSWORD
             else:
                 print(f"🔄 正在连接 Milvus Server ({MILVUS_HOST}:{MILVUS_PORT})...")
                 connection_args = {
                     "host": MILVUS_HOST,
                     "port": MILVUS_PORT,
                     "user": MILVUS_USER,
-                    "password": MILVUS_PASSWORD
+                    "password": MILVUS_PASSWORD,
                 }
 
-            # 显式建立全局连接 (修复 ConnectionNotExistException)
             try:
                 from pymilvus import connections, utility
-                print(f"🔌 尝试建立 pymilvus 全局连接 (Alias: default)...")
-                # 移除旧连接（如果存在）以防参数变更
+
+                print("🔌 尝试建立 pymilvus 全局连接 (Alias: default)...")
                 if connections.has_connection("default"):
                     connections.disconnect("default")
-                
+
                 connections.connect(alias="default", **connection_args)
                 print("✅ pymilvus 全局连接建立成功")
-                
-                # 检查集合是否存在 (提前检查，避免 LangChain 内部出错)
+
                 if utility.has_collection(COLLECTION_NAME, using="default"):
                     print(f"✅ 集合 {COLLECTION_NAME} 已存在")
                 else:
                     print(f"ℹ️ 集合 {COLLECTION_NAME} 不存在，将由 Milvus 类自动创建")
-                    
             except ImportError:
                 print("⚠️ 未找到 pymilvus 库，跳过显式连接")
             except Exception as e:
                 print(f"⚠️ 显式连接尝试失败: {e}")
-                # 继续尝试，也许 LangChain 内部能处理
 
-            # 确定索引类型
-            # Milvus Lite (本地模式) 仅支持 FLAT, IVF_FLAT, AUTOINDEX，不支持 HNSW
             final_index_type = MILVUS_INDEX_TYPE
             final_index_params = MILVUS_INDEX_PARAMS
-            
+
             if is_local_file and MILVUS_INDEX_TYPE == "HNSW":
                 print("⚠️ 检测到 Milvus Lite (本地模式)，HNSW 索引不受支持，自动切换为 AUTOINDEX")
                 final_index_type = "AUTOINDEX"
-                final_index_params = {} # AUTOINDEX 不需要复杂参数
+                final_index_params = {}
 
-            # 初始化 Milvus 连接 (不删除旧数据)
-            # 注意：由于我们已经手动建立了全局连接 'default'，
-            # 这里我们将 connection_args 简化为仅指向该 alias，
-            # 避免 LangChain 再次尝试连接或因参数问题覆盖连接。
             self.vectorstore = Milvus(
                 embedding_function=self.embeddings,
                 collection_name=COLLECTION_NAME,
-                connection_args={"alias": "default"}, # ✅ 复用已建立的连接
+                connection_args={"alias": "default"},
                 index_params={
                     "metric_type": "L2",
                     "index_type": final_index_type,
-                    "params": final_index_params
+                    "params": final_index_params,
                 },
                 search_params={
-                    "metric_type": "L2", 
-                    "params": MILVUS_SEARCH_PARAMS
+                    "metric_type": "L2",
+                    "params": MILVUS_SEARCH_PARAMS,
                 },
-                drop_old=False,  # ✅ 持久化关键：不删除旧索引
-                auto_id=True
+                drop_old=False,
+                auto_id=True,
             )
             print("✅ Milvus 向量数据库连接成功")
         except ImportError:
@@ -384,10 +367,7 @@ class DocumentProcessor:
             print(f"❌ Milvus 连接失败: {e}")
             raise
 
-        # 配置检索器
-        retriever_kwargs = {}
-        # if ENABLE_MULTIMODAL:
-            # retriever_kwargs["expr"] = "data_type == 'text'"
+        retriever_kwargs: Dict[str, Any] = {}
         self.retriever = self.vectorstore.as_retriever(search_kwargs=retriever_kwargs)
 
     def check_existing_urls(self, urls: List[str]) -> set:
