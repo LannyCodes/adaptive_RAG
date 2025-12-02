@@ -275,6 +275,12 @@ class DocumentProcessor:
                     if not os.path.isabs(real_uri):
                         real_uri = os.path.abspath(real_uri)
                         print(f"📂 将相对路径转换为绝对路径: {real_uri}")
+                    
+                    # 确保父目录存在
+                    parent_dir = os.path.dirname(real_uri)
+                    if parent_dir and not os.path.exists(parent_dir):
+                        print(f"📂 创建 Milvus 存储目录: {parent_dir}")
+                        os.makedirs(parent_dir, exist_ok=True)
                 
                 mode_name = "Lite (Local File)" if is_local_file else "Cloud (HTTP)"
                 print(f"🔄 正在连接 Milvus {mode_name} ({real_uri})...")
