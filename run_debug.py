@@ -77,16 +77,25 @@ def run_all_in_one():
                     print("🎉 成功建立隧道！")
                     print(f"👉 公网访问地址: {url_match.group(0)}")
                     print("="*60 + "\n")
-                    # 找到链接后，我们继续保持运行，不退出
+                    # 找到链接后，我们不仅不退出，还要跳出读取循环进入纯等待模式
+                    # 否则继续读取可能会阻塞或读到 EOF 导致退出
+                    break
             
             # 检查服务器是否还在运行
             if server_process.poll() is not None:
                 print("❌ 警告：服务器进程意外退出！")
                 break
         
-        # 循环结束后（通常是因为管道关闭），如果没报错，就保持主线程存活
-        print("ℹ️ 隧道日志流已结束，正在挂起主线程以保持服务运行...")
+        # 循环结束后，保持主线程存活
+        print("ℹ️ 服务已就绪，主线程进入保活模式 (按 Stop 停止)...")
         while True:
+            # 持续监控子进程状态
+            if server_process.poll() is not None:
+                print("❌ 警告：服务器进程意外退出！")
+                break
+            if tunnel_process.poll() is not None:
+                print("❌ 警告：隧道进程意外退出！")
+                break
             time.sleep(1)
                 
     except KeyboardInterrupt:
