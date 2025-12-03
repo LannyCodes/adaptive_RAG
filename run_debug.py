@@ -50,10 +50,11 @@ def run_all_in_one():
         subprocess.run("wget -q -O cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x cloudflared", shell=True)
 
     print("\n🌐 启动 Cloudflare 隧道...")
+    # 注意：cloudflared 默认把日志输出到 stderr，而不是 stdout
     tunnel_process = subprocess.Popen(
         ["./cloudflared", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"],
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.STDOUT, # 将 stderr 合并到 stdout
         text=True,
         bufsize=1
     )
