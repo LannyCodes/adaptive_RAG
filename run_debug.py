@@ -83,6 +83,11 @@ def run_all_in_one():
             if server_process.poll() is not None:
                 print("❌ 警告：服务器进程意外退出！")
                 break
+        
+        # 循环结束后（通常是因为管道关闭），如果没报错，就保持主线程存活
+        print("ℹ️ 隧道日志流已结束，正在挂起主线程以保持服务运行...")
+        while True:
+            time.sleep(1)
                 
     except KeyboardInterrupt:
         print("正在停止服务...")
