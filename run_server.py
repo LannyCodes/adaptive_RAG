@@ -11,14 +11,38 @@ import threading
 import re
 import shutil
 
-def install_ngrok():
-    """安装 pyngrok 和 cloudflared"""
+def install_ngrok(max_retries: int = 3):
+    """安装 pyngrok 和 cloudflared（使用国内镜像，失败自动重试）"""
     print("🔧 正在安装 Web 穿透工具...")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyngrok", "cloudflared"])
-        print("✅ 穿透工具安装完成")
-    except Exception as e:
-        print(f"⚠️ 安装穿透工具失败: {e}")
+    mirrors = [
+        "https://pypi.tuna.tsinghua.edu.cn/simple",
+        "https://mirrors.aliyun.com/pypi/simple",
+        None,  # 退回默认源
+    ]
+    for attempt in range(1, max_retries + 1):
+        mirror = mirrors[min(attempt - 1, len(mirrors) - 1)]
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-cache-dir",
+            "--default-timeout",
+            "120",
+        ]
+        if mirror:
+            cmd.extend(["-i", mirror])
+        cmd.extend(["pyngrok", "cloudflared"])
+        try:
+            print(f"⏳ 第 {attempt} 次安装，使用源: {mirror or '默认 PyPI'}")
+            subprocess.check_call(cmd)
+            print("✅ 穿透工具安装完成")
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️ 安装失败: {e}")
+            time.sleep(5)
+    print("❌ 多次尝试后仍无法安装 pyngrok/cloudflared")
+    return False
 
 def run_server():
     """在后台运行服务器"""
