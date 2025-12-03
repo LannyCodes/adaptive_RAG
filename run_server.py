@@ -78,8 +78,17 @@ def start_ngrok():
 def start_cloudflared():
     try:
         cmd = None
+        # 1. 检查系统路径
         if shutil.which("cloudflared"):
             cmd = ["cloudflared", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"]
+        # 2. 检查当前目录
+        elif os.path.exists("./cloudflared"):
+            cmd = ["./cloudflared", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"]
+            # 确保有执行权限
+            try:
+                os.chmod("./cloudflared", 0o755)
+            except:
+                pass
         else:
             # 如果找不到 cloudflared 二进制，尝试通过 pip 安装的 cloudflared 运行
             # 注意：cloudflared 的 pip 包可能不直接暴露 cloudflared 命令
