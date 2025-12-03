@@ -152,8 +152,25 @@ if __name__ == "__main__":
     server_thread.daemon = True
     server_thread.start()
     
-    # 等待服务器启动
-    time.sleep(3)
+    # 等待服务器启动 (循环检查端口)
+    print("⏳ 等待服务器启动...")
+    import socket
+    def wait_for_port(port, host='127.0.0.1', timeout=60):
+        start_time = time.time()
+        while True:
+            try:
+                with socket.create_connection((host, port), timeout=1):
+                    print(f"✅ 服务器已在 {host}:{port} 就绪")
+                    return True
+            except (OSError, ConnectionRefusedError):
+                if time.time() - start_time > timeout:
+                    print(f"❌ 服务器启动超时 ({timeout}s)")
+                    return False
+                time.sleep(1)
+
+    if not wait_for_port(8000):
+        print("❌ 服务器未能成功启动，请检查日志")
+        sys.exit(1)
     
     use_tunnel = os.environ.get("USE_TUNNEL", "true").lower() == "true"
     if use_tunnel:
