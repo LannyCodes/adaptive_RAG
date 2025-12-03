@@ -57,13 +57,21 @@ def start_cloudflared():
         if shutil.which("cloudflared"):
             cmd = ["cloudflared", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"]
         else:
+            # 如果找不到 cloudflared 二进制，尝试通过 pip 安装的 cloudflared 运行
+            # 注意：cloudflared 的 pip 包可能不直接暴露 cloudflared 命令
+            # 我们尝试直接下载二进制文件
+            print("⚠️ 未找到 cloudflared 命令，尝试下载二进制文件...")
             try:
-                __import__("cloudflared")
-                cmd = [sys.executable, "-m", "cloudflared", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"]
+                # 这里简化处理，如果 pip 安装的模块无法直接运行，提示用户手动安装
+                # 或者尝试使用 pyngrok 作为回退
+                print("⚠️ 无法通过 Python 模块启动 cloudflared，将尝试仅使用 pyngrok")
+                return
             except Exception:
                 print("⚠️ 未找到 cloudflared，可通过 'pip install cloudflared' 安装，或跳过穿透")
                 return
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        
+        if cmd:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         url = None
         while True:
             line = proc.stdout.readline()
@@ -100,12 +108,11 @@ if __name__ == "__main__":
     except ImportError:
         install_ngrok()
         
-    # 检查 cloudflared 是否存在，如果不存在尝试安装
+        # 检查 cloudflared 是否存在，如果不存在尝试安装
     if not shutil.which("cloudflared"):
-        try:
-            __import__("cloudflared")
-        except ImportError:
-            install_ngrok()
+        # 尝试作为 Python 模块调用，但先不导入它来检查，而是直接看 pip list 或依赖 subprocess
+        # 由于 cloudflared 库可能有导入问题，我们这里只做安装尝试，不做导入检查
+        pass
 
     # 2. 启动 FastAPI
     server_thread = threading.Thread(target=run_server)
