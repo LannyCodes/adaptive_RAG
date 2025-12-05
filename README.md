@@ -1,3 +1,13 @@
+---
+title: Adaptive RAG
+emoji: 🤖
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+app_port: 7860
+---
+
 # 自适应RAG系统 - 技术总结文档
 
 ## 📋 项目概述
