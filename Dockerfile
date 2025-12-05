@@ -1,15 +1,20 @@
 # 使用 Python 3.11 作为基础镜像
 FROM python:3.11-slim
 
+# 设置非交互式前端，防止 apt-get 卡住或报错
+ENV DEBIAN_FRONTEND=noninteractive
+
 # 设置工作目录
 WORKDIR /app
 
 # 安装系统依赖
 # curl: 下载 Ollama
-# build-essential: 编译某些 Python 库可能需要
+# build-essential: 编译依赖
+# procps: 提供 ps 命令用于调试
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Ollama
