@@ -24,24 +24,32 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 创建启动脚本
-# 1. 启动 Ollama 服务后台运行
-# 2. 下载需要的模型 (这里用 tinyllama 以便快速演示，你可以改为 mistral 或 llama3)
-# 3. 启动 FastAPI 应用 (Hugging Face Spaces 要求监听 7860 端口)
+# 优化策略：
+# 1. 设置 OLLAMA_MODELS 环境变量到用户目录
+# 2. 启动 Ollama
+# 3. 后台拉取模型 (不阻塞服务器启动)
+# 4. 启动 FastAPI (尽快监听端口以通过健康检查)
 RUN echo '#!/bin/bash\n\
+export OLLAMA_MODELS=/home/user/.ollama/models\n\
+\n\
 echo "🔴 Starting Ollama..."\n\
 ollama serve &\n\
+\n\
 echo "⏳ Waiting for Ollama to start..."\n\
 sleep 5\n\
-echo "⬇️  Pulling model..."\n\
-ollama pull tinyllama\n\
+\n\
+echo "⬇️  Pulling model in background..."\n\
+ollama pull tinyllama &\n\
+\n\
 echo "🟢 Starting FastAPI Server..."\n\
 uvicorn server:app --host 0.0.0.0 --port 7860\n\
 ' > start.sh && chmod +x start.sh
 
 # 创建非 root 用户 (Hugging Face 安全要求)
 RUN useradd -m -u 1000 user
-# 给用户 Ollama 目录的权限
-RUN mkdir -p /.ollama && chmod 777 /.ollama
+
+# 确保目录存在并赋予权限
+RUN mkdir -p /home/user/.ollama/models && chown -R user:user /home/user/.ollama
 RUN mkdir -p /app && chown -R user:user /app
 
 # 切换用户
@@ -50,6 +58,7 @@ USER user
 # 设置环境变量
 ENV HOME=/home/user
 ENV PATH=$HOME/.local/bin:$PATH
+ENV OLLAMA_MODELS=$HOME/.ollama/models
 
 # 暴露端口 (Hugging Face 默认端口)
 EXPOSE 7860
