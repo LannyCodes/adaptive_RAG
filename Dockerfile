@@ -74,9 +74,10 @@ USER user
 ENV HOME=/home/user
 ENV PATH=$HOME/.local/bin:$PATH
 ENV OLLAMA_MODELS=$HOME/.ollama/models
+ENV OLLAMA_HOST=127.0.0.1:11434
 
 # 暴露端口 (Hugging Face 默认端口)
 EXPOSE 7860
 
-# 启动命令
-CMD ["./start.sh"]
+# 启动命令：使用绝对路径并显式调用 bash，确保能执行
+CMD ["/bin/bash", "/app/start.sh"]
