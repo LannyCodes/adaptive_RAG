@@ -101,3 +101,4 @@ target/
 # 特定于本项目的忽略
 data/knowledge_graph.json
 ollama_models.tar.gz
+chroma_db/
