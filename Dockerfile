@@ -1,83 +1,49 @@
 # 使用 Python 3.11 作为基础镜像
 FROM python:3.11-slim
 
-# 设置非交互式前端，防止 apt-get 卡住或报错
+# 设置非交互式前端
 ENV DEBIAN_FRONTEND=noninteractive
 
 # 设置工作目录
 WORKDIR /app
 
-# 安装系统依赖
-# curl: 下载 Ollama
-# build-essential: 编译依赖
-# procps: 提供 ps 命令用于调试
+# 1. 只安装最基础的系统依赖 (去掉了 curl 和 build-essential 以加快构建)
 RUN apt-get update && apt-get install -y \
-    curl \
-    build-essential \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
+# 2. 暂时跳过 Ollama 安装 (先验证 Python 环境)
+# RUN curl -fsSL https://ollama.com/install.sh | sh
 
-# 复制依赖文件并安装
+# 3. 安装 Python 依赖
 COPY requirements.txt .
-# 稍微放宽版本限制以避免安装失败
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制项目文件
+# 4. 复制项目文件
 COPY . .
 
-# 创建启动脚本
-# 优化策略：
-# 1. 显式设置 OLLAMA_HOST 为本地
-# 2. 增加日志输出
+# 5. 创建极简启动脚本 (只启动 FastAPI)
 RUN echo '#!/bin/bash\n\
-export OLLAMA_MODELS=/home/user/.ollama/models\n\
-export OLLAMA_HOST=127.0.0.1:11434\n\
+echo "🚀 Starting FastAPI ONLY (Debug Mode)..."\n\
+export DISABLE_OLLAMA=true\n\
 \n\
-echo "🚀 Starting application..."\n\
-\n\
-# 先启动 FastAPI，确保端口被监听，防止 Space 认为启动失败\n\
-# 使用 nohup 后台运行 FastAPI\n\
-echo "🟢 Starting FastAPI Server..."\n\
-nohup uvicorn server:app --host 0.0.0.0 --port 7860 > server.log 2>&1 &\n\
-PID=$!\n\
-echo "✅ FastAPI started with PID $PID"\n\
-\n\
-# 启动 Ollama\n\
-echo "🔴 Starting Ollama..."\n\
-ollama serve > ollama.log 2>&1 &\n\
-\n\
-# 等待一会\n\
-sleep 5\n\
-\n\
-# 尝试拉取模型 (如果失败也不要让容器崩溃)\n\
-echo "⬇️  Pulling model..."\n\
-ollama pull tinyllama || echo "⚠️ Model pull failed, but continuing..."\n\
-\n\
-# 保持主进程运行，并监控日志\n\
-tail -f server.log ollama.log\n\
+# 启动 FastAPI\n\
+# --workers 1 限制进程数，节省内存\n\
+uvicorn server:app --host 0.0.0.0 --port 7860 --workers 1\n\
 ' > start.sh && chmod +x start.sh
 
-# 创建非 root 用户 (Hugging Face 安全要求)
+# 创建非 root 用户
 RUN useradd -m -u 1000 user
-
-# 确保目录存在并赋予权限
-RUN mkdir -p /home/user/.ollama/models && chown -R user:user /home/user/.ollama
 RUN mkdir -p /app && chown -R user:user /app
 
 # 切换用户
 USER user
 
-# 设置环境变量
 ENV HOME=/home/user
 ENV PATH=$HOME/.local/bin:$PATH
-ENV OLLAMA_MODELS=$HOME/.ollama/models
-ENV OLLAMA_HOST=127.0.0.1:11434
 
-# 暴露端口 (Hugging Face 默认端口)
+# 暴露端口
 EXPOSE 7860
 
-# 启动命令：使用绝对路径并显式调用 bash，确保能执行
-CMD ["/bin/bash", "/app/start.sh"]
+# 启动命令
+CMD ["/app/start.sh"]
