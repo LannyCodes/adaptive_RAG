@@ -25,24 +25,34 @@ COPY . .
 
 # 创建启动脚本
 # 优化策略：
-# 1. 设置 OLLAMA_MODELS 环境变量到用户目录
-# 2. 启动 Ollama
-# 3. 后台拉取模型 (不阻塞服务器启动)
-# 4. 启动 FastAPI (尽快监听端口以通过健康检查)
+# 1. 显式设置 OLLAMA_HOST 为本地
+# 2. 增加日志输出
 RUN echo '#!/bin/bash\n\
 export OLLAMA_MODELS=/home/user/.ollama/models\n\
+export OLLAMA_HOST=127.0.0.1:11434\n\
 \n\
+echo "🚀 Starting application..."\n\
+\n\
+# 先启动 FastAPI，确保端口被监听，防止 Space 认为启动失败\n\
+# 使用 nohup 后台运行 FastAPI\n\
+echo "🟢 Starting FastAPI Server..."\n\
+nohup uvicorn server:app --host 0.0.0.0 --port 7860 > server.log 2>&1 &\n\
+PID=$!\n\
+echo "✅ FastAPI started with PID $PID"\n\
+\n\
+# 启动 Ollama\n\
 echo "🔴 Starting Ollama..."\n\
-ollama serve &\n\
+ollama serve > ollama.log 2>&1 &\n\
 \n\
-echo "⏳ Waiting for Ollama to start..."\n\
+# 等待一会\n\
 sleep 5\n\
 \n\
-echo "⬇️  Pulling model in background..."\n\
-ollama pull tinyllama &\n\
+# 尝试拉取模型 (如果失败也不要让容器崩溃)\n\
+echo "⬇️  Pulling model..."\n\
+ollama pull tinyllama || echo "⚠️ Model pull failed, but continuing..."\n\
 \n\
-echo "🟢 Starting FastAPI Server..."\n\
-uvicorn server:app --host 0.0.0.0 --port 7860\n\
+# 保持主进程运行，并监控日志\n\
+tail -f server.log ollama.log\n\
 ' > start.sh && chmod +x start.sh
 
 # 创建非 root 用户 (Hugging Face 安全要求)
