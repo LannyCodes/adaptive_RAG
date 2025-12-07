@@ -1,11 +1,12 @@
 ---
-title: Adaptive RAG
-emoji: 🐢
+title: Adaptive RAG System
+emoji: 🤖
 colorFrom: blue
 colorTo: indigo
 sdk: docker
 pinned: false
-app_port: 7860
+license: mit
+short_description: A RAG system deployed with Docker
 ---
 
 # 自适应RAG系统 - 技术总结文档
