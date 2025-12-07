@@ -52,6 +52,5 @@ ENV OLLAMA_HOST=127.0.0.1:11434
 EXPOSE 7860
 
 # 启动命令
-# ModelScope 可能覆盖了 CMD，或者对 CMD 格式有特殊要求
-# 我们尝试使用 ENTRYPOINT，它的优先级比 CMD 高
-ENTRYPOINT ["python", "run.py"]
+# 使用 app.py 作为标准入口，增加兼容性
+CMD ["python", "app.py"]
