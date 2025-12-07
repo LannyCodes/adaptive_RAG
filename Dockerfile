@@ -34,6 +34,10 @@ COPY . .
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
+# 复制 entrypoint 脚本
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # 创建非 root 用户
 RUN useradd -m -u 1000 user
 
@@ -49,10 +53,6 @@ RUN mkdir -p /app && chown -R user:user /app
 
 # 切换用户
 USER user
-
-# 复制启动脚本
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
 
 # 暴露端口
 EXPOSE 7860
