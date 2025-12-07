@@ -48,9 +48,15 @@ ENV PATH=$HOME/.local/bin:$PATH
 ENV OLLAMA_MODELS=$HOME/.ollama/models
 ENV OLLAMA_HOST=127.0.0.1:11434
 
+# 复制启动脚本
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # 暴露端口
 EXPOSE 7860
 
 # 启动命令
-# 使用 app.py 作为标准入口，增加兼容性
-CMD ["python", "app.py"]
+# 使用 ENTRYPOINT 确保脚本被执行
+ENTRYPOINT ["/app/entrypoint.sh"]
+# CMD 作为参数传递给 ENTRYPOINT（如果有的话），这里留空或作为备用
+CMD []
