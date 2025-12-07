@@ -52,4 +52,4 @@ ENV OLLAMA_HOST=127.0.0.1:11434
 EXPOSE 7860
 
 # 启动命令
-CMD ["python", "run.py"]
+CMD ["/bin/bash", "-c", "echo '✅ Container started successfully' && echo '📂 Current Directory:' && pwd && echo '📄 File List:' && ls -la && echo '🚀 Executing run.py...' && python run.py"]
