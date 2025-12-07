@@ -52,4 +52,6 @@ ENV OLLAMA_HOST=127.0.0.1:11434
 EXPOSE 7860
 
 # 启动命令
-CMD ["/bin/bash", "-c", "echo '✅ Container started successfully' && echo '📂 Current Directory:' && pwd && echo '📄 File List:' && ls -la && echo '🚀 Executing run.py...' && python run.py"]
+# ModelScope 可能覆盖了 CMD，或者对 CMD 格式有特殊要求
+# 我们尝试使用 ENTRYPOINT，它的优先级比 CMD 高
+ENTRYPOINT ["python", "run.py"]
