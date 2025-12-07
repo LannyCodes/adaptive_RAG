@@ -87,9 +87,6 @@ MILVUS_SEARCH_PARAMS = {"ef": 10}
 # 搜索配置
 WEB_SEARCH_RESULTS_COUNT = 3
 
-# 快速模式配置 (针对 CPU 环境优化)
-FAST_MODE = os.environ.get("FAST_MODE", "false").lower() == "true"  # 有 GPU 时默认关闭快速模式，启用完整流程
-
 # GraphRAG配置
 ENABLE_GRAPHRAG = os.environ.get("ENABLE_GRAPH_RAG", "true").lower() == "true"  # 默认开启
 GRAPHRAG_INDEX_PATH = "./data/knowledge_graph.json"  # 图谱索引保存路径
