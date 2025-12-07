@@ -28,33 +28,9 @@ RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com
 # 复制项目文件
 COPY . .
 
-# 创建启动脚本
-# 1. 显式设置 OLLAMA_HOST 为本地
-# 2. 增加日志输出
-# 3. 增加重试机制
-RUN echo '#!/bin/bash\n\
-export OLLAMA_MODELS=/home/user/.ollama/models\n\
-export OLLAMA_HOST=127.0.0.1:11434\n\
-\n\
-echo "🚀 Starting application on ModelScope..."\n\
-\n\
-# 启动 Ollama\n\
-echo "🔴 Starting Ollama..."\n\
-ollama serve > ollama.log 2>&1 &\n\
-\n\
-echo "⏳ Waiting for Ollama to start..."\n\
-sleep 5\n\
-\n\
-# 尝试拉取模型
-echo "⬇️  Pulling model (qwen2:1.5b)..."
-# 在后台拉取，不阻塞服务启动
-(ollama pull qwen2:1.5b && echo "✅ Model pulled successfully") || echo "⚠️ Model pull failed" &\n\
-\n\
-# 启动 FastAPI\n\
-echo "🟢 Starting FastAPI Server..."\n\
-# 绑定 0.0.0.0:7860\n\
-uvicorn server:app --host 0.0.0.0 --port 7860\n\
-' > start.sh && chmod +x start.sh
+# 复制启动脚本
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 # 创建非 root 用户
 RUN useradd -m -u 1000 user
