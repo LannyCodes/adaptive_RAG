@@ -82,11 +82,15 @@ async def list_files():
     except Exception as e:
         output += f"Error listing /app: {str(e)}"
         
-    output += "\n\n--- /root/.ollama Directory ---\n"
+    # 动态获取模型目录
+    user_home = os.environ.get("HOME", "/root")
+    models_dir = os.path.join(user_home, ".ollama")
+    
+    output += f"\n\n--- {models_dir} Directory ---\n"
     try:
-        output += subprocess.check_output(["ls", "-R", "/root/.ollama"], text=True, stderr=subprocess.STDOUT)
+        output += subprocess.check_output(["ls", "-R", models_dir], text=True, stderr=subprocess.STDOUT)
     except Exception as e:
-        output += f"Error listing /root/.ollama: {str(e)}"
+        output += f"Error listing {models_dir}: {str(e)}"
     
     return output
 

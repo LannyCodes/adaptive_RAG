@@ -13,7 +13,9 @@ echo "🐍 Python Version: $(python --version)"
 
 # 设置环境变量
 export PYTHONUNBUFFERED=1
-export OLLAMA_MODELS="/root/.ollama/models"
+# 适配非 root 用户路径
+export OLLAMA_MODELS="$HOME/.ollama/models"
+
 
 # 检查文件是否存在
 if [ -f "app.py" ]; then

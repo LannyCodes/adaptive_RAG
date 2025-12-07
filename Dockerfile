@@ -34,19 +34,21 @@ COPY . .
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
-# 暂时移除 USER 切换，使用 root 用户以排除权限问题
-# RUN useradd -m -u 1000 user
-# RUN mkdir -p /home/user/.ollama/models && chown -R user:user /home/user/.ollama
-# RUN mkdir -p /app && chown -R user:user /app
+# 创建非 root 用户
+RUN useradd -m -u 1000 user
 
-# 切换用户
-# USER user
-
-# 设置环境变量 (Root 用户)
-ENV HOME=/root
+# 设置环境变量 (USER 用户)
+ENV HOME=/home/user
 ENV PATH=$HOME/.local/bin:$PATH
 ENV OLLAMA_MODELS=$HOME/.ollama/models
 ENV OLLAMA_HOST=127.0.0.1:11434
+
+# 创建必要目录并设置权限
+RUN mkdir -p $OLLAMA_MODELS && chown -R user:user $HOME/.ollama
+RUN mkdir -p /app && chown -R user:user /app
+
+# 切换用户
+USER user
 
 # 复制启动脚本
 COPY entrypoint.sh /app/entrypoint.sh

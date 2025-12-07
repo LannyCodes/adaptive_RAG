@@ -20,12 +20,15 @@ def main():
     log("🚀 App started. Initializing environment...")
 
     # 1. 设置环境变量
-    # 确保使用 root 目录
-    os.environ["OLLAMA_MODELS"] = "/root/.ollama/models"
+    # 动态获取 HOME 目录，适配 root 或 user 用户
+    user_home = os.environ.get("HOME", "/root")
+    ollama_models_dir = os.path.join(user_home, ".ollama/models")
+    
+    os.environ["OLLAMA_MODELS"] = ollama_models_dir
     os.environ["OLLAMA_HOST"] = "127.0.0.1:11434"
     
     # 确保目录存在
-    os.makedirs("/root/.ollama/models", exist_ok=True)
+    os.makedirs(ollama_models_dir, exist_ok=True)
 
     # 2. 启动 Ollama
     log("🔴 Starting Ollama...")
