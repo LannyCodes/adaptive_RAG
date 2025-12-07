@@ -3,6 +3,8 @@ FROM python:3.11-slim
 
 # 设置非交互式前端
 ENV DEBIAN_FRONTEND=noninteractive
+# 确保 Python 输出无缓冲，直接显示在日志中
+ENV PYTHONUNBUFFERED=1
 
 # 设置工作目录
 WORKDIR /app
