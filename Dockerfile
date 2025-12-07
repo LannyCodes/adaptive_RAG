@@ -50,4 +50,4 @@ ENV OLLAMA_HOST=127.0.0.1:11434
 EXPOSE 7860
 
 # 启动命令
-CMD ["/bin/bash", "-c", "/app/start.sh"]
+CMD ["python", "run.py"]
