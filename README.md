@@ -5,7 +5,7 @@ colorFrom: blue
 colorTo: indigo
 sdk: docker
 pinned: false
-license: mit
+license: Apache License 2.0
 short_description: A RAG system deployed with Docker
 ---
 
