@@ -14,8 +14,9 @@ python server.py
 import os
 import sys
 import uvicorn
+import subprocess
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -48,6 +49,48 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- 调试路由 (Added for ModelScope troubleshooting) ---
+
+@app.get("/debug/logs", response_class=PlainTextResponse)
+async def get_debug_logs():
+    """直接在网页查看运行日志"""
+    log_files = ["server.log", "ollama.log", "startup.log"]
+    content = ""
+    for log_file in log_files:
+        if os.path.exists(log_file):
+            content += f"\n{'='*20} {log_file} {'='*20}\n"
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content += f.read()
+            except Exception as e:
+                content += f"Error reading file: {e}\n"
+        else:
+            content += f"\n{'='*20} {log_file} (Not Found) {'='*20}\n"
+    
+    if not content.strip():
+        content = "No log files found. The application might be starting up or logs are redirected to stdout only."
+    
+    return content
+
+@app.get("/debug/files", response_class=PlainTextResponse)
+async def list_files():
+    """查看文件系统，确认模型是否下载"""
+    output = "--- /app Directory ---\n"
+    try:
+        output += subprocess.check_output(["ls", "-R", "/app"], text=True, stderr=subprocess.STDOUT)
+    except Exception as e:
+        output += f"Error listing /app: {str(e)}"
+        
+    output += "\n\n--- /root/.ollama Directory ---\n"
+    try:
+        output += subprocess.check_output(["ls", "-R", "/root/.ollama"], text=True, stderr=subprocess.STDOUT)
+    except Exception as e:
+        output += f"Error listing /root/.ollama: {str(e)}"
+    
+    return output
+
+# --- 结束调试路由 ---
 
 # 全局 RAG 系统实例
 rag_system = None

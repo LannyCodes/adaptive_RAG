@@ -6,7 +6,18 @@ import threading
 
 def main():
     # 强制刷新 stdout
-    print("🚀 Starting application via Python Runner (Direct Logging Mode)...", flush=True)
+    print("🚀 Starting application via Python Runner (Dual Logging Mode)...", flush=True)
+
+    # 打开日志文件
+    server_log = open("server.log", "w")
+    
+    # 重定向 stdout/stderr 到文件，同时保留 stdout (使用 tee 很难在 python 内部做，所以我们手动写)
+    def log(message):
+        print(message, flush=True)
+        server_log.write(message + "\n")
+        server_log.flush()
+
+    log("🚀 App started. Initializing environment...")
 
     # 1. 设置环境变量
     # 确保使用 root 目录
@@ -17,43 +28,47 @@ def main():
     os.makedirs("/root/.ollama/models", exist_ok=True)
 
     # 2. 启动 Ollama
-    print("🔴 Starting Ollama...", flush=True)
-    # 不使用 PIPE，直接继承父进程的 stdout/stderr，确保日志直接输出到 Docker
+    log("🔴 Starting Ollama...")
+    # 将 Ollama 的输出重定向到文件
     ollama_process = subprocess.Popen(
-        ["ollama", "serve"]
+        ["ollama", "serve"],
+        stdout=server_log,
+        stderr=server_log
     )
     
     # 等待 Ollama 启动
-    print("⏳ Waiting for Ollama to initialize (5s)...", flush=True)
+    log("⏳ Waiting for Ollama to initialize (5s)...")
     time.sleep(5)
 
     # 3. 后台拉取模型 (不阻塞主线程)
     def pull_model():
-        print("⬇️  Starting background model pull (qwen2:1.5b)...", flush=True)
+        log("⬇️  Starting background model pull (qwen2:1.5b)...")
         try:
-            # 直接调用，让 ollama 自己打印进度到 stdout
-            subprocess.run(["ollama", "pull", "qwen2:1.5b"], check=False)
-            print("✅ Model pull process finished.", flush=True)
+            # 同样重定向输出
+            subprocess.run(["ollama", "pull", "qwen2:1.5b"], stdout=server_log, stderr=server_log, check=False)
+            log("✅ Model pull process finished.")
         except Exception as e:
-            print(f"⚠️ Exception during model pull: {e}", flush=True)
+            log(f"⚠️ Exception during model pull: {e}")
 
     threading.Thread(target=pull_model, daemon=True).start()
 
     # 4. 启动 FastAPI (Uvicorn)
-    print("🟢 Starting FastAPI Server...", flush=True)
-    # 直接继承 stdout/stderr
+    log("🟢 Starting FastAPI Server...")
+    # Uvicorn 输出也写入日志文件
     uvicorn_process = subprocess.Popen(
-        ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7860"]
+        ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7860"],
+        stdout=server_log,
+        stderr=server_log
     )
 
     # 5. 监控进程
     while True:
         if ollama_process.poll() is not None:
-            print("❌ Ollama process exited unexpectedly!", flush=True)
+            log("❌ Ollama process exited unexpectedly!")
             sys.exit(1)
         
         if uvicorn_process.poll() is not None:
-            print("❌ Uvicorn process exited unexpectedly!", flush=True)
+            log("❌ Uvicorn process exited unexpectedly!")
             sys.exit(1)
             
         time.sleep(1)
