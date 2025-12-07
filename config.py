@@ -46,7 +46,8 @@ def setup_environment():
 #   - "phi" (1.6GB) - 平衡选择，速度较快
 #   - "tinyllama" (600MB) - 最快，质量稍低
 #   - "qwen:0.5b" (350MB) - 极小模型，速度极快
-LOCAL_LLM = "mistral"  # 在Kaggle中可改为 "phi" 或 "tinyllama"
+#   - "qwen2:1.5b" (934MB) - 推荐：速度快且质量优秀 (ModelScope GPU 环境默认)
+LOCAL_LLM = "qwen2:1.5b"  # 默认使用 qwen2:1.5b
 
 # 知识库URL配置
 KNOWLEDGE_BASE_URLS = [
@@ -86,8 +87,11 @@ MILVUS_SEARCH_PARAMS = {"ef": 10}
 # 搜索配置
 WEB_SEARCH_RESULTS_COUNT = 3
 
+# 快速模式配置 (针对 CPU 环境优化)
+FAST_MODE = os.environ.get("FAST_MODE", "false").lower() == "true"  # 有 GPU 时默认关闭快速模式，启用完整流程
+
 # GraphRAG配置
-ENABLE_GRAPHRAG = os.environ.get("ENABLE_GRAPH_RAG", "true").lower() == "true"  # 是否启用GraphRAG功能
+ENABLE_GRAPHRAG = os.environ.get("ENABLE_GRAPH_RAG", "true").lower() == "true"  # 默认开启
 GRAPHRAG_INDEX_PATH = "./data/knowledge_graph.json"  # 图谱索引保存路径
 
 # 确保数据目录存在
@@ -104,14 +108,14 @@ GRAPH_VISUALIZATION = os.environ.get("GRAPH_VISUALIZATION", "true").lower() == "
 GRAPH_LAYOUT = os.environ.get("GRAPH_LAYOUT", "spring")
 
 # 混合检索策略配置
-ENABLE_HYBRID_SEARCH = os.environ.get("ENABLE_HYBRID_SEARCH", "true").lower() == "true"  # 是否启用混合检索策略
+ENABLE_HYBRID_SEARCH = os.environ.get("ENABLE_HYBRID_SEARCH", "true").lower() == "true"  # 默认开启
 HYBRID_SEARCH_WEIGHTS = {"vector": 0.5, "keyword": 0.5}  # 向量检索和关键词检索的权重
 KEYWORD_SEARCH_K = 5  # 关键词检索返回的文档数量
 BM25_K1 = float(os.environ.get("BM25_K1", "1.5"))  # BM25算法的k1参数
 BM25_B = float(os.environ.get("BM25_B", "0.75"))  # BM25算法的b参数
 
 # 查询扩展优化配置
-ENABLE_QUERY_EXPANSION = os.environ.get("ENABLE_QUERY_EXPANSION", "true").lower() == "true"  # 是否启用查询扩展
+ENABLE_QUERY_EXPANSION = os.environ.get("ENABLE_QUERY_EXPANSION", "true").lower() == "true"  # 默认开启
 QUERY_EXPANSION_MODEL = os.environ.get("QUERY_EXPANSION_MODEL", "mistral")  # 用于查询扩展的模型
 QUERY_EXPANSION_PROMPT = """请为以下查询生成3-5个相关的扩展查询，这些查询应该从不同角度探索原始查询的主题。
 原始查询: {query}
@@ -119,7 +123,7 @@ QUERY_EXPANSION_PROMPT = """请为以下查询生成3-5个相关的扩展查询�
 MAX_EXPANDED_QUERIES = int(os.environ.get("QUERY_EXPANSION_TOP_K", "5"))  # 最多使用的扩展查询数量
 
 # 多模态支持配置
-ENABLE_MULTIMODAL = os.environ.get("ENABLE_MULTIMODAL", "true").lower() == "true"  # 是否启用多模态支持
+ENABLE_MULTIMODAL = os.environ.get("ENABLE_MULTIMODAL", "true").lower() == "true"  # 默认开启
 MULTIMODAL_IMAGE_MODEL = os.environ.get("MULTIMODAL_IMAGE_MODEL", "openai/clip-vit-base-patch32")  # 图像嵌入模型
 SUPPORTED_IMAGE_FORMATS = ["jpg", "jpeg", "png", "gif", "bmp"]  # 支持的图像格式
 IMAGE_EMBEDDING_DIM = 512  # 图像嵌入维度

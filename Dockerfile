@@ -45,10 +45,10 @@ ollama serve > ollama.log 2>&1 &\n\
 echo "⏳ Waiting for Ollama to start..."\n\
 sleep 5\n\
 \n\
-# 尝试拉取模型\n\
-echo "⬇️  Pulling model (tinyllama)..."\n\
-# 在后台拉取，不阻塞服务启动\n\
-(ollama pull tinyllama && echo "✅ Model pulled successfully") || echo "⚠️ Model pull failed" &\n\
+# 尝试拉取模型
+echo "⬇️  Pulling model (qwen2:1.5b)..."
+# 在后台拉取，不阻塞服务启动
+(ollama pull qwen2:1.5b && echo "✅ Model pulled successfully") || echo "⚠️ Model pull failed" &\n\
 \n\
 # 启动 FastAPI\n\
 echo "🟢 Starting FastAPI Server..."\n\
