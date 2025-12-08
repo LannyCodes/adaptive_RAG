@@ -1,15 +1,23 @@
 #!/bin/bash
+# 强制显示每一行命令，便于调试
+set -x
 # 遇到错误不退出，确保能打印尽可能多的日志
 set +e
 
 echo "=================================================="
 echo "🚀 ENTRYPOINT SCRIPT STARTED AT $(date)"
+echo "Force Log Refresh: $(date +%s)"
 echo "=================================================="
 
-# 显示环境信息
+# 显示详细环境信息 (调试用)
 echo "📂 Current Directory: $(pwd)"
+ls -la
 echo "👤 Current User: $(whoami)"
+id
 echo "🐍 Python Version: $(python --version)"
+echo "💾 Disk Usage:"
+df -h
+
 
 # 设置环境变量
 export PYTHONUNBUFFERED=1

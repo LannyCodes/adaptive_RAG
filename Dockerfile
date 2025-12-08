@@ -38,6 +38,9 @@ RUN chmod +x /app/start.sh
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+# 强制重建缓存 (修改此时间戳以触发后续步骤的重新构建)
+ENV BUILD_REFRESH_DATE=2025-12-08_02
+
 # 创建非 root 用户
 RUN useradd -m -u 1000 user
 

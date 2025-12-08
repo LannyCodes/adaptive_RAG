@@ -9,13 +9,30 @@ def main():
     print("🚀 Starting application via Python Runner (Dual Logging Mode)...", flush=True)
 
     # 打开日志文件
-    server_log = open("server.log", "w")
-    
-    # 重定向 stdout/stderr 到文件，同时保留 stdout (使用 tee 很难在 python 内部做，所以我们手动写)
+    server_log = None
+    try:
+        # 尝试在当前目录写日志
+        server_log = open("server.log", "w")
+    except PermissionError:
+        print("⚠️ Warning: Cannot write to server.log (Permission denied). Switching to /tmp/server.log", flush=True)
+        try:
+            server_log = open("/tmp/server.log", "w")
+        except Exception as e:
+            print(f"⚠️ Warning: Cannot write to /tmp/server.log either ({e}). Logging to stdout only.", flush=True)
+            server_log = sys.stdout # Fallback to stdout
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to open server.log ({e}). Logging to stdout only.", flush=True)
+        server_log = sys.stdout
+
+    # 重定向 stdout/stderr 到文件，同时保留 stdout
     def log(message):
         print(message, flush=True)
-        server_log.write(message + "\n")
-        server_log.flush()
+        if server_log and server_log is not sys.stdout:
+            try:
+                server_log.write(message + "\n")
+                server_log.flush()
+            except Exception:
+                pass # Ignore write errors
 
     log("🚀 App started. Initializing environment...")
 
