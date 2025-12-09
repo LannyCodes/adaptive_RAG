@@ -600,30 +600,3 @@ short_description: A RAG system deployed with Docker
 ## 📝 总结
 本项目实现了一个功能完整、技术先进的自适应RAG系统，涵盖了从文档处理、向量化、检索、重排序、生成到质量保证的完整技术栈。系统采用了多种先进技术，包括混合检索、多跳检索、专业幻觉检测、查询优化等，确保了高质量、高准确率的答案生成。
 =======
-# 详细文档见https://modelscope.cn/docs/%E5%88%9B%E7%A9%BA%E9%97%B4%E5%8D%A1%E7%89%87
-domain: #领域：cv/nlp/audio/multi-modal/AutoML
-# - cv
-tags: #自定义标签
--
-datasets: #关联数据集
-  evaluation:
-  #- iic/ICDAR13_HCTR_Dataset
-  test:
-  #- iic/MTWI
-  train:
-  #- iic/SIBR
-models: #关联模型
-#- iic/ofa_ocr-recognition_general_base_zh
-
-## 启动文件(若SDK为Gradio/Streamlit，默认为app.py, 若为Static HTML, 默认为index.html)
-# deployspec:
-#   entry_file: app.py
-license: Apache License 2.0
----
-#### Clone with HTTP
-```bash
- git clone https://www.modelscope.cn/studios/Lannyxu/adaptive_rag.git
-```
-
-=======
-本项目实现了一个功能完整、技术先进的自适应RAG系统，涵盖了从文档处理、向量化、检索、重排序、生成到质量保证的完整技术栈。系统采用了多种先进技术，包括混合检索、多跳检索、专业幻觉检测、查询优化等，确保了高质量、高准确率的答案生成。 
