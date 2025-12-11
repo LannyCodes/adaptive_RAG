@@ -96,18 +96,89 @@ class CustomEnsembleRetriever:
         self.weights = weights
         
     def invoke(self, query):
-        """执行检索并合并结果"""
-        # 获取各检索器的结果
+        """执行检索并加权合并结果，支持相邻块合并"""
         all_results = []
-        for i, retriever in enumerate(self.retrievers):
-            results = retriever.invoke(query)
-            for doc in results:
-                # 添加检索器索引和权重信息
-                doc.metadata["retriever_index"] = i
-                doc.metadata["retriever_weight"] = self.weights[i]
-                all_results.append(doc)
         
-        return self._process_results(all_results)
+        # 1. 执行各个检索器
+        for i, retriever in enumerate(self.retrievers):
+            try:
+                docs = retriever.invoke(query)
+                weight = self.weights[i]
+                for doc in docs:
+                    # 将权重注入 metadata，方便后续排序
+                    doc.metadata["retriever_weight"] = weight
+                    doc.metadata["retriever_index"] = i
+                    all_results.append(doc)
+            except Exception as e:
+                print(f"⚠️ Retriever {i} failed: {e}")
+
+        # 2. 预处理：去重和初步排序
+        unique_docs = self._process_results(all_results)
+        
+        # 3. 关键步骤：合并相邻的文本块 (Context Merging)
+        # 如果 doc A 和 doc B 来自同一个文件，且索引号相邻，说明它们是连续的段落
+        # 这一步能有效解决 "步骤1在Chunk1, 步骤2在Chunk2" 导致信息断裂的问题
+        merged_docs = self._merge_adjacent_chunks(unique_docs)
+        
+        return merged_docs
+
+    def _merge_adjacent_chunks(self, docs):
+        """合并来自同一文档的相邻分块"""
+        if not docs:
+            return []
+            
+        # 按 (source, start_index) 排序，以便发现相邻块
+        # 假设 metadata 中有 'source' 和 'start_index' (这通常由 TextSplitter 添加)
+        # 如果没有 start_index，则尝试用内容重叠度判断（这里简化处理）
+        
+        # 为了安全，先检查 metadata 是否有必要字段
+        docs_with_meta = []
+        for doc in docs:
+            # 如果没有 start_index，尝试用 page_content 的哈希或简单顺序作为替补
+            if "start_index" not in doc.metadata:
+                doc.metadata["start_index"] = 0 
+            docs_with_meta.append(doc)
+            
+        # 按源文件和起始位置排序
+        sorted_docs = sorted(docs_with_meta, key=lambda x: (x.metadata.get("source", ""), x.metadata.get("start_index", 0)))
+        
+        merged = []
+        current_doc = None
+        
+        for doc in sorted_docs:
+            if current_doc is None:
+                current_doc = doc
+                continue
+                
+            # 判断是否相邻：
+            # 1. 同源
+            # 2. 当前doc的开始位置 <= 上一个doc的结束位置 + 容差 (比如 200 chars)
+            is_same_source = current_doc.metadata.get("source") == doc.metadata.get("source")
+            
+            # 计算上一个doc的结束位置
+            prev_end = current_doc.metadata.get("start_index", 0) + len(current_doc.page_content)
+            curr_start = doc.metadata.get("start_index", 0)
+            
+            # 如果重叠或非常接近 (距离 < 200 字符)
+            is_adjacent = (curr_start - prev_end) < 200
+            
+            if is_same_source and is_adjacent:
+                # 合并！
+                # print(f"🔗 合并相邻块: {current_doc.metadata.get('source')} (End: {prev_end}) + (Start: {curr_start})")
+                new_content = current_doc.page_content + "\n" + doc.page_content
+                # 更新 current_doc
+                current_doc.page_content = new_content
+                # 保留元数据
+                current_doc.metadata["merged"] = True
+            else:
+                # 不相邻，保存上一个，开始新的
+                merged.append(current_doc)
+                current_doc = doc
+                
+        if current_doc:
+            merged.append(current_doc)
+            
+        return merged
     
     async def ainvoke(self, query):
         """异步执行检索并合并结果"""
@@ -152,7 +223,8 @@ class DocumentProcessor:
     def __init__(self):
         self.text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
             chunk_size=CHUNK_SIZE, 
-            chunk_overlap=CHUNK_OVERLAP
+            chunk_overlap=CHUNK_OVERLAP,
+            add_start_index=True  # ✅ 关键：添加起始索引，用于后续的相邻块合并
         )
         
         # Try to initialize embeddings with error handling
