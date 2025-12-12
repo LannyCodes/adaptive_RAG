@@ -374,12 +374,11 @@ class DocumentProcessor:
         使用 CrossEncoder 提升重排准确率
         """
         try:
-            # 使用 CrossEncoder 重排器 (准确率最高) ⭐
             print("🔧 正在初始化 CrossEncoder 重排器...")
             self.reranker = create_reranker(
                 'crossencoder',
-                model_name='BAAI/bge-reranker-base',  # ✅ 支持中文的 SOTA 重排器
-                max_length=1024  # ✅ 匹配我们的 Chunk Size
+                model_name='BAAI/bge-reranker-base',
+                max_length=512
             )
             print("✅ CrossEncoder 重排器初始化成功")
         except Exception as e:
