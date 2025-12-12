@@ -444,8 +444,8 @@ def create_reranker(reranker_type: str, embeddings_model=None, **kwargs) -> Docu
     
     elif reranker_type.lower() in ['crossencoder', 'cross_encoder', 'cross-encoder']:
         # CrossEncoder 不需要 embeddings_model，使用自己的模型
-        model_name = kwargs.get('model_name', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
-        max_length = kwargs.get('max_length', 512)
+        model_name = kwargs.get('model_name', 'BAAI/bge-reranker-base')
+        max_length = kwargs.get('max_length', 1024)
         return CrossEncoderReranker(model_name=model_name, max_length=max_length)
     
     elif reranker_type.lower() == 'hybrid':

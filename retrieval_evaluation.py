@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import torch
+from config import EMBEDDING_MODEL
 
 
 @dataclass
@@ -51,7 +52,7 @@ class EvaluationMetrics:
 class RetrievalEvaluator:
     """检索效果评估器"""
     
-    def __init__(self, embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, embedding_model: str = EMBEDDING_MODEL):
         """
         初始化评估器
         

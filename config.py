@@ -57,13 +57,13 @@ KNOWLEDGE_BASE_URLS = [
 ]
 
 # 文档分块配置
-CHUNK_SIZE = 250
-CHUNK_OVERLAP = 50  # 添加重叠以保持上下文连贯性，提升检索准确率
+CHUNK_SIZE = 1024  # 增加到 1024 以保留更多上下文，配合 BGE-M3 使用
+CHUNK_OVERLAP = 200  # 增加重叠，防止信息截断
 
 # 向量数据库配置
 VECTOR_STORE_TYPE = "milvus"  # 强制使用 Milvus
-COLLECTION_NAME = "rag-milvus"
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # HuggingFace嵌入模型
+COLLECTION_NAME = "rag_milvus"
+EMBEDDING_MODEL = "BAAI/bge-m3"  # 升级为 BGE-M3，支持 8192 长度，完美适配长 Chunk
 
 # Milvus 配置 (仅当 VECTOR_STORE_TYPE="milvus" 时生效)
 # 1. Milvus Lite (本地文件模式): 仅需设置 MILVUS_URI，无需 User/Password。适合 Kaggle/本地开发。
@@ -83,6 +83,14 @@ MILVUS_INDEX_TYPE = "HNSW"
 MILVUS_INDEX_PARAMS = {"M": 8, "efConstruction": 64} 
 # 搜索参数 (ef: 搜索范围，值越小越快但精度越低。默认是 10，百万级建议设为 30-50)
 MILVUS_SEARCH_PARAMS = {"ef": 10}
+
+# Elasticsearch 配置 (用于大规模关键词检索)
+# 替代内存版 BM25，支持百万级数据
+ES_URL = os.environ.get("ES_URL", "http://localhost:9200")
+ES_USER = os.environ.get("ES_USER", "")  # 如果有密码认证
+ES_PASSWORD = os.environ.get("ES_PASSWORD", "")
+ES_INDEX_NAME = os.environ.get("ES_INDEX_NAME", "rag_keyword_index")
+ES_VERIFY_CERTS = os.environ.get("ES_VERIFY_CERTS", "false").lower() == "true"
 
 # 搜索配置
 WEB_SEARCH_RESULTS_COUNT = 3
@@ -113,7 +121,7 @@ BM25_B = float(os.environ.get("BM25_B", "0.75"))  # BM25算法的b参数
 
 # 查询扩展优化配置
 ENABLE_QUERY_EXPANSION = os.environ.get("ENABLE_QUERY_EXPANSION", "true").lower() == "true"  # 默认开启
-QUERY_EXPANSION_MODEL = os.environ.get("QUERY_EXPANSION_MODEL", "mistral")  # 用于查询扩展的模型
+QUERY_EXPANSION_MODEL = LOCAL_LLM  # 复用 LOCAL_LLM (Qwen2.5-7B)，避免额外下载 Mistral
 QUERY_EXPANSION_PROMPT = """请为以下查询生成3-5个相关的扩展查询，这些查询应该从不同角度探索原始查询的主题。
 原始查询: {query}
 扩展查询: """  # 查询扩展提示模板

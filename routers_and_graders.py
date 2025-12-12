@@ -25,9 +25,11 @@ class QueryRouter:
         self.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
         self.prompt = PromptTemplate(
             template="""你是一个专家，负责将用户问题路由到向量存储或网络搜索。
-            对于关于LLM智能体、提示工程和对抗性攻击的问题，使用向量存储。
-            你不需要严格匹配问题中与这些主题相关的关键词。
-            否则，使用网络搜索。根据问题给出二进制选择'web_search'或'vectorstore'。
+            向量存储包含关于特定领域的详细文档和知识。
+            对于可能包含在知识库中的具体问题、技术问题或概念解释，使用向量存储。
+            对于需要实时信息（如新闻、天气）或明显超出一般知识库范围的问题，使用网络搜索。
+            如果不确定，优先选择向量存储。
+            根据问题给出二进制选择'web_search'或'vectorstore'。
             返回一个只包含'datasource'键的JSON，不要前言或解释。
             要路由的问题：{question}""",
             input_variables=["question"],
@@ -37,7 +39,7 @@ class QueryRouter:
     def route(self, question: str) -> str:
         """路由问题到相应的数据源"""
         result = self.router.invoke({"question": question})
-        return result.get("datasource", "web_search")
+        return result.get("datasource", "vectorstore")
 
 
 class DocumentGrader:

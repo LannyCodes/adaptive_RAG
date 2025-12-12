@@ -34,7 +34,6 @@ except ImportError:
         pass
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.retrievers import BM25Retriever
 
 from config import (
     KNOWLEDGE_BASE_URLS,
@@ -58,6 +57,12 @@ from config import (
     MILVUS_INDEX_TYPE,
     MILVUS_INDEX_PARAMS,
     MILVUS_SEARCH_PARAMS,
+    # Elasticsearch 配置
+    ES_URL,
+    ES_USER,
+    ES_PASSWORD,
+    ES_INDEX_NAME,
+    ES_VERIFY_CERTS,
     # 查询扩展配置
     ENABLE_QUERY_EXPANSION,
     QUERY_EXPANSION_MODEL,
@@ -217,14 +222,59 @@ class CustomEnsembleRetriever:
         return unique_results
 
 
+from langchain_core.retrievers import BaseRetriever
+from langchain_core.callbacks import CallbackManagerForRetrieverRun
+
+class ElasticsearchBM25Retriever(BaseRetriever):
+    """自定义 Elasticsearch BM25 检索器"""
+    client: Any = None
+    index_name: str = ""
+    k: int = 5
+    
+    def _get_relevant_documents(
+        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
+    ) -> List[Document]:
+        if not self.client:
+            return []
+        try:
+            # 标准 BM25 查询
+            response = self.client.search(
+                index=self.index_name,
+                body={
+                    "query": {
+                        "match": {
+                            "text": query
+                        }
+                    },
+                    "size": self.k
+                }
+            )
+            
+            docs = []
+            for hit in response["hits"]["hits"]:
+                source = hit["_source"]
+                # 还原 Document 对象
+                doc = Document(
+                    page_content=source.get("text", ""),
+                    metadata=source.get("metadata", {})
+                )
+                docs.append(doc)
+            return docs
+        except Exception as e:
+            print(f"⚠️ Elasticsearch BM25 检索失败: {e}")
+            return []
+
 class DocumentProcessor:
     """文档处理器类，负责文档加载、处理和向量化"""
     
     def __init__(self):
         self.text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+            model_name="gpt-4",  # ✅ 使用 cl100k_base，对中文压缩率高
             chunk_size=CHUNK_SIZE, 
             chunk_overlap=CHUNK_OVERLAP,
-            add_start_index=True  # ✅ 关键：添加起始索引，用于后续的相邻块合并
+            add_start_index=True,  # ✅ 关键：添加起始索引，用于后续的相邻块合并
+            # ✅ 优先在中文句号、感叹号处断句，而不是生硬地切断
+            separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""]
         )
         
         # Try to initialize embeddings with error handling
@@ -237,7 +287,7 @@ class DocumentProcessor:
                 print(f"   GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
             
             self.embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",  # 轻量级嵌入模型
+                model_name=EMBEDDING_MODEL,  # 轻量级嵌入模型
                 model_kwargs={'device': device},  # 自动选择GPU或CPU
                 encode_kwargs={'normalize_embeddings': True}  # 标准化嵌入向量
             )
@@ -266,6 +316,57 @@ class DocumentProcessor:
         # 初始化查询扩展
         self.query_expansion_model = None
         self._setup_query_expansion()
+
+        # 初始化 Elasticsearch (用于百万级 BM25 检索)
+        self.es_client = None
+        self._setup_elasticsearch()
+    
+    def _setup_elasticsearch(self):
+        """设置 Elasticsearch 连接"""
+        if not ENABLE_HYBRID_SEARCH:
+            return
+
+        print("🔧 正在初始化 Elasticsearch (BM25)...")
+        try:
+            from elasticsearch import Elasticsearch
+            
+            # 构建连接参数
+            es_params = {"hosts": [ES_URL], "verify_certs": ES_VERIFY_CERTS}
+            if ES_USER and ES_PASSWORD:
+                es_params["basic_auth"] = (ES_USER, ES_PASSWORD)
+            
+            self.es_client = Elasticsearch(**es_params)
+            
+            # 测试连接
+            if not self.es_client.ping():
+                print(f"⚠️ 无法连接到 Elasticsearch ({ES_URL})，将无法使用 BM25 检索")
+                self.es_client = None
+            else:
+                print(f"✅ Elasticsearch 连接成功: {ES_URL}")
+                
+                # 检查索引是否存在，不存在则创建
+                if not self.es_client.indices.exists(index=ES_INDEX_NAME):
+                    print(f"ℹ️ 创建 Elasticsearch 索引: {ES_INDEX_NAME}")
+                    # 定义简单的 mapping
+                    mapping = {
+                        "mappings": {
+                            "properties": {
+                                "text": {"type": "text", "analyzer": "standard"}, # 使用标准分词器，支持中文
+                                "metadata": {"type": "object"}
+                            }
+                        }
+                    }
+                    self.es_client.indices.create(index=ES_INDEX_NAME, body=mapping)
+                    print("✅ Elasticsearch 索引创建成功")
+                else:
+                    print(f"✅ Elasticsearch 索引 {ES_INDEX_NAME} 已存在")
+                    
+        except ImportError:
+            print("⚠️ 未安装 elasticsearch 库，请运行 'pip install elasticsearch'")
+            self.es_client = None
+        except Exception as e:
+            print(f"⚠️ Elasticsearch 初始化失败: {e}")
+            self.es_client = None
     
     def _setup_reranker(self):
         """
@@ -277,8 +378,8 @@ class DocumentProcessor:
             print("🔧 正在初始化 CrossEncoder 重排器...")
             self.reranker = create_reranker(
                 'crossencoder',
-                model_name='cross-encoder/ms-marco-MiniLM-L-6-v2',  # 轻量级模型
-                max_length=512
+                model_name='BAAI/bge-reranker-base',  # ✅ 支持中文的 SOTA 重排器
+                max_length=1024  # ✅ 匹配我们的 Chunk Size
             )
             print("✅ CrossEncoder 重排器初始化成功")
         except Exception as e:
@@ -503,7 +604,33 @@ class DocumentProcessor:
                 else:
                     doc.metadata['data_type'] = 'text'
 
+        # 1. 添加到 Milvus (Vector)
         self.vectorstore.add_documents(doc_splits)
+        
+        # 2. 添加到 Elasticsearch (BM25)
+        if self.es_client:
+            print(f"正在同步 {len(doc_splits)} 个文档到 Elasticsearch...")
+            try:
+                from elasticsearch import helpers
+                actions = []
+                for doc in doc_splits:
+                    action = {
+                        "_index": ES_INDEX_NAME,
+                        "_source": {
+                            "text": doc.page_content,
+                            "metadata": doc.metadata
+                        }
+                    }
+                    actions.append(action)
+                
+                # 使用 bulk API 批量索引
+                success, failed = helpers.bulk(self.es_client, actions, stats_only=True)
+                print(f"✅ Elasticsearch 同步完成: {success} 个文档成功, {failed} 个失败")
+                # 强制刷新以立即可见
+                self.es_client.indices.refresh(index=ES_INDEX_NAME)
+            except Exception as e:
+                print(f"⚠️ Elasticsearch 同步失败: {e}")
+
         print("✅ 文档添加完成")
         
     def create_vectorstore(self, doc_splits, persist_directory=None):
@@ -518,21 +645,83 @@ class DocumentProcessor:
         """从已持久化的向量数据库读取所有文档内容并构造 Document 列表"""
         if not self.vectorstore:
             return []
+        
+        docs: List[Document] = []
         try:
-            data = self.vectorstore._collection.get(include=["documents", "metadatas"])  # type: ignore
-            docs_raw = data.get("documents") or []
-            metas = data.get("metadatas") or []
-            docs: List[Document] = []
-            for i, content in enumerate(docs_raw):
-                if content:
-                    meta = metas[i] if i < len(metas) else {}
-                    docs.append(Document(page_content=content, metadata=meta))
-            if limit:
-                return docs[:limit]
-            return docs
+            # 1. 尝试适配 Milvus (LangChain 封装)
+            # 判断是否是 Milvus 实例
+            is_milvus = "Milvus" in self.vectorstore.__class__.__name__
+            
+            if is_milvus:
+                try:
+                    # 获取 pymilvus Collection 对象
+                    # langchain_community 使用 .col, langchain_milvus 使用 .collection (或其他，视版本而定)
+                    col = getattr(self.vectorstore, "col", None)
+                    if not col:
+                        col = getattr(self.vectorstore, "collection", None)
+                    
+                    if col:
+                        # 获取 schema 信息
+                        pk_field = "pk"
+                        if hasattr(col, "schema") and hasattr(col.schema, "primary_field"):
+                            pk_field = col.schema.primary_field.name
+                        
+                        # 确定文本字段名
+                        text_field = self.vectorstore._text_field if hasattr(self.vectorstore, "_text_field") else "text"
+                        
+                        # 构造查询
+                        # 注意：Milvus query limit 限制 (默认 16384)
+                        # 对于百万级数据，应该使用 iterator，但 pymilvus 的 iterator 接口随版本变化
+                        # 这里先尝试获取尽可能多的数据 (比如 10000 条作为示例，或者分批)
+                        
+                        query_limit = limit if limit else 16384
+                        
+                        # 尝试查询
+                        # 假设 PK 是 INT64，使用 >= 0 匹配所有
+                        expr = f"{pk_field} >= 0"
+                        # 如果 PK 是字符串 (VARCHAR)，使用 != ""
+                        # 这里我们简单尝试，如果不成功则捕获异常
+                        
+                        res = col.query(
+                            expr=expr,
+                            output_fields=[text_field, "source", "data_type"], # 获取必要的字段
+                            limit=query_limit
+                        )
+                        
+                        for item in res:
+                            content = item.get(text_field, "")
+                            # 构造 metadata (排除文本和PK)
+                            meta = {k: v for k, v in item.items() if k != text_field and k != pk_field}
+                            docs.append(Document(page_content=content, metadata=meta))
+                        
+                        if len(docs) > 0:
+                            print(f"✅ 从 Milvus 加载了 {len(docs)} 条文档用于构建 BM25")
+                            return docs
+                except Exception as milvus_e:
+                    print(f"⚠️ 尝试从 Milvus 读取数据失败: {milvus_e}")
+                    # Fallthrough to other methods or return empty
+
+            # 2. 尝试适配 Chroma (原代码逻辑)
+            if hasattr(self.vectorstore, "_collection") and hasattr(self.vectorstore._collection, "get"):
+                data = self.vectorstore._collection.get(include=["documents", "metadatas"])  # type: ignore
+                docs_raw = data.get("documents") or []
+                metas = data.get("metadatas") or []
+                
+                # Chroma 可能会返回 None
+                if docs_raw:
+                    for i, content in enumerate(docs_raw):
+                        if content:
+                            meta = metas[i] if metas and i < len(metas) else {}
+                            docs.append(Document(page_content=content, metadata=meta))
+                    
+                    if limit:
+                        return docs[:limit]
+                    return docs
+
         except Exception as e:
-            print(f"⚠️ 读取向量库文档失败: {e}")
-            return []
+            print(f"⚠️ 从向量库加载文档失败: {e}")
+            
+        return docs
     
     def setup_knowledge_base(self, urls=None, enable_graphrag=False):
         """设置完整的知识库（加载、分割、向量化）
@@ -563,38 +752,61 @@ class DocumentProcessor:
         else:
             print("✅ 所有 URL 已存在，跳过文档加载和向量化")
             
-        # 3. 初始化混合检索 (BM25)
+        # 3. 初始化混合检索 (Elasticsearch BM25)
+        # 改进方案：使用 Elasticsearch 替代内存版 BM25，支持百万级数据
         if ENABLE_HYBRID_SEARCH:
-            print("正在初始化混合检索 (BM25)...")
+            print("正在初始化混合检索 (Elasticsearch BM25)...")
             try:
-                bm25_docs = []
-                # 如果有旧数据且这次没有加载全部数据，必须从 DB 加载所有文档以重建 BM25
-                # 注意：如果只有新文档，BM25 只会包含新文档，这是不对的。
-                # 只要有 existing_urls，说明库里有旧数据。
-                if len(existing_urls) > 0:
-                    print("🔄 正在从向量库加载所有文档以重建 BM25 索引...")
-                    # 注意：这里假设内存够大
-                    all_docs = self.get_all_documents_from_vectorstore()
-                    bm25_docs = all_docs
-                else:
-                    # 全新构建
-                    bm25_docs = doc_splits
-                
-                if bm25_docs:
-                    self.bm25_retriever = BM25Retriever.from_documents(
-                        bm25_docs, 
-                        k=KEYWORD_SEARCH_K,
-                        k1=BM25_K1,
-                        b=BM25_B
-                    )
+                if self.es_client:
+                    # 检查 ES 是否有数据
+                    count = 0
+                    try:
+                        if self.es_client.indices.exists(index=ES_INDEX_NAME):
+                             count = self.es_client.count(index=ES_INDEX_NAME)["count"]
+                    except Exception as e:
+                        print(f"⚠️ 检查 Elasticsearch 索引失败: {e}")
+                        
+                    print(f"📊 Elasticsearch 索引当前包含 {count} 个文档")
                     
+                    # 自动迁移逻辑：如果 ES 为空但 VectorStore 不为空，且本次没有新文档入库(避免重复)，尝试同步
+                    # 注意：如果 doc_splits 有值，它们已经在 add_documents_to_vectorstore 中被同步了，所以这里只需关注旧数据
+                    if count == 0 and len(existing_urls) > 0:
+                        print("⚠️ Elasticsearch 索引为空，但向量库中有数据。正在尝试同步数据...")
+                        all_docs = self.get_all_documents_from_vectorstore()
+                        if all_docs:
+                             print(f"🔄 正在将 {len(all_docs)} 个存量文档同步到 Elasticsearch...")
+                             from elasticsearch import helpers
+                             actions = []
+                             for doc in all_docs:
+                                 action = {
+                                     "_index": ES_INDEX_NAME,
+                                     "_source": {
+                                         "text": doc.page_content,
+                                         "metadata": doc.metadata
+                                     }
+                                 }
+                                 actions.append(action)
+                             success, _ = helpers.bulk(self.es_client, actions, stats_only=True)
+                             print(f"✅ 已同步 {success} 个文档到 Elasticsearch")
+                             self.es_client.indices.refresh(index=ES_INDEX_NAME)
+                
+                    self.bm25_retriever = ElasticsearchBM25Retriever(
+                        client=self.es_client,
+                        index_name=ES_INDEX_NAME,
+                        k=KEYWORD_SEARCH_K
+                    )
+                    print("✅ Elasticsearch BM25 检索器初始化成功")
+                else:
+                    print("⚠️ Elasticsearch 未连接，跳过 BM25 初始化")
+                    self.bm25_retriever = None
+
+                if self.bm25_retriever:
                     self.ensemble_retriever = CustomEnsembleRetriever(
                         retrievers=[self.retriever, self.bm25_retriever],
                         weights=[HYBRID_SEARCH_WEIGHTS["vector"], HYBRID_SEARCH_WEIGHTS["keyword"]]
                     )
                     print("✅ 混合检索初始化成功")
-                else:
-                    print("⚠️ 没有文档用于初始化 BM25")
+                    
             except Exception as e:
                 print(f"⚠️ 混合检索初始化失败: {e}")
                 self.ensemble_retriever = None

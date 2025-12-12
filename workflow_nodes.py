@@ -27,7 +27,7 @@ except ImportError:
     except ImportError:
         from langchain.prompts import PromptTemplate
 
-from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, ENABLE_QUERY_EXPANSION, ENABLE_MULTIMODAL
+from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, ENABLE_QUERY_EXPANSION, ENABLE_MULTIMODAL, EMBEDDING_MODEL
 from document_processor import DocumentProcessor
 from retrieval_evaluation import RetrievalEvaluator, RetrievalResult
 from pprint import pprint
@@ -63,7 +63,7 @@ class WorkflowNodes:
         self.graders = graders
         
         # 初始化检索评估器
-        self.retrieval_evaluator = RetrievalEvaluator()
+        self.retrieval_evaluator = RetrievalEvaluator(embedding_model=EMBEDDING_MODEL)
         
         # 设置RAG链 - 使用本地提示模板
         rag_prompt_template = PromptTemplate(
