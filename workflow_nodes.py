@@ -310,24 +310,19 @@ class WorkflowNodes:
         return {"documents": web_results, "question": question}
     
     def route_question(self, state):
-        """
-        将问题路由到网络搜索或RAG
-        
-        Args:
-            state (dict): 当前图状态
-            
-        Returns:
-            str: 要调用的下一个节点
-        """
         print("---路由问题---")
         question = state["question"]
         print(question)
-        source = self.graders["query_router"].route(question)
+        try:
+            source = self.graders["query_router"].route(question)
+        except Exception as e:
+            print(f"⚠️ 查询路由失败，回退到向量检索: {e}")
+            source = "vectorstore"
         print(source)
         if source == "web_search":
             print("---将问题路由到网络搜索---")
             return "web_search"
-        elif source == "vectorstore":
+        else:
             print("---将问题路由到RAG---")
             return "vectorstore"
     
