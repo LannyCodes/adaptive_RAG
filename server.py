@@ -15,6 +15,9 @@ import os
 import sys
 import uvicorn
 import subprocess
+import time
+import threading
+import requests
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,9 +30,36 @@ import shutil
 sys.path.append(os.getcwd())
 
 try:
-    from config import ENABLE_MULTIMODAL
+    from config import ENABLE_MULTIMODAL, LOCAL_LLM
 except Exception:
     ENABLE_MULTIMODAL = False
+    LOCAL_LLM = "qwen2:1.5b"
+
+
+def ensure_ollama_service(model_name: str):
+    try:
+        response = requests.get("http://127.0.0.1:11434/api/tags", timeout=2)
+        if response.status_code == 200:
+            return
+    except Exception:
+        pass
+    user_home = os.environ.get("HOME", "/root")
+    ollama_models_dir = os.path.join(user_home, ".ollama/models")
+    os.makedirs(ollama_models_dir, exist_ok=True)
+    os.environ["OLLAMA_MODELS"] = ollama_models_dir
+    os.environ["OLLAMA_HOST"] = "127.0.0.1:11434"
+    try:
+        subprocess.Popen(["ollama", "serve"])
+    except Exception as e:
+        print(f"❌ 启动 Ollama 失败: {e}")
+        return
+    time.sleep(5)
+    def pull_model():
+        try:
+            subprocess.run(["ollama", "pull", model_name], check=False)
+        except Exception as e:
+            print(f"⚠️ 下载模型失败: {e}")
+    threading.Thread(target=pull_model, daemon=True).start()
 
 # ============================================================
 # 1. FastAPI 后端定义
@@ -104,6 +134,7 @@ def get_rag_system():
     if rag_system is None:
         try:
             print("🔄 初始化 RAG 系统...")
+            ensure_ollama_service(LOCAL_LLM)
             from main import AdaptiveRAGSystem
             rag_system = AdaptiveRAGSystem()
             print("✅ RAG 系统初始化完成")
