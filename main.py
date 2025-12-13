@@ -34,24 +34,24 @@ class AdaptiveRAGSystem:
             print(f"❌ {e}")
             raise
         
-        # 检查 Ollama 服务是否运行
-        print("🔍 检查 Ollama 服务状态...")
-        if not self._check_ollama_service():
-            print("\n" + "="*60)
-            print("❌ Ollama 服务未启动！")
-            print("="*60)
-            print("\n请先启动 Ollama 服务：")
-            print("\n方法1: 在终端运行")
-            print("  $ ollama serve")
-            print("\n方法2: 在 Kaggle Notebook 中运行")
-            print("  import subprocess")
-            print("  subprocess.Popen(['ollama', 'serve'])")
-            print("\n方法3: 使用快捷脚本")
-            print("  %run KAGGLE_LOAD_OLLAMA.py")
-            print("="*60)
-            raise ConnectionError("Ollama 服务未运行，请先启动服务")
-        
-        print("✅ Ollama 服务运行正常")
+        from config import LLM_BACKEND
+        if LLM_BACKEND == "ollama":
+            print("🔍 检查 Ollama 服务状态...")
+            if not self._check_ollama_service():
+                print("\n" + "="*60)
+                print("❌ Ollama 服务未启动！")
+                print("="*60)
+                print("\n请先启动 Ollama 服务：")
+                print("\n方法1: 在终端运行")
+                print("  $ ollama serve")
+                print("\n方法2: 在 Kaggle Notebook 中运行")
+                print("  import subprocess")
+                print("  subprocess.Popen(['ollama', 'serve'])")
+                print("\n方法3: 使用快捷脚本")
+                print("  %run KAGGLE_LOAD_OLLAMA.py")
+                print("="*60)
+                raise ConnectionError("Ollama 服务未运行，请先启动服务")
+            print("✅ Ollama 服务运行正常")
         
         # 初始化文档处理器
         print("设置文档处理器...")

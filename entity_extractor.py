@@ -16,9 +16,9 @@ except ImportError:
     except ImportError:
         from langchain.prompts import PromptTemplate
 
-from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import JsonOutputParser
 from config import LOCAL_LLM
+from routers_and_graders import create_chat_model
 
 
 class EntityExtractor:
@@ -32,12 +32,7 @@ class EntityExtractor:
             max_retries: 失败重试次数
             enable_async: 是否启用异步处理（默认启用）
         """
-        self.llm = ChatOllama(
-            model=LOCAL_LLM, 
-            format="json", 
-            temperature=0,
-            timeout=timeout  # 添加超时设置
-        )
+        self.llm = create_chat_model(format="json", temperature=0.0, timeout=timeout)
         self.max_retries = max_retries
         self.enable_async = enable_async
         self.ollama_url = "http://localhost:11434/api/generate"
@@ -336,7 +331,7 @@ class EntityDeduplicator:
     """实体去重和合并"""
     
     def __init__(self):
-        self.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
+        self.llm = create_chat_model(format="json", temperature=0.0)
         
         self.merge_prompt = PromptTemplate(
             template="""判断以下两个实体是否指向同一个对象:

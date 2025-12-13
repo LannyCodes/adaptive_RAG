@@ -30,13 +30,16 @@ import shutil
 sys.path.append(os.getcwd())
 
 try:
-    from config import ENABLE_MULTIMODAL, LOCAL_LLM
+    from config import ENABLE_MULTIMODAL, LOCAL_LLM, LLM_BACKEND
 except Exception:
     ENABLE_MULTIMODAL = False
     LOCAL_LLM = "qwen2:1.5b"
+    LLM_BACKEND = "ollama"
 
 
 def ensure_ollama_service(model_name: str):
+    if LLM_BACKEND != "ollama":
+        return
     try:
         response = requests.get("http://127.0.0.1:11434/api/tags", timeout=2)
         if response.status_code == 200:

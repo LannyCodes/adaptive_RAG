@@ -22,9 +22,9 @@ except ImportError:
         from langchain_core.prompts import PromptTemplate
     except ImportError:
         from langchain.prompts import PromptTemplate
-from langchain_community.chat_models import ChatOllama
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from config import LOCAL_LLM
+from routers_and_graders import create_chat_model
 
 
 class KnowledgeGraph:
@@ -257,7 +257,7 @@ class CommunitySummarizer:
     """社区摘要生成器 - GraphRAG的关键组件"""
     
     def __init__(self):
-        self.llm = ChatOllama(model=LOCAL_LLM, temperature=0.3)
+        self.llm = create_chat_model(temperature=0.3)
         
         self.summary_prompt = PromptTemplate(
             template="""你是一个知识图谱分析专家。请为以下社区生成一个综合摘要。

@@ -14,15 +14,58 @@ except ImportError:
 
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
+from config import (
+    LOCAL_LLM,
+    LLM_BACKEND,
+    TONGYI_API_KEY,
+    TONGYI_BASE_URL,
+    TONGYI_MODEL,
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_BASE_URL,
+    DEEPSEEK_MODEL,
+)
 
-from config import LOCAL_LLM
+
+def create_chat_model(format: str | None = None, temperature: float = 0.0, timeout: int | None = None):
+    if LLM_BACKEND == "ollama":
+        kwargs = {}
+        if format is not None:
+            kwargs["format"] = format
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        return ChatOllama(model=LOCAL_LLM, temperature=temperature, **kwargs)
+    if LLM_BACKEND == "tongyi":
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError:
+            raise ImportError("langchain-openai not installed, cannot use tongyi backend")
+        client = ChatOpenAI(
+            model=TONGYI_MODEL,
+            api_key=TONGYI_API_KEY or None,
+            base_url=TONGYI_BASE_URL or None,
+            temperature=temperature,
+        )
+        return client
+    if LLM_BACKEND == "deepseek":
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError:
+            raise ImportError("langchain-openai not installed, cannot use deepseek backend")
+        client = ChatOpenAI(
+            model=DEEPSEEK_MODEL,
+            api_key=DEEPSEEK_API_KEY or None,
+            base_url=DEEPSEEK_BASE_URL or None,
+            temperature=temperature,
+        )
+        return client
+    raise ValueError(f"Unsupported LLM_BACKEND: {LLM_BACKEND}")
 
 
 class QueryRouter:
     """查询路由器，决定使用向量存储还是网络搜索"""
     
     def __init__(self):
-        self.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
+        self.llm = create_chat_model(format="json", temperature=0.0)
         self.prompt = PromptTemplate(
             template="""你是一个专家，负责将用户问题路由到向量存储或网络搜索。
             向量存储包含关于特定领域的详细文档和知识。
@@ -46,7 +89,7 @@ class DocumentGrader:
     """文档相关性评分器"""
     
     def __init__(self):
-        self.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
+        self.llm = create_chat_model(format="json", temperature=0.0)
         self.prompt = PromptTemplate(
             template="""你是一个评分员，评估检索到的文档是否与用户问题相关。
             如果文档包含与用户问题相关的关键词或语义，请给出'yes'分数。
@@ -73,7 +116,7 @@ class AnswerGrader:
     """答案质量评分器"""
     
     def __init__(self):
-        self.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
+        self.llm = create_chat_model(format="json", temperature=0.0)
         self.prompt = PromptTemplate(
             template="""你是一个评分员，评估答案是否有助于解决问题。
             这里是答案：
@@ -118,8 +161,7 @@ class HallucinationGrader:
         except Exception as e:
             print(f"⚠️ 专业检测器加载失败，回退到 LLM 方法: {e}")
             self.use_professional_detector = False
-            # 回退到原有的 LLM 方法
-            self.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
+            self.llm = create_chat_model(format="json", temperature=0.0)
             self.prompt = PromptTemplate(
                 template="""你是一个评分员，评估LLM生成是否基于/支持一组检索到的事实。
                 给出二进制分数'yes'或'no'。'yes'意味着答案基于/支持文档。
@@ -159,7 +201,7 @@ class QueryDecomposer:
     """查询分解器，将复杂的多跳问题分解为子问题序列"""
     
     def __init__(self):
-        self.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
+        self.llm = create_chat_model(format="json", temperature=0.0)
         self.prompt = PromptTemplate(
             template="""你是一个查询分解专家。你的任务是将一个复杂的多跳问题分解为一系列简单的子问题，这些子问题可以按顺序检索来回答原始问题。
             
@@ -209,7 +251,7 @@ class AnswerabilityGrader:
     """答案可回答性评分器，用于判断当前检索到的文档是否足够回答原始问题"""
     
     def __init__(self):
-        self.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
+        self.llm = create_chat_model(format="json", temperature=0.0)
         self.prompt = PromptTemplate(
             template="""你是一个专家评分员，负责评估检索到的文档是否包含足够的信息来回答用户的问题。
             
@@ -240,7 +282,7 @@ class QueryRewriter:
     """查询重写器，优化查询以获得更好的检索结果"""
     
     def __init__(self):
-        self.llm = ChatOllama(model=LOCAL_LLM, temperature=0)
+        self.llm = create_chat_model(temperature=0.0)
         self.prompt = PromptTemplate(
             template="""你是一个问题重写器，负责将输入问题转换为更适合向量存储检索的更好版本。
             

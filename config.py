@@ -39,15 +39,16 @@ def setup_environment():
         print("⚠️  TAVILY_API_KEY 未找到")
 
 
-# 模型配置
-# Kaggle环境推荐使用较小的模型以加快下载速度
-# 可选模型:
-#   - "mistral" (4GB) - 质量最好，但下载慢
-#   - "phi" (1.6GB) - 平衡选择，速度较快
-#   - "tinyllama" (600MB) - 最快，质量稍低
-#   - "qwen:0.5b" (350MB) - 极小模型，速度极快
-#   - "qwen2:1.5b" (934MB) - 推荐：速度快且质量优秀 (ModelScope GPU 环境默认)
-LOCAL_LLM = "qwen2:1.5b"  # 默认使用 qwen2:1.5b
+LLM_BACKEND = os.environ.get("LLM_BACKEND", "ollama")
+LOCAL_LLM = os.environ.get("LOCAL_LLM", "qwen2:1.5b")
+
+TONGYI_API_KEY = os.environ.get("TONGYI_API_KEY") or os.environ.get("DASHSCOPE_API_KEY", "")
+TONGYI_BASE_URL = os.environ.get("TONGYI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+TONGYI_MODEL = os.environ.get("TONGYI_MODEL", "qwen-plus")
+
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
 # 知识库URL配置
 KNOWLEDGE_BASE_URLS = [

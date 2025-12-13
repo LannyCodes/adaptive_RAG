@@ -50,14 +50,11 @@ def test_llm_detector(test_cases: List[Dict]) -> Dict:
     print("=" * 60)
     
     try:
-        from routers_and_graders import HallucinationGrader
-        from langchain_community.chat_models import ChatOllama
+        from routers_and_graders import HallucinationGrader, create_chat_model
         from config import LOCAL_LLM
-        
-        # Force LLM-only mode by initializing without professional detector
         detector = HallucinationGrader.__new__(HallucinationGrader)
         detector.use_professional_detector = False
-        detector.llm = ChatOllama(model=LOCAL_LLM, format="json", temperature=0)
+        detector.llm = create_chat_model(format="json", temperature=0.0)
         
         from langchain_core.prompts import PromptTemplate
         from langchain_core.output_parsers import JsonOutputParser

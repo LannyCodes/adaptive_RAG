@@ -16,7 +16,6 @@ except ImportError:
             from langchain_core.documents import Document
         except ImportError:
             from langchain.schema import Document
-from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.tools.tavily_search import TavilySearchResults
 try:
@@ -31,6 +30,7 @@ from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, EN
 from document_processor import DocumentProcessor
 from retrieval_evaluation import RetrievalEvaluator, RetrievalResult
 from pprint import pprint
+from routers_and_graders import create_chat_model
 
 
 class GraphState(TypedDict):
@@ -81,7 +81,7 @@ class WorkflowNodes:
             答案:""",
             input_variables=["question", "context"]
         )
-        llm = ChatOllama(model=LOCAL_LLM, temperature=0)
+        llm = create_chat_model(temperature=0.0)
         self.rag_chain = rag_prompt_template | llm | StrOutputParser()
         
         # 设置网络搜索
