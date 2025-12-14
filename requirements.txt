@@ -53,5 +53,4 @@ python-louvain>=0.16  # 社区检测
 fastapi>=0.104.0
 uvicorn>=0.23.0
 python-multipart>=0.0.6
-# pyngrok>=7.0.0  # 可选：用于Web服务穿透
-# cloudflared     # 可选：用于Web服务穿透
+
