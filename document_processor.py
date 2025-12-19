@@ -156,10 +156,19 @@ class CustomEnsembleRetriever:
     async def ainvoke(self, query):
         """异步执行检索并合并结果"""
         import asyncio
+        import inspect
         
         # 并发获取各检索器的结果
-        # 注意：假设所有 retriever 都支持 ainvoke
-        tasks = [retriever.ainvoke(query) for retriever in self.retrievers]
+        async def call_single(retriever):
+            if hasattr(retriever, "ainvoke"):
+                out = retriever.ainvoke(query)
+                if inspect.isawaitable(out):
+                    return await out
+                return out
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, retriever.invoke, query)
+
+        tasks = [call_single(retriever) for retriever in self.retrievers]
         results_list = await asyncio.gather(*tasks)
         
         all_results = []
@@ -288,6 +297,7 @@ class DocumentProcessor:
         # 初始化 Elasticsearch (用于百万级 BM25 检索)
         self.es_client = None
         self._setup_elasticsearch()
+        self._bm25_documents = []
     
     def _setup_elasticsearch(self):
         """设置 Elasticsearch 连接"""
@@ -307,7 +317,7 @@ class DocumentProcessor:
             
             # 测试连接
             if not self.es_client.ping():
-                print(f"⚠️ 无法连接到 Elasticsearch ({ES_URL})，将无法使用 BM25 检索")
+                print(f"⚠️ 无法连接到 Elasticsearch ({ES_URL})，将回退到内存 BM25 检索")
                 self.es_client = None
             else:
                 print(f"✅ Elasticsearch 连接成功: {ES_URL}")
@@ -330,11 +340,31 @@ class DocumentProcessor:
                     print(f"✅ Elasticsearch 索引 {ES_INDEX_NAME} 已存在")
                     
         except ImportError:
-            print("⚠️ 未安装 elasticsearch 库，请运行 'pip install elasticsearch'")
+            print("⚠️ 未安装 elasticsearch 库，将回退到内存 BM25 检索")
             self.es_client = None
         except Exception as e:
             print(f"⚠️ Elasticsearch 初始化失败: {e}")
             self.es_client = None
+
+    def _setup_inmemory_bm25(self, seed_docs: List[Document] | None = None) -> None:
+        if seed_docs:
+            self._bm25_documents.extend(seed_docs)
+
+        if not self._bm25_documents:
+            try:
+                self._bm25_documents = self.get_all_documents_from_vectorstore()
+            except Exception:
+                self._bm25_documents = []
+
+        if not self._bm25_documents:
+            self.bm25_retriever = None
+            return
+
+        from langchain_community.retrievers import BM25Retriever
+
+        bm25 = BM25Retriever.from_documents(self._bm25_documents)
+        bm25.k = KEYWORD_SEARCH_K
+        self.bm25_retriever = bm25
     
     def _setup_reranker(self):
         """
@@ -597,6 +627,13 @@ class DocumentProcessor:
                 self.es_client.indices.refresh(index=ES_INDEX_NAME)
             except Exception as e:
                 print(f"⚠️ Elasticsearch 同步失败: {e}")
+        elif ENABLE_HYBRID_SEARCH:
+            self._setup_inmemory_bm25(seed_docs=doc_splits)
+            if self.bm25_retriever and self.retriever:
+                self.ensemble_retriever = CustomEnsembleRetriever(
+                    retrievers=[self.retriever, self.bm25_retriever],
+                    weights=[HYBRID_SEARCH_WEIGHTS["vector"], HYBRID_SEARCH_WEIGHTS["keyword"]],
+                )
 
         print("✅ 文档添加完成")
         
@@ -722,7 +759,7 @@ class DocumentProcessor:
         # 3. 初始化混合检索 (Elasticsearch BM25)
         # 改进方案：使用 Elasticsearch 替代内存版 BM25，支持百万级数据
         if ENABLE_HYBRID_SEARCH:
-            print("正在初始化混合检索 (Elasticsearch BM25)...")
+            print("正在初始化混合检索 (BM25)...")
             try:
                 if self.es_client:
                     # 检查 ES 是否有数据
@@ -764,8 +801,11 @@ class DocumentProcessor:
                     )
                     print("✅ Elasticsearch BM25 检索器初始化成功")
                 else:
-                    print("⚠️ Elasticsearch 未连接，跳过 BM25 初始化")
-                    self.bm25_retriever = None
+                    self._setup_inmemory_bm25(seed_docs=doc_splits if doc_splits else None)
+                    if self.bm25_retriever:
+                        print("✅ 内存 BM25 检索器初始化成功")
+                    else:
+                        print("⚠️ 内存 BM25 初始化失败，将仅使用向量检索")
 
                 if self.bm25_retriever:
                     self.ensemble_retriever = CustomEnsembleRetriever(
@@ -821,8 +861,8 @@ class DocumentProcessor:
         if not ENABLE_HYBRID_SEARCH or not self.ensemble_retriever:
             # 纯向量检索，直接支持 search_kwargs
             if self.vectorstore:
-                return await self.vectorstore.asimilarity_search(query, k=top_k, **search_kwargs)
-            return await self.retriever.ainvoke(query)
+                return await self._async_vector_similarity_search(query, k=top_k, **search_kwargs)
+            return await self._async_retriever_invoke(self.retriever, query)
             
         try:
             # 混合检索
@@ -848,8 +888,8 @@ class DocumentProcessor:
             print(f"⚠️ 异步混合检索失败: {e}")
             print("回退到向量检索")
             if self.vectorstore:
-                return await self.vectorstore.asimilarity_search(query, k=top_k, **search_kwargs)
-            return await self.retriever.ainvoke(query)
+                return await self._async_vector_similarity_search(query, k=top_k, **search_kwargs)
+            return await self._async_retriever_invoke(self.retriever, query)
 
     async def async_enhanced_retrieve(self, query: str, top_k: int = 5, rerank_candidates: int = 20, 
                          image_paths: List[str] = None, use_query_expansion: bool = None):
@@ -894,14 +934,10 @@ class DocumentProcessor:
             else:
                 # 使用带有过滤条件的检索
                 if self.vectorstore:
-                    docs = await self.vectorstore.asimilarity_search(
-                        q, 
-                        k=rerank_candidates,
-                        **search_kwargs # 传入 expr
-                    )
+                    docs = await self._async_vector_similarity_search(q, k=rerank_candidates, **search_kwargs)
                 else:
                     # Fallback
-                    docs = await self.retriever.ainvoke(q)
+                    docs = await self._async_retriever_invoke(self.retriever, q)
                 
                 if len(docs) > rerank_candidates:
                     docs = docs[:rerank_candidates]
@@ -947,6 +983,48 @@ class DocumentProcessor:
                 return unique_docs[:top_k]
         else:
             return unique_docs[:top_k]
+
+    async def _async_retriever_invoke(self, retriever, query: str):
+        import asyncio
+        import inspect
+
+        if retriever is None:
+            return []
+
+        if hasattr(retriever, "ainvoke"):
+            out = retriever.ainvoke(query)
+            if inspect.isawaitable(out):
+                return await out
+            if isinstance(out, list):
+                return out
+
+        if hasattr(retriever, "invoke"):
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, retriever.invoke, query)
+
+        return []
+
+    async def _async_vector_similarity_search(self, query: str, k: int, **search_kwargs):
+        import asyncio
+        import inspect
+
+        if not self.vectorstore:
+            return []
+
+        if hasattr(self.vectorstore, "asimilarity_search"):
+            out = self.vectorstore.asimilarity_search(query, k=k, **search_kwargs)
+            if inspect.isawaitable(out):
+                out = await out
+            if isinstance(out, list):
+                return out
+
+        if hasattr(self.vectorstore, "similarity_search"):
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None, lambda: self.vectorstore.similarity_search(query, k=k, **search_kwargs)
+            )
+
+        return []
     
     def expand_query(self, query: str) -> List[str]:
         """扩展查询，生成相关查询"""

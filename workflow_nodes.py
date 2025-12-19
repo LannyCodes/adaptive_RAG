@@ -10,6 +10,7 @@ from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.prompts import PromptTemplate
+import inspect
 
 from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, ENABLE_QUERY_EXPANSION, ENABLE_MULTIMODAL, EMBEDDING_MODEL
 from document_processor import DocumentProcessor
@@ -145,12 +146,15 @@ class WorkflowNodes:
             # 回退到基本检索 (同步回退，如果需要也可以改为异步)
             try:
                 if self.retriever is not None:
-                    documents = await self.retriever.ainvoke(question)
+                    out = self.retriever.ainvoke(question)
+                    documents = await out if inspect.isawaitable(out) else out
                 elif hasattr(self.doc_processor, 'vector_retriever') and self.doc_processor.vector_retriever is not None:
-                    documents = await self.doc_processor.vector_retriever.ainvoke(question)
+                    out = self.doc_processor.vector_retriever.ainvoke(question)
+                    documents = await out if inspect.isawaitable(out) else out
                     print("   使用 vector_retriever 作为备选")
                 elif hasattr(self.doc_processor, 'retriever') and self.doc_processor.retriever is not None:
-                    documents = await self.doc_processor.retriever.ainvoke(question)
+                    out = self.doc_processor.retriever.ainvoke(question)
+                    documents = await out if inspect.isawaitable(out) else out
                     print("   使用 doc_processor.retriever 作为备选")
                 else:
                     print("❌ 检索器未正确初始化，返回空文档列表")
