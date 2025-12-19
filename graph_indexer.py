@@ -5,21 +5,8 @@ GraphRAG索引器
 
 from typing import List, Dict, Optional
 import asyncio
-try:
-    from langchain_core.documents import Document
-except ImportError:
-    try:
-        from langchain_core.documents import Document
-    except ImportError:
-        try:
-            from langchain_core.documents import Document
-        except ImportError:
-            from langchain.schema import Document
-
-try:
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-except ImportError:
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from entity_extractor import EntityExtractor, EntityDeduplicator
 from knowledge_graph import KnowledgeGraph, CommunitySummarizer

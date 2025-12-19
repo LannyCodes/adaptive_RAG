@@ -8,13 +8,7 @@ import time
 import asyncio
 import aiohttp
 import json
-try:
-    from langchain_core.prompts import PromptTemplate
-except ImportError:
-    try:
-        from langchain_core.prompts import PromptTemplate
-    except ImportError:
-        from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 
 from langchain_core.output_parsers import JsonOutputParser
 from config import LOCAL_LLM

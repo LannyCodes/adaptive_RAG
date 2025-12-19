@@ -2,19 +2,19 @@
 # 运行以下命令安装: pip install -r requirements.txt
 
 # 核心框架
-langchain>=0.1.0
-langgraph>=0.0.40
-langchain-community>=0.0.20
-langchain-core>=0.1.0
-langchain-text-splitters>=0.0.1
+langchain==1.2.0
+langgraph==1.0.5
+langchain-community==0.4.1
+langchain-core==1.2.3
+langchain-text-splitters==1.1.0
 
 # LLM集成
-langchain-ollama>=0.1.0
-langchain-openai>=0.1.0
+langchain-ollama==1.0.1
+langchain-openai==1.1.6
 
 # 向量数据库和嵌入
 pymilvus[milvus_lite]>=2.4.2
-langchain-milvus
+langchain-milvus==0.2.2
 sentence-transformers>=2.2.0
 transformers>=4.30.0
 
@@ -27,7 +27,6 @@ rank-bm25>=0.2.2  # BM25检索，用于混合搜索
 elasticsearch>=8.0.0  # Elasticsearch 客户端，用于大规模 BM25 检索
 
 # 幻觉检测
-sentence-transformers>=2.2.0  # NLI 模型支持
 scikit-learn>=1.3.0  # 相似度计算
 
 # 网络搜索

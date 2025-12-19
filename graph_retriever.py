@@ -6,28 +6,13 @@ GraphRAG检索器
 from typing import List, Dict, Set, Tuple
 import time
 import networkx as nx
-try:
-    from langchain_core.documents import Document
-except ImportError:
-    try:
-        from langchain_core.documents import Document
-    except ImportError:
-        from langchain.schema import Document
-try:
-    from langchain_core.prompts import PromptTemplate
-except ImportError:
-    try:
-        from langchain_core.prompts import PromptTemplate
-    except ImportError:
-        from langchain.prompts import PromptTemplate
-
-from langchain_community.chat_models import ChatOllama
+from langchain_core.documents import Document
+from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 
 from knowledge_graph import KnowledgeGraph
-from config import LOCAL_LLM
 from retrieval_evaluation import RetrievalEvaluator, RetrievalResult
-from routers_and_graders import HallucinationGrader
+from routers_and_graders import HallucinationGrader, create_chat_model
 
 
 class GraphRetriever:
@@ -35,7 +20,7 @@ class GraphRetriever:
     
     def __init__(self, knowledge_graph: KnowledgeGraph):
         self.kg = knowledge_graph
-        self.llm = ChatOllama(model=LOCAL_LLM, temperature=0.3)
+        self.llm = create_chat_model(temperature=0.3)
         self.hallucination_grader = HallucinationGrader()
         
         # 实体识别提示

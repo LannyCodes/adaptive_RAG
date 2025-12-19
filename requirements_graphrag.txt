@@ -3,10 +3,10 @@
 # 安装命令: pip install -r requirements_graphrag.txt
 
 # LangChain相关（确保最新版本）
-langchain>=0.1.0
-langchain-community>=0.0.38
-langchain-core>=0.1.0
-langchain-text-splitters>=0.0.1  # 新版本text splitter
+langchain==1.2.0
+langchain-community==0.4.1
+langchain-core==1.2.3
+langchain-text-splitters==1.1.0  # 新版本text splitter
 
 # 图数据库
 neo4j>=5.14.0

@@ -3,41 +3,9 @@
 负责文档加载、文本分块、向量化和向量数据库初始化
 """
 
-try:
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-except ImportError:
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import WebBaseLoader
-# 尝试导入 langchain_milvus，如果失败则回退到 langchain_community 并应用补丁
-try:
-    # 优先使用新版推荐的 Milvus 类
-    from langchain_milvus import Milvus
-    print("✅ 使用 langchain-milvus (Milvus)")
-except ImportError:
-    try:
-        # 兼容旧版本 langchain-milvus 的类名
-        from langchain_milvus import MilvusVectorStore as Milvus
-        print("✅ 使用 langchain-milvus (MilvusVectorStore)")
-    except ImportError:
-        try:
-            from langchain_community.vectorstores import Milvus
-            print("⚠️ 使用 langchain_community.vectorstores.Milvus (旧版)")
-
-            # Monkeypatch: 修复旧版 LangChain 对 Milvus Lite 本地文件路径的校验问题
-            # 旧版 _create_connection_alias 强制要求 URI 以 http/https 开头
-            def _patched_create_connection_alias(self, connection_args):
-                uri = connection_args.get("uri")
-                # 为本地文件生成唯一的 alias
-                if uri:
-                    import hashlib
-                    return hashlib.md5(uri.encode()).hexdigest()
-                return "default"
-
-            # 应用补丁
-            Milvus._create_connection_alias = _patched_create_connection_alias
-            print("🔧 已应用 Milvus Lite 路径校验补丁")
-        except ImportError:
-            Milvus = None
+from langchain_milvus import Milvus
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
@@ -90,13 +58,7 @@ from PIL import Image
 import numpy as np
 from typing import List, Dict, Any, Optional, Union
 
-try:
-    from langchain_core.documents import Document
-except ImportError:
-    try:
-        from langchain_core.documents import Document
-    except ImportError:
-        from langchain.schema import Document
+from langchain_core.documents import Document
 
 
 class CustomEnsembleRetriever:

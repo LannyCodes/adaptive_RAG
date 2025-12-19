@@ -174,7 +174,7 @@ async def chat_endpoint(request: ChatRequest):
         # 调用 RAG 系统的主查询方法
         # 注意：这里假设 main.py 中的 AdaptiveRAGSystem 有 query 方法
         # 如果是 main_graphrag.py，可能需要调整调用逻辑
-        result = system.query(request.message)
+        result = await system.query(request.message)
         
         # 解析结果
         answer = result.get("answer", "无法生成回答")
