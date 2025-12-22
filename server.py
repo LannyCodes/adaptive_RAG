@@ -21,7 +21,7 @@ import requests
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 import shutil
 
@@ -150,13 +150,13 @@ def get_rag_system():
 
 class ChatRequest(BaseModel):
     message: str
-    history: List[dict] = []
+    history: List[dict] = Field(default_factory=list)
 
 class ChatResponse(BaseModel):
     answer: str
-    sources: List[str] = []
-    metrics: Optional[dict] = None
-    images: List[str] = []
+    sources: List[str] = Field(default_factory=list)
+    metrics: Optional[dict] = Field(default=None)
+    images: List[str] = Field(default_factory=list)
 
 # --- API 路由 ---
 
