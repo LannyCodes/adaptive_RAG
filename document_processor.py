@@ -893,35 +893,61 @@ class DocumentProcessor:
             # 尝试异步调用
             if hasattr(query_expansion_model, 'ainvoke'):
                 out = query_expansion_model.ainvoke(prompt)
-                if inspect.isawaitable(out):
+                
+                # 首先检查是否为 None
+                if out is None:
+                    return ""
+                    
+                # 检查是否为字符串类型（已经是最终结果）
+                if isinstance(out, str):
+                    return out
+                    
+                # 严格检查是否为真正的协程对象
+                # 使用多种方法确保我们只 await 真正的协程
+                is_real_coroutine = (
+                    inspect.iscoroutine(out) or 
+                    inspect.iscoroutinefunction(out) or
+                    (hasattr(out, '__await__') and not hasattr(out, 'documents'))
+                )
+                
+                if is_real_coroutine:
+                    # 如果是真正的协程，安全地 await
                     try:
                         result = await out
-                        return result if isinstance(result, str) else ""
+                        # 再次检查返回结果
+                        if isinstance(result, str):
+                            return result
+                        elif result is None:
+                            return ""
+                        else:
+                            print(f"⚠️ 查询扩展模型返回了非字符串类型: {type(result)}")
+                            return str(result) if result else ""
                     except (TypeError, RuntimeError) as te:
                         print(f"⚠️ 异步调用失败，可能是假可等待对象: {te}")
                         # 如果失败，说明 out 可能不是真正的可等待对象
                         # 尝试直接使用 out 的值
-                        try:
-                            if inspect.iscoroutine(out):
-                                # 如果是协程，重新尝试await
-                                result = await out
-                                return result if isinstance(result, str) else ""
-                            else:
-                                # 如果不是协程，检查是否可以直接使用
-                                if isinstance(out, str):
-                                    return out
-                                else:
-                                    print(f"⚠️ out 不是字符串类型: {type(out)}")
-                                    return ""
-                        except Exception as e2:
-                            print(f"⚠️ 处理 out 对象也失败: {e2}")
+                        if isinstance(out, str):
+                            return out
+                        else:
+                            print(f"⚠️ out 不是字符串类型: {type(out)}")
                             return ""
+                elif inspect.isawaitable(out):
+                    # 如果被错误标记为可等待对象，但实际不是协程
+                    print(f"⚠️ 检测到假可等待对象: {type(out)}")
+                    # 尝试直接使用 out（可能已经是最终结果）
+                    if isinstance(out, str):
+                        return out
+                    else:
+                        print(f"⚠️ 假可等待对象不是字符串类型: {type(out)}")
+                        return ""
                 else:
+                    # 不是可等待对象，可能已经是最终结果
                     return out if isinstance(out, str) else ""
             # 如果没有异步方法，尝试同步调用
             elif hasattr(query_expansion_model, 'invoke'):
                 loop = asyncio.get_running_loop()
-                return await loop.run_in_executor(None, query_expansion_model.invoke, prompt)
+                result = await loop.run_in_executor(None, query_expansion_model.invoke, prompt)
+                return result if isinstance(result, str) else ""
             else:
                 print("⚠️ 查询扩展模型没有 invoke 或 ainvoke 方法")
                 return ""
