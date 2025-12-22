@@ -8,7 +8,7 @@ from typing import List
 from typing_extensions import TypedDict
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
 from langchain_core.prompts import PromptTemplate
 import inspect
 
@@ -71,7 +71,7 @@ class WorkflowNodes:
         self.rag_chain = rag_prompt_template | llm | StrOutputParser()
         
         # 设置网络搜索
-        self.web_search_tool = TavilySearchResults(k=WEB_SEARCH_RESULTS_COUNT)
+        self.web_search_tool = TavilySearch(k=WEB_SEARCH_RESULTS_COUNT)
     
     def decompose_query(self, state):
         """

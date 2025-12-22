@@ -11,7 +11,7 @@
 
 ## 根本原因
 
-LangChain 组件（如 TavilySearchResults）返回的 SearchResult 对象被 Python 的 `inspect.isawaitable()` 函数错误地识别为可等待对象，但实际上它们不是真正的协程对象。当尝试对这些对象使用 `await` 时，Python 会抛出 `TypeError: object can't be used in 'await' expression` 错误。
+LangChain 组件（如 TavilySearch）返回的 SearchResult 对象被 Python 的 `inspect.isawaitable()` 函数错误地识别为可等待对象，但实际上它们不是真正的协程对象。当尝试对这些对象使用 `await` 时，Python 会抛出 `TypeError: object can't be used in 'await' expression` 错误。
 
 ## 修复方案
 

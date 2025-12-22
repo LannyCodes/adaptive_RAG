@@ -1129,25 +1129,56 @@ class DocumentProcessor:
         try:
             if hasattr(retriever, "ainvoke"):
                 out = retriever.ainvoke(query)
-                # 严格检查是否为可等待对象
-                if inspect.isawaitable(out):
-                    result = await out
-                    if isinstance(result, list):
-                        return result
-                    elif result is not None:
-                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
-                        return []
-                    else:
-                        return []
-                else:
-                    # 不是可等待对象，检查是否为列表
+                
+                # 首先检查是否为 None
+                if out is None:
+                    return []
+                    
+                # 检查是否为列表类型（已经是最终结果）
+                if isinstance(out, list):
+                    return out
+                    
+                # 严格检查是否为真正的协程对象
+                # 使用多种方法确保我们只 await 真正的协程
+                is_real_coroutine = (
+                    inspect.iscoroutine(out) or 
+                    inspect.iscoroutinefunction(out) or
+                    (hasattr(out, '__await__') and not hasattr(out, 'documents'))
+                )
+                
+                if is_real_coroutine:
+                    # 如果是真正的协程，安全地 await
+                    try:
+                        result = await out
+                        # 再次检查返回结果
+                        if isinstance(result, list):
+                            return result
+                        elif result is None:
+                            return []
+                        else:
+                            print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
+                            return []
+                    except (TypeError, RuntimeError) as te:
+                        print(f"⚠️ 异步调用失败，可能是假可等待对象: {te}")
+                        # 如果失败，说明 out 可能不是真正的可等待对象
+                        # 尝试直接使用 out 的值
+                        if isinstance(out, list):
+                            return out
+                        else:
+                            print(f"⚠️ out 不是列表类型: {type(out)}")
+                            return []
+                elif inspect.isawaitable(out):
+                    # 如果被错误标记为可等待对象，但实际不是协程
+                    print(f"⚠️ 检测到假可等待对象: {type(out)}")
+                    # 尝试直接使用 out（可能已经是最终结果）
                     if isinstance(out, list):
                         return out
-                    elif out is not None:
-                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(out)}")
-                        return []
                     else:
+                        print(f"⚠️ 假可等待对象不是列表类型: {type(out)}")
                         return []
+                else:
+                    # 不是可等待对象，可能已经是最终结果
+                    return out if isinstance(out, list) else []
 
             if hasattr(retriever, "invoke"):
                 loop = asyncio.get_running_loop()
@@ -1168,25 +1199,56 @@ class DocumentProcessor:
         try:
             if hasattr(self.vectorstore, "asimilarity_search"):
                 out = self.vectorstore.asimilarity_search(query, k=k, **search_kwargs)
-                # 严格检查是否为可等待对象
-                if inspect.isawaitable(out):
-                    result = await out
-                    if isinstance(result, list):
-                        return result
-                    elif result is not None:
-                        print(f"⚠️ vectorstore.asimilarity_search 返回了非列表类型: {type(result)}")
-                        return []
-                    else:
-                        return []
-                else:
-                    # 不是可等待对象，检查是否为列表
+                
+                # 首先检查是否为 None
+                if out is None:
+                    return []
+                    
+                # 检查是否为列表类型（已经是最终结果）
+                if isinstance(out, list):
+                    return out
+                    
+                # 严格检查是否为真正的协程对象
+                # 使用多种方法确保我们只 await 真正的协程
+                is_real_coroutine = (
+                    inspect.iscoroutine(out) or 
+                    inspect.iscoroutinefunction(out) or
+                    (hasattr(out, '__await__') and not hasattr(out, 'documents'))
+                )
+                
+                if is_real_coroutine:
+                    # 如果是真正的协程，安全地 await
+                    try:
+                        result = await out
+                        # 再次检查返回结果
+                        if isinstance(result, list):
+                            return result
+                        elif result is None:
+                            return []
+                        else:
+                            print(f"⚠️ vectorstore.asimilarity_search 返回了非列表类型: {type(result)}")
+                            return []
+                    except (TypeError, RuntimeError) as te:
+                        print(f"⚠️ 异步调用失败，可能是假可等待对象: {te}")
+                        # 如果失败，说明 out 可能不是真正的可等待对象
+                        # 尝试直接使用 out 的值
+                        if isinstance(out, list):
+                            return out
+                        else:
+                            print(f"⚠️ out 不是列表类型: {type(out)}")
+                            return []
+                elif inspect.isawaitable(out):
+                    # 如果被错误标记为可等待对象，但实际不是协程
+                    print(f"⚠️ 检测到假可等待对象: {type(out)}")
+                    # 尝试直接使用 out（可能已经是最终结果）
                     if isinstance(out, list):
                         return out
-                    elif out is not None:
-                        print(f"⚠️ vectorstore.asimilarity_search 返回了非列表类型: {type(out)}")
-                        return []
                     else:
+                        print(f"⚠️ 假可等待对象不是列表类型: {type(out)}")
                         return []
+                else:
+                    # 不是可等待对象，可能已经是最终结果
+                    return out if isinstance(out, list) else []
 
             if hasattr(self.vectorstore, "similarity_search"):
                 loop = asyncio.get_running_loop()
@@ -1211,26 +1273,55 @@ class DocumentProcessor:
             if hasattr(self.ensemble_retriever, "ainvoke"):
                 out = self.ensemble_retriever.ainvoke(query)
                 
-                # 严格检查是否为可等待对象
-                if inspect.isawaitable(out):
-                    result = await out
-                    # 确保返回的是列表
-                    if isinstance(result, list):
-                        return result
-                    elif result is not None:
-                        print(f"⚠️ ensemble_retriever.ainvoke 返回了非列表类型: {type(result)}")
-                        return []
-                    else:
-                        return []
-                else:
-                    # 不是可等待对象，检查是否为列表
+                # 首先检查是否为 None
+                if out is None:
+                    return []
+                    
+                # 检查是否为列表类型（已经是最终结果）
+                if isinstance(out, list):
+                    return out
+                    
+                # 严格检查是否为真正的协程对象
+                # 使用多种方法确保我们只 await 真正的协程
+                is_real_coroutine = (
+                    inspect.iscoroutine(out) or 
+                    inspect.iscoroutinefunction(out) or
+                    (hasattr(out, '__await__') and not hasattr(out, 'documents'))
+                )
+                
+                if is_real_coroutine:
+                    # 如果是真正的协程，安全地 await
+                    try:
+                        result = await out
+                        # 再次检查返回结果
+                        if isinstance(result, list):
+                            return result
+                        elif result is None:
+                            return []
+                        else:
+                            print(f"⚠️ ensemble_retriever.ainvoke 返回了非列表类型: {type(result)}")
+                            return []
+                    except (TypeError, RuntimeError) as te:
+                        print(f"⚠️ 异步调用失败，可能是假可等待对象: {te}")
+                        # 如果失败，说明 out 可能不是真正的可等待对象
+                        # 尝试直接使用 out 的值
+                        if isinstance(out, list):
+                            return out
+                        else:
+                            print(f"⚠️ out 不是列表类型: {type(out)}")
+                            return []
+                elif inspect.isawaitable(out):
+                    # 如果被错误标记为可等待对象，但实际不是协程
+                    print(f"⚠️ 检测到假可等待对象: {type(out)}")
+                    # 尝试直接使用 out（可能已经是最终结果）
                     if isinstance(out, list):
                         return out
-                    elif out is not None:
-                        print(f"⚠️ ensemble_retriever.ainvoke 返回了非列表类型: {type(out)}")
-                        return []
                     else:
+                        print(f"⚠️ 假可等待对象不是列表类型: {type(out)}")
                         return []
+                else:
+                    # 不是可等待对象，可能已经是最终结果
+                    return out if isinstance(out, list) else []
 
             if hasattr(self.ensemble_retriever, "invoke"):
                 loop = asyncio.get_running_loop()
