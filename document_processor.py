@@ -821,6 +821,33 @@ class DocumentProcessor:
         # 返回 doc_splits用于GraphRAG索引 (注意：这里只返回了新增的)
         return self.vectorstore, self.retriever, doc_splits
     
+    async def _safe_async_query_expansion(self, query_expansion_model, prompt: str):
+        """安全的异步查询扩展调用"""
+        import inspect
+        import asyncio
+        
+        try:
+            if query_expansion_model is None:
+                return ""
+                
+            # 尝试异步调用
+            if hasattr(query_expansion_model, 'ainvoke'):
+                out = query_expansion_model.ainvoke(prompt)
+                if inspect.isawaitable(out):
+                    return await out
+                else:
+                    return out
+            # 如果没有异步方法，尝试同步调用
+            elif hasattr(query_expansion_model, 'invoke'):
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, query_expansion_model.invoke, prompt)
+            else:
+                print("⚠️ 查询扩展模型没有 invoke 或 ainvoke 方法")
+                return ""
+        except Exception as e:
+            print(f"⚠️ 安全异步查询扩展失败: {e}")
+            return ""
+
     async def async_expand_query(self, query: str) -> List[str]:
         """异步扩展查询"""
         if not self.query_expansion_model:
@@ -829,7 +856,10 @@ class DocumentProcessor:
         try:
             # 使用LLM生成扩展查询
             prompt = QUERY_EXPANSION_PROMPT.format(query=query)
-            expanded_queries_text = await self.query_expansion_model.ainvoke(prompt)
+            expanded_queries_text = await self._safe_async_query_expansion(self.query_expansion_model, prompt)
+            
+            if not expanded_queries_text:
+                return [query]
             
             # 解析扩展查询
             expanded_queries = [query]  # 包含原始查询

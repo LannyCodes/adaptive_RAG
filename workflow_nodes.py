@@ -127,7 +127,7 @@ class WorkflowNodes:
         try:
             # 如果启用了查询扩展，尝试扩展查询
             if ENABLE_QUERY_EXPANSION and hasattr(self, 'query_expansion_chain'):
-                expanded_query_result = await self.query_expansion_chain.ainvoke(question)
+                expanded_query_result = await self._safe_async_query_expansion_chain(self.query_expansion_chain, question)
                 # 确保expanded_query是字符串
                 if hasattr(expanded_query_result, 'content'):
                     expanded_query = expanded_query_result.content
@@ -183,17 +183,9 @@ class WorkflowNodes:
         if len(documents) < MIN_DOCS_THRESHOLD:
             print(f"   步骤3: 回退检索 (当前 {len(documents)} < 阈值 {MIN_DOCS_THRESHOLD})")
             try:
-                if hasattr(self.doc_processor, 'vector_retriever') and self.doc_processor.vector_retriever is not None:
-                    out = self.doc_processor.vector_retriever.ainvoke(question)
-                    fallback_docs = await out if inspect.isawaitable(out) else out
-                    print("   使用 vector_retriever 作为备选")
-                elif hasattr(self.doc_processor, 'retriever') and self.doc_processor.retriever is not None:
-                    out = self.doc_processor.retriever.ainvoke(question)
-                    fallback_docs = await out if inspect.isawaitable(out) else out
-                    print("   使用 doc_processor.retriever 作为备选")
-                else:
-                    fallback_docs = []
-                    print("❌ 回退检索器未正确初始化")
+                # 使用安全的异步调用方法，避免 SearchResult await 问题
+                fallback_docs = await self._safe_async_invoke(self.doc_processor, question)
+                print("   使用 doc_processor 安全异步调用作为备选")
                 
                 # 合并结果并去重
                 all_docs = documents + fallback_docs
@@ -348,6 +340,81 @@ class WorkflowNodes:
         
         return {"documents": web_results, "question": question}
     
+    async def _safe_async_invoke(self, doc_processor, query):
+        """安全的异步调用方法，避免 SearchResult await 问题"""
+        import inspect
+        
+        try:
+            # 首先尝试使用异步增强检索方法
+            if hasattr(doc_processor, 'async_enhanced_retrieve'):
+                return await doc_processor.async_enhanced_retrieve(query, top_k=3, use_query_expansion=False)
+            
+            # 尝试使用异步混合检索方法
+            if hasattr(doc_processor, 'async_hybrid_retrieve'):
+                return await doc_processor.async_hybrid_retrieve(query, top_k=3)
+            
+            # 尝试使用向量检索
+            if hasattr(doc_processor, 'vector_retriever') and doc_processor.vector_retriever is not None:
+                if hasattr(doc_processor.vector_retriever, 'ainvoke'):
+                    out = doc_processor.vector_retriever.ainvoke(query)
+                    if inspect.isawaitable(out):
+                        return await out
+                    elif isinstance(out, list):
+                        return out
+                    else:
+                        return []
+                elif hasattr(doc_processor.vector_retriever, 'invoke'):
+                    loop = asyncio.get_running_loop()
+                    return await loop.run_in_executor(None, doc_processor.vector_retriever.invoke, query)
+            
+            # 尝试使用基础检索器
+            if hasattr(doc_processor, 'retriever') and doc_processor.retriever is not None:
+                if hasattr(doc_processor.retriever, 'ainvoke'):
+                    out = doc_processor.retriever.ainvoke(query)
+                    if inspect.isawaitable(out):
+                        return await out
+                    elif isinstance(out, list):
+                        return out
+                    else:
+                        return []
+                elif hasattr(doc_processor.retriever, 'invoke'):
+                    loop = asyncio.get_running_loop()
+                    return await loop.run_in_executor(None, doc_processor.retriever.invoke, query)
+            
+            # 如果都没有，返回空列表
+            return []
+            
+        except Exception as e:
+            print(f"⚠️ 安全异步调用失败: {e}")
+            return []
+    
+    async def _safe_async_query_expansion_chain(self, query_expansion_chain, question):
+        """安全的异步查询扩展链调用"""
+        import inspect
+        import asyncio
+        
+        try:
+            if query_expansion_chain is None:
+                return ""
+                
+            # 尝试异步调用
+            if hasattr(query_expansion_chain, 'ainvoke'):
+                out = query_expansion_chain.ainvoke(question)
+                if inspect.isawaitable(out):
+                    return await out
+                else:
+                    return out
+            # 如果没有异步方法，尝试同步调用
+            elif hasattr(query_expansion_chain, 'invoke'):
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, query_expansion_chain.invoke, question)
+            else:
+                print("⚠️ 查询扩展链没有 invoke 或 ainvoke 方法")
+                return ""
+        except Exception as e:
+            print(f"⚠️ 安全异步查询扩展链失败: {e}")
+            return ""
+
     def route_question(self, state):
         print("---路由问题---")
         question = state["question"]
