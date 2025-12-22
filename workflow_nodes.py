@@ -347,22 +347,45 @@ class WorkflowNodes:
         try:
             # 首先尝试使用异步增强检索方法
             if hasattr(doc_processor, 'async_enhanced_retrieve'):
-                return await doc_processor.async_enhanced_retrieve(query, top_k=3, use_query_expansion=False)
+                result = await doc_processor.async_enhanced_retrieve(query, top_k=3, use_query_expansion=False)
+                if isinstance(result, list):
+                    return result
+                else:
+                    print(f"⚠️ async_enhanced_retrieve 返回了非列表类型: {type(result)}")
+                    return []
             
             # 尝试使用异步混合检索方法
             if hasattr(doc_processor, 'async_hybrid_retrieve'):
-                return await doc_processor.async_hybrid_retrieve(query, top_k=3)
+                result = await doc_processor.async_hybrid_retrieve(query, top_k=3)
+                if isinstance(result, list):
+                    return result
+                else:
+                    print(f"⚠️ async_hybrid_retrieve 返回了非列表类型: {type(result)}")
+                    return []
             
             # 尝试使用向量检索
             if hasattr(doc_processor, 'vector_retriever') and doc_processor.vector_retriever is not None:
                 if hasattr(doc_processor.vector_retriever, 'ainvoke'):
                     out = doc_processor.vector_retriever.ainvoke(query)
+                    # 严格检查是否为可等待对象
                     if inspect.isawaitable(out):
-                        return await out
-                    elif isinstance(out, list):
-                        return out
+                        result = await out
+                        if isinstance(result, list):
+                            return result
+                        elif result is not None:
+                            print(f"⚠️ vector_retriever.ainvoke 返回了非列表类型: {type(result)}")
+                            return []
+                        else:
+                            return []
                     else:
-                        return []
+                        # 不是可等待对象，检查是否为列表
+                        if isinstance(out, list):
+                            return out
+                        elif out is not None:
+                            print(f"⚠️ vector_retriever.ainvoke 返回了非列表类型: {type(out)}")
+                            return []
+                        else:
+                            return []
                 elif hasattr(doc_processor.vector_retriever, 'invoke'):
                     loop = asyncio.get_running_loop()
                     return await loop.run_in_executor(None, doc_processor.vector_retriever.invoke, query)
@@ -371,12 +394,25 @@ class WorkflowNodes:
             if hasattr(doc_processor, 'retriever') and doc_processor.retriever is not None:
                 if hasattr(doc_processor.retriever, 'ainvoke'):
                     out = doc_processor.retriever.ainvoke(query)
+                    # 严格检查是否为可等待对象
                     if inspect.isawaitable(out):
-                        return await out
-                    elif isinstance(out, list):
-                        return out
+                        result = await out
+                        if isinstance(result, list):
+                            return result
+                        elif result is not None:
+                            print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
+                            return []
+                        else:
+                            return []
                     else:
-                        return []
+                        # 不是可等待对象，检查是否为列表
+                        if isinstance(out, list):
+                            return out
+                        elif out is not None:
+                            print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(out)}")
+                            return []
+                        else:
+                            return []
                 elif hasattr(doc_processor.retriever, 'invoke'):
                     loop = asyncio.get_running_loop()
                     return await loop.run_in_executor(None, doc_processor.retriever.invoke, query)

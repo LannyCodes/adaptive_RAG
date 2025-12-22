@@ -162,9 +162,25 @@ class CustomEnsembleRetriever:
         async def call_single(retriever):
             if hasattr(retriever, "ainvoke"):
                 out = retriever.ainvoke(query)
+                # 严格检查是否为可等待对象
                 if inspect.isawaitable(out):
-                    return await out
-                return out
+                    result = await out
+                    if isinstance(result, list):
+                        return result
+                    elif result is not None:
+                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
+                        return []
+                    else:
+                        return []
+                else:
+                    # 不是可等待对象，检查是否为列表
+                    if isinstance(out, list):
+                        return out
+                    elif out is not None:
+                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(out)}")
+                        return []
+                    else:
+                        return []
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(None, retriever.invoke, query)
 
@@ -883,6 +899,9 @@ class DocumentProcessor:
         Args:
             filter_type: 数据类型过滤，"text" (默认), "image", 或 "all" (不过滤)
         """
+        import asyncio
+        import inspect
+        
         # 构建搜索参数
         search_kwargs = {}
         if filter_type != "all" and ENABLE_MULTIMODAL:
@@ -896,16 +915,6 @@ class DocumentProcessor:
             
         try:
             # 混合检索
-            # 注意：目前 CustomEnsembleRetriever 的 invoke/ainvoke 尚未透传 search_kwargs
-            # 为了让混合检索也享受到过滤优化，我们需要修改 CustomEnsembleRetriever 或者在这里处理
-            # 鉴于 CustomEnsembleRetriever 比较简单，我们假设它主要用于文本
-            # 如果需要严格过滤，最好在 vectorstore 层面处理
-            
-            # 临时方案：如果是混合检索且需要过滤，我们可能需要传递给 retriever
-            # 但标准 retriever 接口不支持动态传参。
-            # 策略：如果 filter_type 是 text (默认)，且我们在 init 时已经设置了默认不严格过滤，
-            # 这里其实无法动态改变 retriever 的行为，除非我们重新生成一个 retriever 或者修改 retriever.search_kwargs
-            
             # 动态修改 retriever 的 search_kwargs (这是 LangChain retriever 的特性)
             if filter_type != "all" and ENABLE_MULTIMODAL:
                 self.retriever.search_kwargs["expr"] = f"data_type == '{filter_type}'"
@@ -918,9 +927,13 @@ class DocumentProcessor:
         except Exception as e:
             print(f"⚠️ 异步混合检索失败: {e}")
             print("回退到向量检索")
-            if self.vectorstore:
-                return await self._async_vector_similarity_search(query, k=top_k, **search_kwargs)
-            return await self._async_retriever_invoke(self.retriever, query)
+            try:
+                if self.vectorstore:
+                    return await self._async_vector_similarity_search(query, k=top_k, **search_kwargs)
+                return await self._async_retriever_invoke(self.retriever, query)
+            except Exception as fallback_e:
+                print(f"⚠️ 回退检索也失败: {fallback_e}")
+                return []
 
     async def async_enhanced_retrieve(self, query: str, top_k: int = 5, rerank_candidates: int = 20, 
                          image_paths: List[str] = None, use_query_expansion: bool = None):
@@ -1022,18 +1035,37 @@ class DocumentProcessor:
         if retriever is None:
             return []
 
-        if hasattr(retriever, "ainvoke"):
-            out = retriever.ainvoke(query)
-            if inspect.isawaitable(out):
-                return await out
-            if isinstance(out, list):
-                return out
+        try:
+            if hasattr(retriever, "ainvoke"):
+                out = retriever.ainvoke(query)
+                # 严格检查是否为可等待对象
+                if inspect.isawaitable(out):
+                    result = await out
+                    if isinstance(result, list):
+                        return result
+                    elif result is not None:
+                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
+                        return []
+                    else:
+                        return []
+                else:
+                    # 不是可等待对象，检查是否为列表
+                    if isinstance(out, list):
+                        return out
+                    elif out is not None:
+                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(out)}")
+                        return []
+                    else:
+                        return []
 
-        if hasattr(retriever, "invoke"):
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, retriever.invoke, query)
+            if hasattr(retriever, "invoke"):
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, retriever.invoke, query)
 
-        return []
+            return []
+        except Exception as e:
+            print(f"⚠️ _async_retriever_invoke 调用失败: {e}")
+            return []
 
     async def _async_vector_similarity_search(self, query: str, k: int, **search_kwargs):
         import asyncio
@@ -1042,20 +1074,39 @@ class DocumentProcessor:
         if not self.vectorstore:
             return []
 
-        if hasattr(self.vectorstore, "asimilarity_search"):
-            out = self.vectorstore.asimilarity_search(query, k=k, **search_kwargs)
-            if inspect.isawaitable(out):
-                out = await out
-            if isinstance(out, list):
-                return out
+        try:
+            if hasattr(self.vectorstore, "asimilarity_search"):
+                out = self.vectorstore.asimilarity_search(query, k=k, **search_kwargs)
+                # 严格检查是否为可等待对象
+                if inspect.isawaitable(out):
+                    result = await out
+                    if isinstance(result, list):
+                        return result
+                    elif result is not None:
+                        print(f"⚠️ vectorstore.asimilarity_search 返回了非列表类型: {type(result)}")
+                        return []
+                    else:
+                        return []
+                else:
+                    # 不是可等待对象，检查是否为列表
+                    if isinstance(out, list):
+                        return out
+                    elif out is not None:
+                        print(f"⚠️ vectorstore.asimilarity_search 返回了非列表类型: {type(out)}")
+                        return []
+                    else:
+                        return []
 
-        if hasattr(self.vectorstore, "similarity_search"):
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, lambda: self.vectorstore.similarity_search(query, k=k, **search_kwargs)
-            )
+            if hasattr(self.vectorstore, "similarity_search"):
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(
+                    None, lambda: self.vectorstore.similarity_search(query, k=k, **search_kwargs)
+                )
 
-        return []
+            return []
+        except Exception as e:
+            print(f"⚠️ _async_vector_similarity_search 调用失败: {e}")
+            return []
     
     async def _async_ensemble_retriever_invoke(self, query: str):
         """安全调用 ensemble_retriever 的异步版本，避免 SearchResult await 问题"""
@@ -1065,18 +1116,40 @@ class DocumentProcessor:
         if not self.ensemble_retriever:
             return []
 
-        if hasattr(self.ensemble_retriever, "ainvoke"):
-            out = self.ensemble_retriever.ainvoke(query)
-            if inspect.isawaitable(out):
-                return await out
-            if isinstance(out, list):
-                return out
+        try:
+            if hasattr(self.ensemble_retriever, "ainvoke"):
+                out = self.ensemble_retriever.ainvoke(query)
+                
+                # 严格检查是否为可等待对象
+                if inspect.isawaitable(out):
+                    result = await out
+                    # 确保返回的是列表
+                    if isinstance(result, list):
+                        return result
+                    elif result is not None:
+                        print(f"⚠️ ensemble_retriever.ainvoke 返回了非列表类型: {type(result)}")
+                        return []
+                    else:
+                        return []
+                else:
+                    # 不是可等待对象，检查是否为列表
+                    if isinstance(out, list):
+                        return out
+                    elif out is not None:
+                        print(f"⚠️ ensemble_retriever.ainvoke 返回了非列表类型: {type(out)}")
+                        return []
+                    else:
+                        return []
 
-        if hasattr(self.ensemble_retriever, "invoke"):
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self.ensemble_retriever.invoke, query)
+            if hasattr(self.ensemble_retriever, "invoke"):
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, self.ensemble_retriever.invoke, query)
 
-        return []
+            return []
+            
+        except Exception as e:
+            print(f"⚠️ _async_ensemble_retriever_invoke 调用失败: {e}")
+            return []
     
     def expand_query(self, query: str) -> List[str]:
         """扩展查询，生成相关查询"""
