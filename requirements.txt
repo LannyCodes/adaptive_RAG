@@ -2,11 +2,11 @@
 # 运行以下命令安装: pip install -r requirements.txt
 
 # 核心框架
-langchain==1.2.0
-langgraph==1.0.5
-langchain-community==0.4.1
-langchain-text-splitters==1.1.0
-langchain-huggingface==1.2.0  # 新的HuggingFaceEmbeddings实现，避免废弃警告
+langchain
+langgraph
+langchain-community
+langchain-text-splitters
+langchain-huggingface  # 新的HuggingFaceEmbeddings实现，避免废弃警告
 
 # LLM集成
 langchain-ollama==1.0.1
