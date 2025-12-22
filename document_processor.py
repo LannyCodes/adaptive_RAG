@@ -882,7 +882,8 @@ class DocumentProcessor:
             else:
                 self.retriever.search_kwargs.pop("expr", None)
                 
-            results = await self.ensemble_retriever.ainvoke(query)
+            # 安全调用 ensemble_retriever，避免 SearchResult await 问题
+            results = await self._async_ensemble_retriever_invoke(query)
             return results[:top_k]
         except Exception as e:
             print(f"⚠️ 异步混合检索失败: {e}")
@@ -1023,6 +1024,27 @@ class DocumentProcessor:
             return await loop.run_in_executor(
                 None, lambda: self.vectorstore.similarity_search(query, k=k, **search_kwargs)
             )
+
+        return []
+    
+    async def _async_ensemble_retriever_invoke(self, query: str):
+        """安全调用 ensemble_retriever 的异步版本，避免 SearchResult await 问题"""
+        import asyncio
+        import inspect
+
+        if not self.ensemble_retriever:
+            return []
+
+        if hasattr(self.ensemble_retriever, "ainvoke"):
+            out = self.ensemble_retriever.ainvoke(query)
+            if inspect.isawaitable(out):
+                return await out
+            if isinstance(out, list):
+                return out
+
+        if hasattr(self.ensemble_retriever, "invoke"):
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.ensemble_retriever.invoke, query)
 
         return []
     
