@@ -167,9 +167,8 @@ class CustomEnsembleRetriever:
                 if hasattr(retriever, "ainvoke"):
                     out = retriever.ainvoke(query)
                     
-                    # 严格检查是否为可等待对象，同时确保不是SearchResult等对象
+                    # 严格检查是否为可等待对象
                     if inspect.isawaitable(out):
-                        # 检查是否真的是协程，而不是SearchResult等对象
                         try:
                             result = await out
                             if isinstance(result, list):
@@ -179,15 +178,30 @@ class CustomEnsembleRetriever:
                                 return []
                             else:
                                 return []
-                        except TypeError as te:
+                        except (TypeError, RuntimeError) as te:
                             # 如果是SearchResult等对象被错误地标记为可等待对象
                             print(f"⚠️ 检测到不可等待的对象被用于await: {te}")
-                            # 尝试直接使用out
-                            if isinstance(out, list):
-                                return out
+                            # 检查是否为协程对象，如果是则重新await
+                            if inspect.iscoroutine(out):
+                                try:
+                                    result = await out
+                                    if isinstance(result, list):
+                                        return result
+                                    elif result is not None:
+                                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
+                                        return []
+                                    else:
+                                        return []
+                                except Exception as e2:
+                                    print(f"⚠️ 协程await失败: {e2}")
+                                    return []
                             else:
-                                print(f"⚠️ out不是列表类型: {type(out)}")
-                                return []
+                                # 不是协程，尝试直接使用
+                                if isinstance(out, list):
+                                    return out
+                                else:
+                                    print(f"⚠️ out不是列表类型: {type(out)}")
+                                    return []
                     else:
                         # 不是可等待对象，检查是否为列表
                         if isinstance(out, list):
@@ -882,10 +896,25 @@ class DocumentProcessor:
                     try:
                         result = await out
                         return result if isinstance(result, str) else ""
-                    except TypeError as te:
-                        print(f"⚠️ 检测到不可等待的对象被用于await: {te}")
-                        # 尝试直接使用out
-                        return out if isinstance(out, str) else ""
+                    except (TypeError, RuntimeError) as te:
+                        print(f"⚠️ 异步调用失败，可能是假可等待对象: {te}")
+                        # 如果失败，说明 out 可能不是真正的可等待对象
+                        # 尝试直接使用 out 的值
+                        try:
+                            if inspect.iscoroutine(out):
+                                # 如果是协程，重新尝试await
+                                result = await out
+                                return result if isinstance(result, str) else ""
+                            else:
+                                # 如果不是协程，检查是否可以直接使用
+                                if isinstance(out, str):
+                                    return out
+                                else:
+                                    print(f"⚠️ out 不是字符串类型: {type(out)}")
+                                    return ""
+                        except Exception as e2:
+                            print(f"⚠️ 处理 out 对象也失败: {e2}")
+                            return ""
                 else:
                     return out if isinstance(out, str) else ""
             # 如果没有异步方法，尝试同步调用

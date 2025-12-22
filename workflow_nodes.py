@@ -463,10 +463,25 @@ class WorkflowNodes:
                     try:
                         result = await out
                         return result if isinstance(result, str) else ""
-                    except TypeError as te:
-                        print(f"⚠️ 检测到不可等待的对象被用于await: {te}")
-                        # 尝试直接使用out
-                        return out if isinstance(out, str) else ""
+                    except (TypeError, RuntimeError) as te:
+                        print(f"⚠️ 异步调用失败，可能是假可等待对象: {te}")
+                        # 如果失败，说明 out 可能不是真正的可等待对象
+                        # 尝试直接使用 out 的值
+                        try:
+                            if inspect.iscoroutine(out):
+                                # 如果是协程，重新尝试await
+                                result = await out
+                                return result if isinstance(result, str) else ""
+                            else:
+                                # 如果不是协程，检查是否可以直接使用
+                                if isinstance(out, str):
+                                    return out
+                                else:
+                                    print(f"⚠️ out 不是字符串类型: {type(out)}")
+                                    return ""
+                        except Exception as e2:
+                            print(f"⚠️ 处理 out 对象也失败: {e2}")
+                            return ""
                 else:
                     return out if isinstance(out, str) else ""
             # 如果没有异步方法，尝试同步调用
