@@ -5,7 +5,7 @@
 langchain==1.2.0
 langgraph==1.0.5
 langchain-community==0.4.1
-langchain-core==1.2.3
+langchain-core==1.2.0
 langchain-text-splitters==1.1.0
 langchain-huggingface==1.2.0  # 新的HuggingFaceEmbeddings实现，避免废弃警告
 
@@ -40,7 +40,7 @@ pandas==2.0.3
 
 # 工具库
 python-dotenv==1.0.0
-pydantic==2.3.0
+pydantic==2.0.3
 typing-extensions==4.5.0
 
 # 开发工具（可选）
