@@ -19,7 +19,7 @@ sentence-transformers==2.2.2
 transformers==4.30.2
 
 # 文档处理
-tiktoken==0.5.2
+tiktoken
 beautifulsoup4==4.12.2
 requests==2.31.0
 Pillow==9.5.0  # 图像处理，支持多模态功能
