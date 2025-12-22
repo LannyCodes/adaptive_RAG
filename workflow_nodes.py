@@ -119,49 +119,96 @@ class WorkflowNodes:
         retry_count = state.get("retry_count", 0)
         retrieval_start_time = time.time()
         
-        # 使用增强检索方法，支持混合检索、查询扩展和多模态
+        # 记录检索开始时间
+        print(f"   步骤1: 查询扩展")
+        expanded_query = question
+        
+        # 步骤1: 查询扩展 - 增强原始查询
+        try:
+            # 如果启用了查询扩展，尝试扩展查询
+            if ENABLE_QUERY_EXPANSION and hasattr(self, 'query_expansion_chain'):
+                expanded_query_result = await self.query_expansion_chain.ainvoke(question)
+                # 确保expanded_query是字符串
+                if hasattr(expanded_query_result, 'content'):
+                    expanded_query = expanded_query_result.content
+                elif hasattr(expanded_query_result, 'page_content'):
+                    expanded_query = expanded_query_result.page_content
+                else:
+                    expanded_query = str(expanded_query_result)
+            
+            print(f"   原始查询: {question}")
+            print(f"   扩展查询: {expanded_query}")
+        except Exception as e:
+            print(f"⚠️ 查询扩展失败，使用原始查询: {e}")
+            expanded_query = question
+        
+        documents = []
+        
+        # 步骤2: 主要检索逻辑
         try:
             # 检查是否有图像路径（多模态检索）
             image_paths = state.get("image_paths", None)
             
-            # 使用异步增强检索
-            documents = await self.doc_processor.async_enhanced_retrieve(
-                question, 
-                top_k=5, 
-                rerank_candidates=20,
-                image_paths=image_paths,
-                use_query_expansion=ENABLE_QUERY_EXPANSION
-            )
+            # 使用增强检索方法，支持混合检索、查询扩展和多模态
+            if hasattr(self.doc_processor, 'async_enhanced_retrieve'):
+                documents = await self.doc_processor.async_enhanced_retrieve(
+                    expanded_query, 
+                    top_k=5, 
+                    rerank_candidates=20,
+                    image_paths=image_paths,
+                    use_query_expansion=False  # 已经在上面处理过了
+                )
+                print(f"   增强检索结果: {len(documents)} 个文档")
+            elif self.retriever is not None:
+                # 基础检索器
+                out = self.retriever.ainvoke(expanded_query)
+                documents = await out if inspect.isawaitable(out) else out
+                print(f"   基础检索结果: {len(documents)} 个文档")
+            else:
+                print("❌ 没有可用的检索器")
+                documents = []
             
             # 记录使用的检索方法
             if ENABLE_HYBRID_SEARCH:
                 print("---使用混合检索(向量+关键词)---")
-            if ENABLE_QUERY_EXPANSION:
-                print("---使用查询扩展---")
             if image_paths and ENABLE_MULTIMODAL:
                 print("---使用多模态检索---")
                 
         except Exception as e:
             print(f"⚠️ 增强检索失败: {e}，回退到基本检索")
-            # 回退到基本检索 (同步回退，如果需要也可以改为异步)
+            documents = []
+        
+        # 步骤3: 如果检索结果不足，尝试回退检索
+        MIN_DOCS_THRESHOLD = 3
+        if len(documents) < MIN_DOCS_THRESHOLD:
+            print(f"   步骤3: 回退检索 (当前 {len(documents)} < 阈值 {MIN_DOCS_THRESHOLD})")
             try:
-                if self.retriever is not None:
-                    out = self.retriever.ainvoke(question)
-                    documents = await out if inspect.isawaitable(out) else out
-                elif hasattr(self.doc_processor, 'vector_retriever') and self.doc_processor.vector_retriever is not None:
+                if hasattr(self.doc_processor, 'vector_retriever') and self.doc_processor.vector_retriever is not None:
                     out = self.doc_processor.vector_retriever.ainvoke(question)
-                    documents = await out if inspect.isawaitable(out) else out
+                    fallback_docs = await out if inspect.isawaitable(out) else out
                     print("   使用 vector_retriever 作为备选")
                 elif hasattr(self.doc_processor, 'retriever') and self.doc_processor.retriever is not None:
                     out = self.doc_processor.retriever.ainvoke(question)
-                    documents = await out if inspect.isawaitable(out) else out
+                    fallback_docs = await out if inspect.isawaitable(out) else out
                     print("   使用 doc_processor.retriever 作为备选")
                 else:
-                    print("❌ 检索器未正确初始化，返回空文档列表")
-                    documents = []
+                    fallback_docs = []
+                    print("❌ 回退检索器未正确初始化")
+                
+                # 合并结果并去重
+                all_docs = documents + fallback_docs
+                unique_docs = []
+                seen_contents = set()
+                for doc in all_docs:
+                    content = getattr(doc, 'page_content', str(doc))
+                    if content not in seen_contents:
+                        unique_docs.append(doc)
+                        seen_contents.add(content)
+                documents = unique_docs
+                print(f"   回退检索结果: {len(fallback_docs)} 个文档，合并后: {len(documents)} 个")
+                
             except Exception as fallback_e:
                 print(f"❌ 回退检索也失败: {fallback_e}")
-                documents = []
         
         # === 向量多跳检索支持：合并上下文 ===
         # 如果这不是第一次检索（即重试次数 > 0 或 正在处理后续子查询），说明之前的检索结果可能不完整或问题被重写了
@@ -172,19 +219,22 @@ class WorkflowNodes:
             previous_docs = state["documents"]
             if previous_docs:
                 # 简单的去重合并（基于内容）
-                current_content = {d.page_content for d in documents}
+                current_content = {getattr(d, 'page_content', str(d)) for d in documents}
                 merged_count = 0
                 for prev_doc in previous_docs:
+                    content = getattr(prev_doc, 'page_content', str(prev_doc))
                     # 只有当内容不重复时才添加
-                    if prev_doc.page_content not in current_content:
+                    if content not in current_content:
                         documents.append(prev_doc)
-                        current_content.add(prev_doc.page_content)
+                        current_content.add(content)
                         merged_count += 1
                 print(f"   合并了 {merged_count} 个来自上一轮/上一跳的文档，当前总文档数: {len(documents)}")
         # =================================
         
         # 计算检索时间
         retrieval_time = time.time() - retrieval_start_time
+        
+        print(f"   检索完成: {len(documents)} 个文档，耗时 {retrieval_time:.2f} 秒")
         
         # 评估检索结果
         retrieval_metrics = self._evaluate_retrieval_results(question, documents, retrieval_time)
