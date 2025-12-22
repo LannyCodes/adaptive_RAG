@@ -165,52 +165,9 @@ class CustomEnsembleRetriever:
                 
             try:
                 if hasattr(retriever, "ainvoke"):
-                    out = retriever.ainvoke(query)
-                    
-                    # 严格检查是否为可等待对象
-                    if inspect.isawaitable(out):
-                        try:
-                            result = await out
-                            if isinstance(result, list):
-                                return result
-                            elif result is not None:
-                                print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
-                                return []
-                            else:
-                                return []
-                        except (TypeError, RuntimeError) as te:
-                            # 如果是SearchResult等对象被错误地标记为可等待对象
-                            print(f"⚠️ 检测到不可等待的对象被用于await: {te}")
-                            # 检查是否为协程对象，如果是则重新await
-                            if inspect.iscoroutine(out):
-                                try:
-                                    result = await out
-                                    if isinstance(result, list):
-                                        return result
-                                    elif result is not None:
-                                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
-                                        return []
-                                    else:
-                                        return []
-                                except Exception as e2:
-                                    print(f"⚠️ 协程await失败: {e2}")
-                                    return []
-                            else:
-                                # 不是协程，尝试直接使用
-                                if isinstance(out, list):
-                                    return out
-                                else:
-                                    print(f"⚠️ out不是列表类型: {type(out)}")
-                                    return []
-                    else:
-                        # 不是可等待对象，检查是否为列表
-                        if isinstance(out, list):
-                            return out
-                        elif out is not None:
-                            print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(out)}")
-                            return []
-                        else:
-                            return []
+                    # 安全地调用异步方法
+                    result = await self._safe_ainvoke(retriever, query)
+                    return result if isinstance(result, list) else []
                 elif hasattr(retriever, "invoke"):
                     loop = asyncio.get_running_loop()
                     return await loop.run_in_executor(None, retriever.invoke, query)
@@ -239,6 +196,50 @@ class CustomEnsembleRetriever:
                 all_results.append(doc)
                 
         return self._process_results(all_results)
+
+    async def _safe_ainvoke(self, retriever, query):
+        """安全的异步调用方法，避免 SearchResult await 问题"""
+        import inspect
+        
+        try:
+            # 获取原始调用结果
+            out = retriever.ainvoke(query)
+            
+            # 严格检查是否为真正的协程对象
+            if inspect.iscoroutine(out):
+                # 如果是真正的协程，安全地 await
+                try:
+                    result = await out
+                    return result if isinstance(result, list) else []
+                except (TypeError, RuntimeError) as e:
+                    print(f"⚠️ 协程 await 失败: {e}")
+                    return []
+            elif inspect.isawaitable(out):
+                # 如果被错误标记为可等待对象，但实际不是协程
+                print(f"⚠️ 检测到假可等待对象: {type(out)}")
+                # 尝试直接使用 out（可能已经是最终结果）
+                if isinstance(out, list):
+                    return out
+                elif hasattr(out, 'documents') and isinstance(out.documents, list):
+                    # 处理 SearchResult 等类似对象
+                    return out.documents
+                else:
+                    print(f"⚠️ 假可等待对象类型未知: {type(out)}")
+                    return []
+            else:
+                # 不是可等待对象，可能已经是最终结果
+                if isinstance(out, list):
+                    return out
+                elif hasattr(out, 'documents') and isinstance(out.documents, list):
+                    # 处理 SearchResult 等类似对象
+                    return out.documents
+                else:
+                    print(f"⚠️ 返回类型未知: {type(out)}")
+                    return []
+                    
+        except Exception as e:
+            print(f"⚠️ _safe_ainvoke 调用失败: {e}")
+            return []
 
     def _process_results(self, all_results):
         """排序和去重处理"""
@@ -1173,7 +1174,7 @@ class DocumentProcessor:
             return []
     
     async def _async_ensemble_retriever_invoke(self, query: str):
-        """安全调用 ensemble_retriever 的异步版本，避免 SearchResult await 问题"""
+        """安全的异步调用 ensemble_retriever 的异步版本，避免 SearchResult await 问题"""
         import asyncio
         import inspect
 

@@ -364,13 +364,13 @@ class WorkflowNodes:
         return {"documents": web_results, "question": question}
     
     async def _safe_async_invoke(self, doc_processor, query):
-        """安全的异步调用方法，避免 SearchResult await 问题"""
+        """统一的异步调用方法，避免 SearchResult await 问题"""
         import inspect
         
         try:
             # 首先尝试使用异步增强检索方法
             if hasattr(doc_processor, 'async_enhanced_retrieve'):
-                result = await doc_processor.async_enhanced_retrieve(query, top_k=3, use_query_expansion=False)
+                result = await self._safe_invoke_callable(doc_processor.async_enhanced_retrieve, query, top_k=3, use_query_expansion=False)
                 if isinstance(result, list):
                     return result
                 else:
@@ -379,7 +379,7 @@ class WorkflowNodes:
             
             # 尝试使用异步混合检索方法
             if hasattr(doc_processor, 'async_hybrid_retrieve'):
-                result = await doc_processor.async_hybrid_retrieve(query, top_k=3)
+                result = await self._safe_invoke_callable(doc_processor.async_hybrid_retrieve, query, top_k=3)
                 if isinstance(result, list):
                     return result
                 else:
@@ -388,57 +388,15 @@ class WorkflowNodes:
             
             # 尝试使用向量检索
             if hasattr(doc_processor, 'vector_retriever') and doc_processor.vector_retriever is not None:
-                if hasattr(doc_processor.vector_retriever, 'ainvoke'):
-                    out = doc_processor.vector_retriever.ainvoke(query)
-                    # 严格检查是否为可等待对象
-                    if inspect.isawaitable(out):
-                        result = await out
-                        if isinstance(result, list):
-                            return result
-                        elif result is not None:
-                            print(f"⚠️ vector_retriever.ainvoke 返回了非列表类型: {type(result)}")
-                            return []
-                        else:
-                            return []
-                    else:
-                        # 不是可等待对象，检查是否为列表
-                        if isinstance(out, list):
-                            return out
-                        elif out is not None:
-                            print(f"⚠️ vector_retriever.ainvoke 返回了非列表类型: {type(out)}")
-                            return []
-                        else:
-                            return []
-                elif hasattr(doc_processor.vector_retriever, 'invoke'):
-                    loop = asyncio.get_running_loop()
-                    return await loop.run_in_executor(None, doc_processor.vector_retriever.invoke, query)
+                result = await self._safe_invoke_retriever(doc_processor.vector_retriever, query)
+                if isinstance(result, list):
+                    return result
             
             # 尝试使用基础检索器
             if hasattr(doc_processor, 'retriever') and doc_processor.retriever is not None:
-                if hasattr(doc_processor.retriever, 'ainvoke'):
-                    out = doc_processor.retriever.ainvoke(query)
-                    # 严格检查是否为可等待对象
-                    if inspect.isawaitable(out):
-                        result = await out
-                        if isinstance(result, list):
-                            return result
-                        elif result is not None:
-                            print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
-                            return []
-                        else:
-                            return []
-                    else:
-                        # 不是可等待对象，检查是否为列表
-                        if isinstance(out, list):
-                            return out
-                        elif out is not None:
-                            print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(out)}")
-                            return []
-                        else:
-                            return []
-                elif hasattr(doc_processor.retriever, 'invoke'):
-                    loop = asyncio.get_running_loop()
-                    return await loop.run_in_executor(None, doc_processor.retriever.invoke, query)
+                result = await self._safe_invoke_retriever(doc_processor.retriever, query)
+                if isinstance(result, list):
+                    return result
             
             # 如果都没有，返回空列表
             return []
@@ -446,7 +404,60 @@ class WorkflowNodes:
         except Exception as e:
             print(f"⚠️ 安全异步调用失败: {e}")
             return []
-    
+
+    async def _safe_invoke_callable(self, callable_obj, *args, **kwargs):
+        """安全调用可调用对象，处理异步和同步两种情况"""
+        import inspect
+        import asyncio
+        
+        try:
+            out = callable_obj(*args, **kwargs)
+            
+            # 严格检查是否为真正的协程对象
+            if inspect.iscoroutine(out):
+                # 如果是真正的协程，安全地 await
+                try:
+                    result = await out
+                    return result
+                except (TypeError, RuntimeError) as e:
+                    print(f"⚠️ 协程 await 失败: {e}")
+                    return None
+            elif inspect.isawaitable(out):
+                # 如果被错误标记为可等待对象，但实际不是协程
+                print(f"⚠️ 检测到假可等待对象: {type(out)}")
+                # 尝试直接使用 out（可能已经是最终结果）
+                if hasattr(out, 'documents') and isinstance(out.documents, list):
+                    # 处理 SearchResult 等类似对象
+                    return out.documents
+                else:
+                    print(f"⚠️ 假可等待对象类型未知: {type(out)}")
+                    return None
+            else:
+                # 不是可等待对象，可能已经是最终结果
+                return out
+                    
+        except Exception as e:
+            print(f"⚠️ _safe_invoke_callable 调用失败: {e}")
+            return None
+
+    async def _safe_invoke_retriever(self, retriever, query):
+        """安全调用检索器"""
+        import inspect
+        
+        try:
+            if hasattr(retriever, 'ainvoke'):
+                return await self._safe_invoke_callable(retriever.ainvoke, query)
+            elif hasattr(retriever, 'invoke'):
+                # 同步调用转为异步执行
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, retriever.invoke, query)
+            else:
+                print(f"⚠️ 检索器没有 invoke 或 ainvoke 方法: {type(retriever)}")
+                return []
+        except Exception as e:
+            print(f"⚠️ _safe_invoke_retriever 调用失败: {e}")
+            return []
+
     async def _safe_async_query_expansion_chain(self, query_expansion_chain, question):
         """安全的异步查询扩展链调用"""
         import inspect
