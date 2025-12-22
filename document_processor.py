@@ -160,35 +160,64 @@ class CustomEnsembleRetriever:
         
         # 并发获取各检索器的结果
         async def call_single(retriever):
-            if hasattr(retriever, "ainvoke"):
-                out = retriever.ainvoke(query)
-                # 严格检查是否为可等待对象
-                if inspect.isawaitable(out):
-                    result = await out
-                    if isinstance(result, list):
-                        return result
-                    elif result is not None:
-                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
-                        return []
+            if retriever is None:
+                return []
+                
+            try:
+                if hasattr(retriever, "ainvoke"):
+                    out = retriever.ainvoke(query)
+                    
+                    # 严格检查是否为可等待对象，同时确保不是SearchResult等对象
+                    if inspect.isawaitable(out):
+                        # 检查是否真的是协程，而不是SearchResult等对象
+                        try:
+                            result = await out
+                            if isinstance(result, list):
+                                return result
+                            elif result is not None:
+                                print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(result)}")
+                                return []
+                            else:
+                                return []
+                        except TypeError as te:
+                            # 如果是SearchResult等对象被错误地标记为可等待对象
+                            print(f"⚠️ 检测到不可等待的对象被用于await: {te}")
+                            # 尝试直接使用out
+                            if isinstance(out, list):
+                                return out
+                            else:
+                                print(f"⚠️ out不是列表类型: {type(out)}")
+                                return []
                     else:
-                        return []
+                        # 不是可等待对象，检查是否为列表
+                        if isinstance(out, list):
+                            return out
+                        elif out is not None:
+                            print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(out)}")
+                            return []
+                        else:
+                            return []
+                elif hasattr(retriever, "invoke"):
+                    loop = asyncio.get_running_loop()
+                    return await loop.run_in_executor(None, retriever.invoke, query)
                 else:
-                    # 不是可等待对象，检查是否为列表
-                    if isinstance(out, list):
-                        return out
-                    elif out is not None:
-                        print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(out)}")
-                        return []
-                    else:
-                        return []
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, retriever.invoke, query)
+                    return []
+            except Exception as e:
+                print(f"⚠️ call_single 调用失败: {e}")
+                return []
 
         tasks = [call_single(retriever) for retriever in self.retrievers]
-        results_list = await asyncio.gather(*tasks)
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
         
+        # 处理异常结果
         all_results = []
         for i, results in enumerate(results_list):
+            if isinstance(results, Exception):
+                print(f"⚠️ 检索器 {i} 失败: {results}")
+                continue
+            if not isinstance(results, list):
+                continue
+                
             for doc in results:
                 # 添加检索器索引和权重信息
                 doc.metadata["retriever_index"] = i
@@ -850,9 +879,15 @@ class DocumentProcessor:
             if hasattr(query_expansion_model, 'ainvoke'):
                 out = query_expansion_model.ainvoke(prompt)
                 if inspect.isawaitable(out):
-                    return await out
+                    try:
+                        result = await out
+                        return result if isinstance(result, str) else ""
+                    except TypeError as te:
+                        print(f"⚠️ 检测到不可等待的对象被用于await: {te}")
+                        # 尝试直接使用out
+                        return out if isinstance(out, str) else ""
                 else:
-                    return out
+                    return out if isinstance(out, str) else ""
             # 如果没有异步方法，尝试同步调用
             elif hasattr(query_expansion_model, 'invoke'):
                 loop = asyncio.get_running_loop()

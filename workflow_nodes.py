@@ -161,9 +161,32 @@ class WorkflowNodes:
                 print(f"   增强检索结果: {len(documents)} 个文档")
             elif self.retriever is not None:
                 # 基础检索器
-                out = self.retriever.ainvoke(expanded_query)
-                documents = await out if inspect.isawaitable(out) else out
-                print(f"   基础检索结果: {len(documents)} 个文档")
+                try:
+                    out = self.retriever.ainvoke(expanded_query)
+                    # 严格检查是否为可等待对象
+                    if inspect.isawaitable(out):
+                        documents = await out
+                        # 确保返回的是列表
+                        if isinstance(documents, list):
+                            pass  # 保持documents不变
+                        elif documents is not None:
+                            print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(documents)}")
+                            documents = []
+                        else:
+                            documents = []
+                    else:
+                        # 不是可等待对象，检查是否为列表
+                        if isinstance(out, list):
+                            documents = out
+                        elif out is not None:
+                            print(f"⚠️ retriever.ainvoke 返回了非列表类型: {type(out)}")
+                            documents = []
+                        else:
+                            documents = []
+                    print(f"   基础检索结果: {len(documents)} 个文档")
+                except Exception as e:
+                    print(f"⚠️ 基础检索失败: {e}")
+                    documents = []
             else:
                 print("❌ 没有可用的检索器")
                 documents = []
@@ -437,9 +460,15 @@ class WorkflowNodes:
             if hasattr(query_expansion_chain, 'ainvoke'):
                 out = query_expansion_chain.ainvoke(question)
                 if inspect.isawaitable(out):
-                    return await out
+                    try:
+                        result = await out
+                        return result if isinstance(result, str) else ""
+                    except TypeError as te:
+                        print(f"⚠️ 检测到不可等待的对象被用于await: {te}")
+                        # 尝试直接使用out
+                        return out if isinstance(out, str) else ""
                 else:
-                    return out
+                    return out if isinstance(out, str) else ""
             # 如果没有异步方法，尝试同步调用
             elif hasattr(query_expansion_chain, 'invoke'):
                 loop = asyncio.get_running_loop()
