@@ -17,12 +17,13 @@ pymilvus[milvus_lite]==2.6.5
 langchain-milvus==0.1.10
 sentence-transformers==2.6.1
 transformers==4.46.3
+huggingface-hub==0.26.0  # HuggingFace Hub客户端
 
 # 文档处理
 tiktoken==0.7.0
 beautifulsoup4==4.12.2
 requests==2.32.3
-Pillow==9.5.0  # 图像处理，支持多模态功能
+Pillow==10.4.0  # 图像处理，支持多模态功能
 rank-bm25==0.2.2  # BM25检索，用于混合搜索
 elasticsearch==8.9.0  # Elasticsearch 客户端，用于大规模 BM25 检索
 
@@ -39,8 +40,32 @@ pandas==2.0.3
 
 # 工具库
 python-dotenv==1.0.1
-pydantic==2.9.0
-typing-extensions==4.8.0
+pydantic==2.9.2
+typing-extensions==4.12.2
+
+# GraphRAG相关
+networkx==3.2.1  # 图结构处理
+python-louvain==0.16  # 社区检测
+neo4j==5.14.0  # 图数据库
+py2neo==2021.2.4  # Neo4j Python客户端
+graspologic==3.3.0  # 层次化社区检测
+leidenalg==0.10.0  # 更好的社区检测算法
+spacy==3.7.0  # 实体识别增强
+
+# 图可视化（可选）
+pyvis==0.3.2
+plotly==5.18.0
+
+# 缓存和性能优化
+diskcache==5.6.0
+joblib==1.3.0
+
+# 异步HTTP请求（用于并发处理）
+aiohttp==3.11.14
+
+# 系统监控
+gputil==1.4.0
+psutil==5.9.0
 
 # 开发工具（可选）
 # jupyter>=1.0.0
@@ -49,9 +74,7 @@ contourpy==1.1.1  # matplotlib 的依赖，明确版本避免解析慢
 matplotlib==3.8.0
 seaborn==0.13.0
 
-# GraphRAG相关（可选）
-networkx==3.2.1  # 图结构处理
-python-louvain==0.16  # 社区检测
+# Web服务器
 fastapi==0.115.6
 uvicorn==0.34.0
 python-multipart==0.0.20
