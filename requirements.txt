@@ -35,7 +35,7 @@ tavily-python==0.7.17
 langchain-tavily==0.2.15  # 新的Tavily集成，避免弃用警告
 
 # 数据处理
-numpy==1.24.3  # 避免NumPy 2.x兼容性问题
+numpy==1.26.4  # 兼容jax，避免NumPy 2.x兼容性问题
 pandas==2.0.3
 
 # 工具库
