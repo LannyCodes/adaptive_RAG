@@ -284,44 +284,131 @@ def main():
             "AI Agent的工具使用能力是如何工作的？"
         ]
         
-        # 测试异步检索性能
-        print("\n🚀 开始测试异步检索性能")
+        # 检查GPU使用情况
+        print("\n🔍 检查硬件加速配置...")
+        print("=" * 60)
+        
+        # 检查CUDA/GPU
+        try:
+            import torch
+            print(f"PyTorch版本: {torch.__version__}")
+            if torch.cuda.is_available():
+                print(f"CUDA可用: ✅")
+                print(f"CUDA版本: {torch.version.cuda}")
+                print(f"GPU数量: {torch.cuda.device_count()}")
+                for i in range(torch.cuda.device_count()):
+                    print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+            else:
+                print(f"CUDA可用: ❌")
+                print(f"使用设备: CPU")
+        except ImportError:
+            print("⚠️ 未安装PyTorch，无法检测GPU")
+        
+        # 检查向量数据库配置
+        print("\n📊 向量数据库配置:")
+        try:
+            from config import VECTOR_STORE_TYPE, MILVUS_URI, MILVUS_HOST, MILVUS_PORT
+            print(f"向量数据库类型: {VECTOR_STORE_TYPE}")
+            
+            if VECTOR_STORE_TYPE == "milvus":
+                print(f"Milvus URI: {MILVUS_URI if MILVUS_URI else f'{MILVUS_HOST}:{MILVUS_PORT}'}")
+                
+                # 检查 Milvus 连接状态
+                try:
+                    from pymilvus import connections, utility
+                    
+                    # 检查是否已连接
+                    if connections.has_connection("default"):
+                        print(f"Milvus 连接状态: ✅ 已连接")
+                        
+                        # 检查集合信息
+                        if utility.has_collection("rag_milvus", using="default"):
+                            print(f"Milvus 集合: rag_milvus ✅")
+                        else:
+                            print(f"Milvus 集合: rag_milvus ❌ (不存在)")
+                    else:
+                        print(f"Milvus 连接状态: ⚠️ 未连接 (将在查询时连接)")
+                        
+                except ImportError:
+                    print("⚠️ 未安装 pymilvus，无法检测 Milvus 状态")
+                except Exception as e:
+                    print(f"⚠️ Milvus 状态检测失败: {e}")
+            else:
+                print(f"⚠️ 未知的向量数据库类型: {VECTOR_STORE_TYPE}")
+                
+        except ImportError:
+            print("⚠️ 无法导入配置，跳过向量数据库检测")
+        
+        print("=" * 60)
+        
+        # 测试异步检索性能 - 使用真正的并发执行
+        print("\n🚀 开始测试异步检索性能（并发执行）")
         print("=" * 60)
         print(f"测试问题数量: {len(test_questions)}")
         print("=" * 60)
         
         import time
-        total_time = 0
-        results = []
+        start_time = time.time()
         
-        for idx, test_question in enumerate(test_questions, 1):
-            print(f"\n{'='*60}")
-            print(f"测试 {idx}/{len(test_questions)}")
-            print(f"{'='*60}")
+        # 使用 asyncio.gather 实现真正的并发执行
+        async def run_concurrent_queries():
+            """并发执行所有查询"""
+            tasks = []
+            for idx, test_question in enumerate(test_questions, 1):
+                # 为每个查询创建任务
+                task = asyncio.create_task(
+                    rag_system.query(test_question, verbose=False)
+                )
+                tasks.append((idx, test_question, task))
             
-            start_time = time.time()
-            result = asyncio.run(rag_system.query(test_question))
-            end_time = time.time()
+            # 并发执行所有任务
+            results = []
+            for idx, test_question, task in tasks:
+                print(f"\n{'='*60}")
+                print(f"查询 {idx}/{len(test_questions)}: {test_question[:50]}...")
+                print(f"{'='*60}")
+                
+                try:
+                    result = await task
+                    query_time = time.time() - start_time  # 相对于开始时间
+                    results.append({
+                        "question": test_question,
+                        "time": query_time,
+                        "metrics": result.get("retrieval_metrics")
+                    })
+                    print(f"✅ 完成 - 耗时: {query_time:.4f}秒")
+                except Exception as e:
+                    print(f"❌ 失败: {e}")
+                    results.append({
+                        "question": test_question,
+                        "time": 0,
+                        "error": str(e),
+                        "metrics": None
+                    })
             
-            query_time = end_time - start_time
-            total_time += query_time
-            results.append({
-                "question": test_question,
-                "time": query_time,
-                "metrics": result.get("retrieval_metrics")
-            })
-            
-            print(f"\n⏱️  查询耗时: {query_time:.4f}秒")
+            return results
+        
+        # 运行并发查询
+        results = asyncio.run(run_concurrent_queries())
+        
+        total_time = time.time() - start_time
         
         # 显示性能测试摘要
         print("\n" + "=" * 60)
-        print("📊 异步检索性能测试摘要")
+        print("📊 异步检索性能测试摘要（并发执行）")
         print("=" * 60)
         print(f"总查询数: {len(test_questions)}")
         print(f"总耗时: {total_time:.4f}秒")
         print(f"平均耗时: {total_time/len(test_questions):.4f}秒")
-        print(f"最快查询: {min(r['time'] for r in results):.4f}秒")
-        print(f"最慢查询: {max(r['time'] for r in results):.4f}秒")
+        print(f"最快查询: {min(r['time'] for r in results if r['time'] > 0):.4f}秒")
+        print(f"最慢查询: {max(r['time'] for r in results if r['time'] > 0):.4f}秒")
+        
+        # 计算并发效率
+        if len(test_questions) > 1:
+            # 如果是串行执行，总时间应该是所有查询时间的总和
+            serial_time = sum(r['time'] for r in results if r['time'] > 0)
+            efficiency = (serial_time / total_time) * 100 if total_time > 0 else 0
+            print(f"并发效率: {efficiency:.1f}% (相比串行执行)")
         print("=" * 60)
         
         # 显示每个查询的详细指标
@@ -330,7 +417,7 @@ def main():
         for idx, result in enumerate(results, 1):
             print(f"\n查询 {idx}: {result['question'][:50]}...")
             print(f"  耗时: {result['time']:.4f}秒")
-            if result['metrics']:
+            if result.get('metrics'):
                 metrics = result['metrics']
                 print(f"  检索文档数: {metrics.get('retrieved_docs_count', 0)}")
                 print(f"  Precision@3: {metrics.get('precision_at_3', 0):.4f}")
