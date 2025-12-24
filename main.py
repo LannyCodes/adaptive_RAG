@@ -270,23 +270,72 @@ def main():
         # 初始化系统
         rag_system: AdaptiveRAGSystem = AdaptiveRAGSystem()
         
-        # 测试查询
-        # test_question = "AlphaCodium论文讲的是什么？"
-        test_question = "LangGraph的作者目前在哪家公司工作？"
-        # test_question = "解释embedding嵌入的原理，最好列举实现过程的具体步骤"
+        # 测试查询 - 基于Lilian Weng的三篇博客生成的10个问题
+        test_questions = [
+            "AI Agent的四个核心组成部分是什么？",
+            "什么是Chain-of-Thought (CoT) 提示技术？",
+            "大语言模型面临哪些类型的对抗攻击？",
+            "AI Agent中的记忆系统分为哪两种类型？",
+            "如何通过提示工程来引导LLM的行为？",
+            "对抗性攻击如何影响大语言模型的安全性？",
+            "AI Agent的任务规划能力包括哪些方面？",
+            "什么是提示工程中的上下文提示？",
+            "如何提升LLM面对对抗性攻击的鲁棒性？",
+            "AI Agent的工具使用能力是如何工作的？"
+        ]
         
-        # 使用 asyncio.run 执行异步查询
-        result = asyncio.run(rag_system.query(test_question))
+        # 测试异步检索性能
+        print("\n🚀 开始测试异步检索性能")
+        print("=" * 60)
+        print(f"测试问题数量: {len(test_questions)}")
+        print("=" * 60)
         
-        # 显示测试查询的检索评估摘要
-        if result.get("retrieval_metrics"):
-            metrics = result["retrieval_metrics"]
-            print("\n📊 测试查询检索评估摘要:")
-            print(f"   - 检索耗时: {metrics.get('latency', 0):.4f}秒")
-            print(f"   - 检索文档数: {metrics.get('retrieved_docs_count', 0)}")
-            print(f"   - Precision@3: {metrics.get('precision_at_3', 0):.4f}")
-            print(f"   - Recall@3: {metrics.get('recall_at_3', 0):.4f}")
-            print(f"   - MAP: {metrics.get('map_score', 0):.4f}")
+        import time
+        total_time = 0
+        results = []
+        
+        for idx, test_question in enumerate(test_questions, 1):
+            print(f"\n{'='*60}")
+            print(f"测试 {idx}/{len(test_questions)}")
+            print(f"{'='*60}")
+            
+            start_time = time.time()
+            result = asyncio.run(rag_system.query(test_question))
+            end_time = time.time()
+            
+            query_time = end_time - start_time
+            total_time += query_time
+            results.append({
+                "question": test_question,
+                "time": query_time,
+                "metrics": result.get("retrieval_metrics")
+            })
+            
+            print(f"\n⏱️  查询耗时: {query_time:.4f}秒")
+        
+        # 显示性能测试摘要
+        print("\n" + "=" * 60)
+        print("📊 异步检索性能测试摘要")
+        print("=" * 60)
+        print(f"总查询数: {len(test_questions)}")
+        print(f"总耗时: {total_time:.4f}秒")
+        print(f"平均耗时: {total_time/len(test_questions):.4f}秒")
+        print(f"最快查询: {min(r['time'] for r in results):.4f}秒")
+        print(f"最慢查询: {max(r['time'] for r in results):.4f}秒")
+        print("=" * 60)
+        
+        # 显示每个查询的详细指标
+        print("\n📋 各查询详细指标:")
+        print("-" * 60)
+        for idx, result in enumerate(results, 1):
+            print(f"\n查询 {idx}: {result['question'][:50]}...")
+            print(f"  耗时: {result['time']:.4f}秒")
+            if result['metrics']:
+                metrics = result['metrics']
+                print(f"  检索文档数: {metrics.get('retrieved_docs_count', 0)}")
+                print(f"  Precision@3: {metrics.get('precision_at_3', 0):.4f}")
+                print(f"  Recall@3: {metrics.get('recall_at_3', 0):.4f}")
+                print(f"  MAP: {metrics.get('map_score', 0):.4f}")
         
         # 启动交互模式
         rag_system.interactive_mode()
