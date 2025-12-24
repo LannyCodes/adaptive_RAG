@@ -39,7 +39,7 @@ pandas==2.0.3
 
 # 工具库
 python-dotenv==1.0.1
-pydantic==2.7.4
+pydantic==2.9.0
 typing-extensions==4.8.0
 
 # 开发工具（可选）
