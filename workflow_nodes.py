@@ -355,7 +355,30 @@ class WorkflowNodes:
         try:
             # 网络搜索
             docs = self.web_search_tool.invoke({"query": question})
-            web_results = "\n".join([d["content"] for d in docs])
+            
+            # 处理不同的返回格式
+            if isinstance(docs, list):
+                if len(docs) > 0:
+                    # 检查第一个元素的类型
+                    first_doc = docs[0]
+                    if isinstance(first_doc, str):
+                        # 返回的是字符串列表
+                        web_results = "\n".join(docs)
+                    elif isinstance(first_doc, dict) and "content" in first_doc:
+                        # 返回的是字典列表，提取 content 字段
+                        web_results = "\n".join([d["content"] for d in docs])
+                    elif hasattr(first_doc, 'page_content'):
+                        # 返回的是 Document 对象列表
+                        web_results = "\n".join([d.page_content for d in docs])
+                    else:
+                        # 未知格式，转换为字符串
+                        web_results = "\n".join([str(d) for d in docs])
+                else:
+                    web_results = "未找到相关搜索结果。"
+            else:
+                # 返回的不是列表，转换为字符串
+                web_results = str(docs)
+            
             web_results = [Document(page_content=web_results)]
         except Exception as e:
             print(f"⚠️ 网络搜索失败: {e}")
