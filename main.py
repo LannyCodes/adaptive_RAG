@@ -11,6 +11,20 @@ from config import setup_environment, validate_api_keys, ENABLE_GRAPHRAG
 from document_processor import initialize_document_processor
 from routers_and_graders import initialize_graders_and_router
 from workflow_nodes import WorkflowNodes, GraphState
+
+# 添加 LangSmith 集成
+from langsmith_integration import setup_langsmith
+from langsmith_integration import (
+    AlertLevel,
+    AlertRule
+)
+from typing import Optional
+from dataclasses import dataclass, field
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
+
 try:
     from knowledge_graph import initialize_knowledge_graph, initialize_community_summarizer
     from graph_retriever import initialize_graph_retriever
@@ -24,6 +38,17 @@ class AdaptiveRAGSystem:
     
     def __init__(self):
         print("初始化自适应RAG系统...")
+        
+        # 设置 LangSmith 追踪和性能监控
+        print("设置 LangSmith 追踪...")
+        self.langsmith_manager = setup_langsmith(
+            project_name="adaptive-rag-project",
+            enable_performance_monitoring=True,
+            enable_alerts=True
+        )
+        
+        # 初始化告警回调函数
+        self._setup_alert_callbacks()
         
         # 设置环境和验证API密钥
         try:
@@ -87,6 +112,18 @@ class AdaptiveRAGSystem:
         self.app = self._build_workflow()
         
         print("✅ 自适应RAG系统初始化完成！")
+    
+    def _setup_alert_callbacks(self):
+        """设置告警回调函数"""
+        def alert_callback(rule, metric_value):
+            """默认告警回调：记录到控制台"""
+            print(f"\n🔔 [告警通知] {rule.name}\n"
+                  f"   级别: {rule.level.value}\n"
+                  f"   指标: {rule.metric_name}\n"
+                  f"   当前值: {metric_value:.2f}\n"
+                  f"   阈值: {rule.operator} {rule.threshold}")
+        
+        self.langsmith_manager.add_alert_callback(alert_callback)
     
     def _check_ollama_service(self) -> bool:
         """检查 Ollama 服务是否运行"""
@@ -153,11 +190,15 @@ class AdaptiveRAGSystem:
         )
         
         # 编译（设置递归限制以防止无限循环）
+        # 获取 LangSmith 回调配置
+        callback_config = self.langsmith_manager.get_callback_config()
+        
         return workflow.compile(
             checkpointer=None,
             interrupt_before=None,
             interrupt_after=None,
-            debug=False
+            debug=False,
+            **callback_config  # 添加 LangSmith 回调
         )
     
     async def query(self, question: str, verbose: bool = True):
@@ -172,12 +213,18 @@ class AdaptiveRAGSystem:
             dict: 包含最终答案和评估指标的字典
         """
         import asyncio
+        from datetime import datetime
+        
         print(f"\n🔍 处理问题: {question}")
         print("=" * 50)
+        
+        # 记录查询开始时间
+        query_start_time = datetime.now()
         
         inputs = {"question": question, "retry_count": 0}  # 初始化重试计数器
         final_generation = None
         retrieval_metrics = None
+        routing_decision = "unknown"
         
         # 设置配置，增加递归限制
         config = {"recursion_limit": 50}  # 增加到 50，默认是 25
@@ -192,10 +239,37 @@ class AdaptiveRAGSystem:
                     await asyncio.sleep(0.1) 
                     print(f"  ✅ 完成节点: {key}      ")
                     
+                # 记录路由决策
+                if key == "start":
+                    routing_decision = value.get("next_node", "unknown")
+                
                 final_generation = value.get("generation", final_generation)
                 # 保存检索评估指标
                 if "retrieval_metrics" in value:
                     retrieval_metrics = value["retrieval_metrics"]
+                    
+                    # 使用 LangSmith 记录检索事件
+                    if hasattr(self, 'langsmith_manager') and self.langsmith_manager.enable_performance_monitoring:
+                        self.langsmith_manager.log_retrieval_event(
+                            query=question,
+                            documents_count=retrieval_metrics.get('retrieved_docs_count', 0),
+                            retrieval_time=retrieval_metrics.get('latency', 0) * 1000,  # 转换为毫秒
+                            top_k=3
+                        )
+                
+                # 记录生成事件
+                if key == "generate":
+                    generation = value.get("generation", "")
+                    if generation and hasattr(self, 'langsmith_manager') and self.langsmith_manager.enable_performance_monitoring:
+                        # 估算token使用量（中文约2字符=1token，英文约4字符=1token）
+                        estimated_tokens = len(generation) // 2
+                        
+                        self.langsmith_manager.log_generation_event(
+                            prompt=question,
+                            generation=generation,
+                            generation_time=0,  # 生成时间已在generate节点中处理
+                            tokens_used=estimated_tokens
+                        )
         
         print("\n" + "=" * 50)
         print("🎯 最终答案:")
@@ -214,6 +288,19 @@ class AdaptiveRAGSystem:
             print("未生成答案")
             
         print("=" * 50)
+        
+        # 计算总查询时间并记录到 LangSmith
+        query_end_time = datetime.now()
+        total_latency = (query_end_time - query_start_time).total_seconds() * 1000  # 毫秒
+        
+        if hasattr(self, 'langsmith_manager') and self.langsmith_manager.enable_performance_monitoring:
+            self.langsmith_manager.log_query_complete(
+                question=question,
+                answer=final_generation or "",
+                total_latency=total_latency,
+                routing_decision=routing_decision,
+                metrics=retrieval_metrics
+            )
         
         # 返回包含答案和评估指标的字典
         return {
@@ -423,6 +510,49 @@ def main():
                 print(f"  Precision@3: {metrics.get('precision_at_3', 0):.4f}")
                 print(f"  Recall@3: {metrics.get('recall_at_3', 0):.4f}")
                 print(f"  MAP: {metrics.get('map_score', 0):.4f}")
+        
+        # 生成并显示 LangSmith 性能报告
+        print("\n" + "=" * 60)
+        print("📈 LangSmith 性能报告")
+        print("=" * 60)
+        
+        if hasattr(rag_system, 'langsmith_manager'):
+            # 获取性能报告
+            performance_report = rag_system.langsmith_manager.get_performance_report(hours=24)
+            
+            if "summary" in performance_report:
+                summary = performance_report["summary"]
+                print(f"📊 查询统计 (过去24小时):")
+                print(f"   总查询数: {summary.get('total_queries', 0)}")
+                print(f"   平均延迟: {summary.get('average_latency_ms', 0):.2f}ms")
+                print(f"   最小延迟: {summary.get('min_latency_ms', 0):.2f}ms")
+                print(f"   最大延迟: {summary.get('max_latency_ms', 0):.2f}ms")
+                
+                # 显示路由分布
+                routing_dist = summary.get('routing_distribution', {})
+                if routing_dist:
+                    print(f"\n🔀 路由决策分布:")
+                    for decision, count in routing_dist.items():
+                        print(f"   {decision}: {count}次")
+                
+                # 显示最慢查询
+                slowest = performance_report.get('slowest_queries', [])
+                if slowest:
+                    print(f"\n🐢 最慢的5个查询:")
+                    for i, query in enumerate(slowest, 1):
+                        print(f"   {i}. [{query['routing']}] {query['question'][:40]}... ({query['latency_ms']:.0f}ms)")
+            else:
+                print("   暂无查询数据")
+            
+            # 显示告警规则状态
+            print(f"\n🔔 告警规则状态:")
+            for rule in rag_system.langsmith_manager.alert_rules:
+                status = "✅" if rule.enabled else "❌"
+                print(f"   {status} {rule.name} ({rule.metric_name} {rule.operator} {rule.threshold})")
+        else:
+            print("   LangSmith 管理器未初始化")
+        
+        print("=" * 60)
         
         # 启动交互模式
         rag_system.interactive_mode()

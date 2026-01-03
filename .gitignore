@@ -102,3 +102,4 @@ target/
 data/knowledge_graph.json
 ollama_models.tar.gz
 chroma_db/
+.env

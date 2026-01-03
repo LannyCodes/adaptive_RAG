@@ -78,3 +78,6 @@ seaborn==0.13.0
 fastapi==0.115.6
 uvicorn==0.34.0
 python-multipart==0.0.20
+
+# LangSmith 集成（可观测性和追踪，与 langchain==0.3.x 兼容）
+langsmith==0.2.0
