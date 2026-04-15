@@ -409,6 +409,481 @@ class DiversityReranker(DocumentReranker):
         return selected_docs
 
 
+class ContextAwareReranker(DocumentReranker):
+    """
+    上下文感知重排器
+    考虑对话历史、用户偏好和查询上下文进行重排
+    """
+    
+    def __init__(self, 
+                 model_name: str = "BAAI/bge-reranker-base", 
+                 max_length: int = 1024,
+                 context_weight: float = 0.3):
+        """
+        初始化上下文感知重排器
+        
+        Args:
+            model_name: CrossEncoder模型名称
+            max_length: 最大输入长度
+            context_weight: 上下文分数的权重 (0-1)
+        """
+        super().__init__()
+        self.name = "ContextAwareReranker"
+        self.context_weight = context_weight
+        
+        if not CROSSENCODER_AVAILABLE:
+            raise ImportError("ContextAwareReranker requires sentence-transformers")
+        
+        try:
+            print(f"🔧 加载上下文感知重排模型: {model_name}...")
+            self.model = SentenceTransformerCrossEncoder(model_name, max_length=max_length)
+            print(f"✅ 上下文感知重排模型加载成功")
+        except Exception as e:
+            print(f"❌ 模型加载失败: {e}")
+            raise
+    
+    def rerank(self, 
+               query: str, 
+               documents: List[dict], 
+               top_k: int = 5,
+               context: Optional[Dict[str, Any]] = None) -> List[Tuple[dict, float]]:
+        """
+        上下文感知重排
+        
+        Args:
+            query: 当前查询
+            documents: 候选文档列表
+            top_k: 返回结果数量
+            context: 上下文信息，包含:
+                - conversation_history: 对话历史列表
+                - user_preferences: 用户偏好
+                - previous_documents: 之前检索到的文档
+                - query_intent: 查询意图分类
+        
+        Returns:
+            排序后的 (document, score) 元组列表
+        """
+        if not documents:
+            return []
+        
+        # 1. 基础相关性评分 (CrossEncoder)
+        doc_texts = [doc.page_content if hasattr(doc, 'page_content') else str(doc) for doc in documents]
+        query_doc_pairs = [[query, doc_text] for doc_text in doc_texts]
+        
+        try:
+            base_scores = self.model.predict(query_doc_pairs)
+        except Exception as e:
+            print(f"⚠️ CrossEncoder评分失败: {e}")
+            base_scores = np.zeros(len(documents))
+        
+        # 2. 计算上下文相关分数
+        context_scores = self._calculate_context_scores(query, documents, context)
+        
+        # 3. 归一化分数到 [0, 1]
+        base_scores_norm = self._normalize_scores(base_scores)
+        context_scores_norm = self._normalize_scores(context_scores)
+        
+        # 4. 融合分数
+        final_scores = (1 - self.context_weight) * base_scores_norm + self.context_weight * context_scores_norm
+        
+        # 5. 排序并返回
+        ranked_indices = np.argsort(final_scores)[::-1]
+        results = []
+        for i in ranked_indices[:top_k]:
+            results.append((documents[i], float(final_scores[i])))
+        
+        return results
+    
+    def _calculate_context_scores(self, 
+                                  query: str, 
+                                  documents: List[dict], 
+                                  context: Optional[Dict[str, Any]]) -> np.ndarray:
+        """计算上下文相关分数"""
+        n_docs = len(documents)
+        context_scores = np.zeros(n_docs)
+        
+        if context is None:
+            return context_scores
+        
+        # 2.1 对话历史相关性
+        if 'conversation_history' in context and context['conversation_history']:
+            history = context['conversation_history']
+            history_text = ' '.join([str(h.get('content', '')) for h in history[-5:]])  # 最近5轮
+            
+            for i, doc in enumerate(documents):
+                doc_text = doc.page_content if hasattr(doc, 'page_content') else str(doc)
+                # 计算与对话历史的词汇重叠
+                overlap = self._calculate_text_overlap(history_text, doc_text)
+                context_scores[i] += overlap * 0.4
+        
+        # 2.2 用户偏好匹配
+        if 'user_preferences' in context and context['user_preferences']:
+            preferences = context['user_preferences']
+            for i, doc in enumerate(documents):
+                doc_text = doc.page_content if hasattr(doc, 'page_content') else str(doc)
+                doc_lower = doc_text.lower()
+                
+                # 检查偏好关键词
+                pref_score = 0.0
+                for pref in preferences.get('preferred_topics', []):
+                    if pref.lower() in doc_lower:
+                        pref_score += 0.3
+                
+                for avoid in preferences.get('avoid_topics', []):
+                    if avoid.lower() in doc_lower:
+                        pref_score -= 0.3
+                
+                context_scores[i] += max(0, pref_score) * 0.3
+        
+        # 2.3 文档多样性惩罚
+        if 'previous_documents' in context and context['previous_documents']:
+            prev_docs = context['previous_documents']
+            prev_texts = [d.page_content if hasattr(d, 'page_content') else str(d) for d in prev_docs]
+            
+            for i, doc in enumerate(documents):
+                doc_text = doc.page_content if hasattr(doc, 'page_content') else str(doc)
+                max_similarity = 0.0
+                
+                for prev_text in prev_texts:
+                    similarity = self._calculate_text_similarity(doc_text, prev_text)
+                    max_similarity = max(max_similarity, similarity)
+                
+                # 与之前文档越相似，分数越低（鼓励多样性）
+                context_scores[i] -= max_similarity * 0.3
+        
+        # 2.4 查询意图匹配
+        if 'query_intent' in context and context['query_intent']:
+            intent = context['query_intent']
+            for i, doc in enumerate(documents):
+                doc_text = doc.page_content if hasattr(doc, 'page_content') else str(doc)
+                
+                # 根据意图类型调整分数
+                if intent.get('type') == 'technical' and any(kw in doc_text.lower() for kw in ['实现', '算法', '代码', 'technical']):
+                    context_scores[i] += 0.2
+                elif intent.get('type') == 'conceptual' and any(kw in doc_text.lower() for kw in ['概念', '原理', '定义', 'concept']):
+                    context_scores[i] += 0.2
+        
+        return context_scores
+    
+    def _calculate_text_overlap(self, text1: str, text2: str) -> float:
+        """计算文本词汇重叠度"""
+        words1 = set(text1.lower().split())
+        words2 = set(text2.lower().split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = words1 & words2
+        union = words1 | words2
+        
+        return len(intersection) / len(union) if union else 0.0
+    
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """计算文本相似度（简化版Jaccard）"""
+        # 使用n-gram相似度
+        n = 3
+        ngrams1 = set([text1[i:i+n] for i in range(len(text1)-n+1)])
+        ngrams2 = set([text2[i:i+n] for i in range(len(text2)-n+1)])
+        
+        if not ngrams1 or not ngrams2:
+            return 0.0
+        
+        intersection = ngrams1 & ngrams2
+        union = ngrams1 | ngrams2
+        
+        return len(intersection) / len(union) if union else 0.0
+    
+    def _normalize_scores(self, scores: np.ndarray) -> np.ndarray:
+        """归一化分数到 [0, 1]"""
+        if len(scores) == 0:
+            return scores
+        
+        min_score = np.min(scores)
+        max_score = np.max(scores)
+        
+        if max_score == min_score:
+            return np.ones_like(scores) * 0.5
+        
+        return (scores - min_score) / (max_score - min_score)
+
+
+class MultiTaskReranker(DocumentReranker):
+    """
+    多任务重排器
+    同时优化多个目标：相关性、多样性、新颖性、权威性等
+    """
+    
+    def __init__(self,
+                 embeddings_model,
+                 weights: Optional[Dict[str, float]] = None,
+                 diversity_lambda: float = 0.5):
+        """
+        初始化多任务重排器
+        
+        Args:
+            embeddings_model: 嵌入模型（用于语义计算）
+            weights: 各任务权重
+                - relevance: 相关性权重
+                - diversity: 多样性权重
+                - novelty: 新颖性权重
+                - authority: 权威性权重
+                - recency: 时效性权重
+            diversity_lambda: MMR算法的多样性权衡参数 (0-1)
+        """
+        super().__init__()
+        self.name = "MultiTaskReranker"
+        self.embeddings_model = embeddings_model
+        self.diversity_lambda = diversity_lambda
+        
+        # 默认权重
+        self.weights = weights or {
+            'relevance': 0.40,      # 相关性
+            'diversity': 0.20,      # 多样性
+            'novelty': 0.15,        # 新颖性
+            'authority': 0.15,      # 权威性
+            'recency': 0.10         # 时效性
+        }
+        
+        # 验证权重和为1
+        weight_sum = sum(self.weights.values())
+        if abs(weight_sum - 1.0) > 0.01:
+            print(f"⚠️ 权重和为 {weight_sum}，将自动归一化")
+            self.weights = {k: v/weight_sum for k, v in self.weights.items()}
+    
+    def rerank(self, 
+               query: str, 
+               documents: List[dict], 
+               top_k: int = 5,
+               metadata: Optional[Dict[str, Any]] = None) -> List[Tuple[dict, float]]:
+        """
+        多任务重排
+        
+        Args:
+            query: 查询文本
+            documents: 候选文档列表
+            top_k: 返回结果数量
+            metadata: 文档元数据（包含权威性、时效性等信息）
+        
+        Returns:
+            排序后的 (document, score) 元组列表
+        """
+        if not documents:
+            return []
+        
+        n_docs = len(documents)
+        doc_texts = [doc.page_content if hasattr(doc, 'page_content') else str(doc) for doc in documents]
+        
+        # 1. 相关性评分 (Semantic Similarity)
+        relevance_scores = self._calculate_relevance_scores(query, doc_texts)
+        
+        # 2. 多样性评分 (使用MMR算法)
+        diversity_scores = self._calculate_diversity_scores(query, documents, doc_texts)
+        
+        # 3. 新颖性评分 (与已知信息的新颖程度)
+        novelty_scores = self._calculate_novelty_scores(doc_texts, metadata)
+        
+        # 4. 权威性评分 (基于来源可信度)
+        authority_scores = self._calculate_authority_scores(documents, metadata)
+        
+        # 5. 时效性评分 (基于文档时间)
+        recency_scores = self._calculate_recency_scores(documents, metadata)
+        
+        # 6. 归一化所有分数
+        scores_dict = {
+            'relevance': self._normalize_scores(relevance_scores),
+            'diversity': self._normalize_scores(diversity_scores),
+            'novelty': self._normalize_scores(novelty_scores),
+            'authority': self._normalize_scores(authority_scores),
+            'recency': self._normalize_scores(recency_scores)
+        }
+        
+        # 7. 加权融合
+        final_scores = np.zeros(n_docs)
+        for task_name, weight in self.weights.items():
+            if task_name in scores_dict:
+                final_scores += weight * scores_dict[task_name]
+        
+        # 8. 排序并返回
+        ranked_indices = np.argsort(final_scores)[::-1]
+        results = []
+        for i in ranked_indices[:top_k]:
+            results.append((documents[i], float(final_scores[i])))
+        
+        return results
+    
+    def _calculate_relevance_scores(self, query: str, doc_texts: List[str]) -> np.ndarray:
+        """计算语义相关性分数"""
+        try:
+            query_emb = self.embeddings_model.encode([query], convert_to_numpy=True)
+            doc_embs = self.embeddings_model.encode(doc_texts, convert_to_numpy=True)
+            
+            # 计算余弦相似度
+            from sklearn.metrics.pairwise import cosine_similarity
+            similarities = cosine_similarity(query_emb, doc_embs).flatten()
+            return similarities
+        except Exception as e:
+            print(f"⚠️ 相关性计算失败: {e}")
+            return np.zeros(len(doc_texts))
+    
+    def _calculate_diversity_scores(self, query: str, documents: List[dict], doc_texts: List[str]) -> np.ndarray:
+        """使用MMR算法计算多样性分数"""
+        n_docs = len(doc_texts)
+        if n_docs <= 1:
+            return np.ones(n_docs)
+        
+        try:
+            # 计算文档间的相似度矩阵
+            doc_embs = self.embeddings_model.encode(doc_texts, convert_to_numpy=True)
+            from sklearn.metrics.pairwise import cosine_similarity
+            sim_matrix = cosine_similarity(doc_embs)
+            
+            # MMR分数: λ * relevance - (1-λ) * max_similarity_to_selected
+            # 这里简化为与所有其他文档的平均相似度
+            diversity_scores = np.zeros(n_docs)
+            for i in range(n_docs):
+                # 与其他文档的平均相似度（排除自己）
+                avg_sim = (np.sum(sim_matrix[i]) - sim_matrix[i][i]) / (n_docs - 1)
+                diversity_scores[i] = 1 - avg_sim  # 相似度越低，多样性越高
+            
+            return diversity_scores
+        except Exception as e:
+            print(f"⚠️ 多样性计算失败: {e}")
+            return np.ones(n_docs) * 0.5
+    
+    def _calculate_novelty_scores(self, doc_texts: List[str], metadata: Optional[Dict]) -> np.ndarray:
+        """计算新颖性分数（文档间的独特性）"""
+        n_docs = len(doc_texts)
+        if n_docs <= 1:
+            return np.ones(n_docs)
+        
+        try:
+            # 计算文档间的n-gram重叠
+            novelty_scores = np.zeros(n_docs)
+            
+            for i in range(n_docs):
+                # 提取n-grams
+                n = 4
+                ngrams_i = set([doc_texts[i][j:j+n] for j in range(len(doc_texts[i])-n+1)])
+                
+                # 计算与其他文档的最小重叠（越大越不新颖）
+                min_overlap = 1.0
+                for j in range(n_docs):
+                    if i == j:
+                        continue
+                    
+                    ngrams_j = set([doc_texts[j][k:k+n] for k in range(len(doc_texts[j])-n+1)])
+                    
+                    if ngrams_i and ngrams_j:
+                        overlap = len(ngrams_i & ngrams_j) / len(ngrams_i | ngrams_j)
+                        min_overlap = min(min_overlap, overlap)
+                
+                # 重叠越小，新颖性越高
+                novelty_scores[i] = 1 - min_overlap
+            
+            return novelty_scores
+        except Exception as e:
+            print(f"⚠️ 新颖性计算失败: {e}")
+            return np.ones(n_docs) * 0.5
+    
+    def _calculate_authority_scores(self, documents: List[dict], metadata: Optional[Dict]) -> np.ndarray:
+        """计算权威性分数"""
+        n_docs = len(documents)
+        authority_scores = np.ones(n_docs) * 0.5  # 默认中等权威性
+        
+        try:
+            for i, doc in enumerate(documents):
+                score = 0.5  # 基础分数
+                
+                # 检查元数据中的权威性指标
+                if hasattr(doc, 'metadata') and doc.metadata:
+                    meta = doc.metadata
+                    
+                    # 来源权威性
+                    source = meta.get('source', '')
+                    if any(domain in source.lower() for domain in ['edu', 'gov', 'org', 'wikipedia', 'official']):
+                        score += 0.3
+                    
+                    # 引用次数
+                    citations = meta.get('citations', 0)
+                    if citations > 0:
+                        score += min(0.2, citations / 100)  # 最多+0.2
+                    
+                    # 作者权威性
+                    author = meta.get('author', '')
+                    if author and len(author) > 0:
+                        score += 0.1
+                
+                authority_scores[i] = min(1.0, score)
+        except Exception as e:
+            print(f"⚠️ 权威性计算失败: {e}")
+        
+        return authority_scores
+    
+    def _calculate_recency_scores(self, documents: List[dict], metadata: Optional[Dict]) -> np.ndarray:
+        """计算时效性分数"""
+        import time
+        from datetime import datetime
+        
+        n_docs = len(documents)
+        recency_scores = np.ones(n_docs) * 0.5  # 默认中等时效性
+        
+        try:
+            current_time = time.time()
+            one_year_seconds = 365 * 24 * 3600
+            
+            for i, doc in enumerate(documents):
+                score = 0.5
+                
+                if hasattr(doc, 'metadata') and doc.metadata:
+                    meta = doc.metadata
+                    
+                    # 检查时间戳
+                    timestamp = meta.get('timestamp') or meta.get('date') or meta.get('publish_date')
+                    
+                    if timestamp:
+                        # 尝试解析不同格式的时间
+                        try:
+                            if isinstance(timestamp, str):
+                                # 尝试解析日期字符串
+                                for fmt in ['%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%Y-%m-%d %H:%M:%S']:
+                                    try:
+                                        doc_time = datetime.strptime(timestamp, fmt).timestamp()
+                                        break
+                                    except:
+                                        continue
+                                else:
+                                    doc_time = current_time
+                            else:
+                                doc_time = float(timestamp)
+                            
+                            # 计算时间差（年）
+                            years_diff = (current_time - doc_time) / one_year_seconds
+                            
+                            # 指数衰减：越近分数越高
+                            score = np.exp(-0.5 * years_diff)
+                        except:
+                            score = 0.5
+                
+                recency_scores[i] = max(0.0, min(1.0, score))
+        except Exception as e:
+            print(f"⚠️ 时效性计算失败: {e}")
+        
+        return recency_scores
+    
+    def _normalize_scores(self, scores: np.ndarray) -> np.ndarray:
+        """归一化分数到 [0, 1]"""
+        if len(scores) == 0:
+            return scores
+        
+        min_score = np.min(scores)
+        max_score = np.max(scores)
+        
+        if max_score == min_score:
+            return np.ones_like(scores) * 0.5
+        
+        return (scores - min_score) / (max_score - min_score)
+
+
 def create_reranker(reranker_type: str, embeddings_model=None, **kwargs) -> DocumentReranker:
     """
     工厂函数：创建指定类型的重排器
@@ -419,6 +894,8 @@ def create_reranker(reranker_type: str, embeddings_model=None, **kwargs) -> Docu
             - 'bm25': BM25 重排
             - 'semantic': Bi-Encoder 语义重排
             - 'crossencoder': CrossEncoder 重排 (推荐) ⭐
+            - 'context_aware': 上下文感知重排 ⭐⭐
+            - 'multi_task': 多任务重排 ⭐⭐
             - 'hybrid': 混合重排
             - 'diversity': 多样性重排
         embeddings_model: 嵌入模型 (某些重排器需要)
@@ -426,6 +903,8 @@ def create_reranker(reranker_type: str, embeddings_model=None, **kwargs) -> Docu
             - model_name: CrossEncoder 模型名称
             - max_length: CrossEncoder 最大长度
             - weights: 混合重排权重
+            - context_weight: 上下文权重 (context_aware)
+            - diversity_lambda: 多样性权衡 (multi_task)
     
     Returns:
         DocumentReranker: 重排器实例
@@ -448,6 +927,27 @@ def create_reranker(reranker_type: str, embeddings_model=None, **kwargs) -> Docu
         max_length = kwargs.get('max_length', 1024)
         return CrossEncoderReranker(model_name=model_name, max_length=max_length)
     
+    elif reranker_type.lower() == 'context_aware':
+        model_name = kwargs.get('model_name', 'BAAI/bge-reranker-base')
+        max_length = kwargs.get('max_length', 1024)
+        context_weight = kwargs.get('context_weight', 0.3)
+        return ContextAwareReranker(
+            model_name=model_name, 
+            max_length=max_length,
+            context_weight=context_weight
+        )
+    
+    elif reranker_type.lower() == 'multi_task':
+        if embeddings_model is None:
+            raise ValueError("MultiTaskReranker requires embeddings_model")
+        weights = kwargs.get('weights', None)
+        diversity_lambda = kwargs.get('diversity_lambda', 0.5)
+        return MultiTaskReranker(
+            embeddings_model=embeddings_model,
+            weights=weights,
+            diversity_lambda=diversity_lambda
+        )
+    
     elif reranker_type.lower() == 'hybrid':
         if embeddings_model is None:
             raise ValueError("HybridReranker requires embeddings_model")
@@ -461,7 +961,7 @@ def create_reranker(reranker_type: str, embeddings_model=None, **kwargs) -> Docu
     else:
         raise ValueError(
             f"Unknown reranker type: {reranker_type}. "
-            f"Available types: tfidf, bm25, semantic, crossencoder, hybrid, diversity"
+            f"Available types: tfidf, bm25, semantic, crossencoder, context_aware, multi_task, hybrid, diversity"
         )
 
 

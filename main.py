@@ -7,7 +7,10 @@ import time
 from langgraph.graph import END, StateGraph, START
 from pprint import pprint
 
-from config import setup_environment, validate_api_keys, ENABLE_GRAPHRAG
+from config import setup_environment, validate_api_keys, ENABLE_GRAPHRAG, \
+                     ENABLE_ADVANCED_RERANKER, ADVANCED_RERANKER_TYPE, \
+                     CONTEXT_AWARE_WEIGHT, CONTEXT_AWARE_MODEL, CONTEXT_AWARE_MAX_LENGTH, \
+                     MULTI_TASK_WEIGHTS, MULTI_TASK_DIVERSITY_LAMBDA
 from document_processor import initialize_document_processor
 from routers_and_graders import initialize_graders_and_router
 from workflow_nodes import WorkflowNodes, GraphState
@@ -81,6 +84,28 @@ class AdaptiveRAGSystem:
         # 初始化文档处理器
         print("设置文档处理器...")
         self.doc_processor, self.vectorstore, self.retriever, self.doc_splits = initialize_document_processor()
+        
+        # 初始化高级重排器（如果启用）
+        if ENABLE_ADVANCED_RERANKER:
+            print(f"初始化高级重排器: {ADVANCED_RERANKER_TYPE}...")
+            try:
+                if ADVANCED_RERANKER_TYPE == 'context_aware':
+                    self.doc_processor.setup_advanced_reranker(
+                        'context_aware',
+                        context_weight=CONTEXT_AWARE_WEIGHT,
+                        model_name=CONTEXT_AWARE_MODEL,
+                        max_length=CONTEXT_AWARE_MAX_LENGTH
+                    )
+                elif ADVANCED_RERANKER_TYPE == 'multi_task':
+                    self.doc_processor.setup_advanced_reranker(
+                        'multi_task',
+                        weights=MULTI_TASK_WEIGHTS,
+                        diversity_lambda=MULTI_TASK_DIVERSITY_LAMBDA
+                    )
+                print("✅ 高级重排器初始化成功")
+            except Exception as e:
+                print(f"⚠️ 高级重排器初始化失败: {e}")
+                print("将使用基础重排器")
         
         # 初始化评分器和路由器
         print("初始化评分器和路由器...")

@@ -135,6 +135,25 @@ SUPPORTED_IMAGE_FORMATS = ["jpg", "jpeg", "png", "gif", "bmp"]  # 支持的图�
 IMAGE_EMBEDDING_DIM = 512  # 图像嵌入维度
 MULTIMODAL_WEIGHTS = {"text": 0.7, "image": 0.3}  # 文本和图像检索的权重
 
+# 高级重排器配置
+ENABLE_ADVANCED_RERANKER = os.environ.get("ENABLE_ADVANCED_RERANKER", "false").lower() == "true"  # 默认关闭
+ADVANCED_RERANKER_TYPE = os.environ.get("ADVANCED_RERANKER_TYPE", "context_aware")  # context_aware 或 multi_task
+
+# 上下文感知重排器参数
+CONTEXT_AWARE_WEIGHT = float(os.environ.get("CONTEXT_AWARE_WEIGHT", "0.3"))  # 上下文权重
+CONTEXT_AWARE_MODEL = os.environ.get("CONTEXT_AWARE_MODEL", "BAAI/bge-reranker-base")
+CONTEXT_AWARE_MAX_LENGTH = int(os.environ.get("CONTEXT_AWARE_MAX_LENGTH", "1024"))
+
+# 多任务重排器参数
+MULTI_TASK_WEIGHTS = {
+    'relevance': float(os.environ.get("MT_RELEVANCE_WEIGHT", "0.35")),
+    'diversity': float(os.environ.get("MT_DIVERSITY_WEIGHT", "0.25")),
+    'novelty': float(os.environ.get("MT_NOVELTY_WEIGHT", "0.15")),
+    'authority': float(os.environ.get("MT_AUTHORITY_WEIGHT", "0.15")),
+    'recency': float(os.environ.get("MT_RECENCY_WEIGHT", "0.10"))
+}
+MULTI_TASK_DIVERSITY_LAMBDA = float(os.environ.get("MT_DIVERSITY_LAMBDA", "0.5"))
+
 
 def get_api_keys():
     """获取API密钥并返回字典"""

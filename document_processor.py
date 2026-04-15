@@ -344,6 +344,7 @@ class DocumentProcessor:
         
         # 初始化重排器
         self.reranker = None
+        self.advanced_reranker = None  # 新增：高级重排器（上下文感知/多任务）
         self._setup_reranker()
         
         # 初始化多模态支持
@@ -449,6 +450,70 @@ class DocumentProcessor:
             except Exception as e2:
                 print(f"⚠️ 重排器初始化完全失败: {e2}")
                 print("⚠️ 将使用基础检索，不进行重排")
+    
+    def setup_advanced_reranker(self, reranker_type='context_aware', **kwargs):
+        """
+        设置高级重排器（上下文感知或多任务）
+        
+        Args:
+            reranker_type: 重排器类型
+                - 'context_aware': 上下文感知重排
+                - 'multi_task': 多任务重排
+            **kwargs: 额外参数
+                - context_weight: 上下文权重 (context_aware)
+                - weights: 任务权重字典 (multi_task)
+                - model_name: 模型名称
+                - max_length: 最大长度
+        
+        Returns:
+            bool: 是否成功初始化
+        """
+        try:
+            print(f"🔧 正在初始化高级重排器: {reranker_type}...")
+            
+            if reranker_type == 'context_aware':
+                # 上下文感知重排器
+                context_weight = kwargs.get('context_weight', 0.3)
+                model_name = kwargs.get('model_name', 'BAAI/bge-reranker-base')
+                max_length = kwargs.get('max_length', 1024)
+                
+                self.advanced_reranker = create_reranker(
+                    'context_aware',
+                    model_name=model_name,
+                    max_length=max_length,
+                    context_weight=context_weight
+                )
+                print(f"✅ 上下文感知重排器初始化成功 (context_weight={context_weight})")
+                
+            elif reranker_type == 'multi_task':
+                # 多任务重排器
+                weights = kwargs.get('weights', {
+                    'relevance': 0.35,
+                    'diversity': 0.25,
+                    'novelty': 0.15,
+                    'authority': 0.15,
+                    'recency': 0.10
+                })
+                diversity_lambda = kwargs.get('diversity_lambda', 0.5)
+                
+                self.advanced_reranker = create_reranker(
+                    'multi_task',
+                    embeddings_model=self.embeddings,
+                    weights=weights,
+                    diversity_lambda=diversity_lambda
+                )
+                print(f"✅ 多任务重排器初始化成功 (weights={weights})")
+            else:
+                print(f"⚠️ 不支持的重排器类型: {reranker_type}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"⚠️ 高级重排器初始化失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def _setup_multimodal(self):
         """设置多模态支持"""
@@ -1027,8 +1092,19 @@ class DocumentProcessor:
                 return []
 
     async def async_enhanced_retrieve(self, query: str, top_k: int = 5, rerank_candidates: int = 20, 
-                         image_paths: List[str] = None, use_query_expansion: bool = None):
-        """异步增强检索"""
+                         image_paths: List[str] = None, use_query_expansion: bool = None,
+                         context: dict = None, use_advanced_reranker: bool = True):
+        """异步增强检索
+        
+        Args:
+            query: 查询字符串
+            top_k: 返回的文档数量
+            rerank_candidates: 重排前的候选文档数量
+            image_paths: 图像路径列表，用于多模态检索
+            use_query_expansion: 是否使用查询扩展
+            context: 上下文信息（用于上下文感知重排）
+            use_advanced_reranker: 是否使用高级重排器
+        """
         import asyncio
         
         # 确定是否使用查询扩展
@@ -1100,12 +1176,40 @@ class DocumentProcessor:
         if self.reranker and len(unique_docs) > top_k:
             try:
                 loop = asyncio.get_running_loop()
-                # rerank 方法内部可能也比较耗时
-                reranked_results = await loop.run_in_executor(
-                    None, 
-                    self.reranker.rerank, 
-                    query, unique_docs, top_k
-                )
+                
+                # 优先使用高级重排器
+                if use_advanced_reranker and self.advanced_reranker:
+                    reranker_type = type(self.advanced_reranker).__name__
+                    print(f"使用高级重排器: {reranker_type}")
+                    
+                    # 根据重排器类型调用
+                    if reranker_type == 'ContextAwareReranker':
+                        # 上下文感知重排
+                        reranked_results = await loop.run_in_executor(
+                            None,
+                            lambda: self.advanced_reranker.rerank(query, unique_docs, top_k, context=context)
+                        )
+                    elif reranker_type == 'MultiTaskReranker':
+                        # 多任务重排
+                        reranked_results = await loop.run_in_executor(
+                            None,
+                            lambda: self.advanced_reranker.rerank(query, unique_docs, top_k)
+                        )
+                    else:
+                        # 未知类型，回退到基础重排
+                        reranked_results = await loop.run_in_executor(
+                            None,
+                            self.reranker.rerank,
+                            query, unique_docs, top_k
+                        )
+                else:
+                    # 使用基础重排器
+                    reranked_results = await loop.run_in_executor(
+                        None, 
+                        self.reranker.rerank, 
+                        query, unique_docs, top_k
+                    )
+                
                 final_docs = [doc for doc, score in reranked_results]
                 scores = [score for doc, score in reranked_results]
                 
@@ -1115,6 +1219,8 @@ class DocumentProcessor:
                 return final_docs
             except Exception as e:
                 print(f"⚠️ 重排失败: {e}，使用原始检索结果")
+                import traceback
+                traceback.print_exc()
                 return unique_docs[:top_k]
         else:
             return unique_docs[:top_k]
@@ -1462,7 +1568,8 @@ class DocumentProcessor:
             return self.retriever.invoke(query)[:top_k]
     
     def enhanced_retrieve(self, query: str, top_k: int = 5, rerank_candidates: int = 20, 
-                         image_paths: List[str] = None, use_query_expansion: bool = None):
+                         image_paths: List[str] = None, use_query_expansion: bool = None,
+                         context: dict = None, use_advanced_reranker: bool = True):
         """增强检索：先检索更多候选，然后重排，支持查询扩展和多模态
         
         Args:
@@ -1471,6 +1578,8 @@ class DocumentProcessor:
             rerank_candidates: 重排前的候选文档数量
             image_paths: 图像路径列表，用于多模态检索
             use_query_expansion: 是否使用查询扩展，None表示使用配置默认值
+            context: 上下文信息（用于上下文感知重排）
+            use_advanced_reranker: 是否使用高级重排器，默认True
         """
         # 确定是否使用查询扩展
         if use_query_expansion is None:
@@ -1515,7 +1624,29 @@ class DocumentProcessor:
         # 重排（如果重排器可用）
         if self.reranker and len(unique_docs) > top_k:
             try:
-                reranked_results = self.reranker.rerank(query, unique_docs, top_k)
+                # 优先使用高级重排器
+                if use_advanced_reranker and self.advanced_reranker:
+                    reranker_type = type(self.advanced_reranker).__name__
+                    print(f"使用高级重排器: {reranker_type}")
+                    
+                    # 根据重排器类型调用
+                    if reranker_type == 'ContextAwareReranker':
+                        # 上下文感知重排
+                        reranked_results = self.advanced_reranker.rerank(
+                            query, unique_docs, top_k, context=context
+                        )
+                    elif reranker_type == 'MultiTaskReranker':
+                        # 多任务重排
+                        reranked_results = self.advanced_reranker.rerank(
+                            query, unique_docs, top_k
+                        )
+                    else:
+                        # 未知类型，回退到基础重排
+                        reranked_results = self.reranker.rerank(query, unique_docs, top_k)
+                else:
+                    # 使用基础重排器
+                    reranked_results = self.reranker.rerank(query, unique_docs, top_k)
+                
                 final_docs = [doc for doc, score in reranked_results]
                 scores = [score for doc, score in reranked_results]
                 
@@ -1525,6 +1656,8 @@ class DocumentProcessor:
                 return final_docs
             except Exception as e:
                 print(f"⚠️ 重排失败: {e}，使用原始检索结果")
+                import traceback
+                traceback.print_exc()
                 return unique_docs[:top_k]
         else:
             # 不重排或候选数量不足

@@ -1,0 +1,10 @@
+本项目是一个RAG智能检索系统，供xx相关人员使用，项目的总流程是用户在后台上传PDF文件和word文件相关的资料文件给系统，系统使用向量数据库
+Milvus向量数据库存储，使用RecursiveCharacterTextSplitter切割文本和向量嵌入HuggingFaceEmbeddings，块大小Chunk size为1024，块重叠Overlap为200，目的是
+让前后块信息关联不至于失去前后句子的语义， 向量嵌入使用国产模型BAAI/bge-m3。
+    使用langchain和langGraph的架构，从用户查询，智能路由决定是向量检索或者网络检索，到查询分解，混合检索，到reranker重排，到文本评分，
+再到答案生成，再到幻觉检测，全流程在langGraph状态机里边进行，这样的好处是有问题可以回溯，并且全流程跟踪，避免使用传统if else语句造成无限回调。
+用户检索时，输入检索文本，RecursiveCharacterTextSplitter先把检索文本转化为检索向量，再使用HuggingFaceEmbeddings嵌入，最后使用Milvus向量数据库检索最相似的向量， 
+关键词检索使用BM25检索，BM25原理是类似于TFIDF逆文档率的方式，初步检索没有内容的返回，给到模型进行问题分解，使用多条的方式进行
+子问题查询，使用CrossEncoder BAAI/bge-reranker-base的reranker对检索结果进行重排，提高召回率，最后进行检索信息进行NDCG计算检索质量，合并，给到模型评分。
+然后给到模型进行答案生成，生成答案后进行幻觉检测，幻觉检测使用自然语言推理NLI的模型cross-encoder/nli-deberta-v3-xsmall进行推理检测，原理答案和文档列表是transformer跟
+双向交叉关联，使用推理生成的方式最后生成3个分类，分别是包含、中立，矛盾，
