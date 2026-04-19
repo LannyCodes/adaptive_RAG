@@ -512,13 +512,20 @@ def main():
         print(f"总查询数: {len(test_questions)}")
         print(f"总耗时: {total_time:.4f}秒")
         print(f"平均耗时: {total_time/len(test_questions):.4f}秒")
-        print(f"最快查询: {min(r['time'] for r in results if r['time'] > 0):.4f}秒")
-        print(f"最慢查询: {max(r['time'] for r in results if r['time'] > 0):.4f}秒")
+        
+        # 获取有效的查询时间
+        valid_times = [r['time'] for r in results if r['time'] > 0]
+        if valid_times:
+            print(f"最快查询: {min(valid_times):.4f}秒")
+            print(f"最慢查询: {max(valid_times):.4f}秒")
+        else:
+            print("最快查询: N/A (无有效数据)")
+            print("最慢查询: N/A (无有效数据)")
         
         # 计算并发效率
-        if len(test_questions) > 1:
+        if len(test_questions) > 1 and valid_times:
             # 如果是串行执行，总时间应该是所有查询时间的总和
-            serial_time = sum(r['time'] for r in results if r['time'] > 0)
+            serial_time = sum(valid_times)
             efficiency = (serial_time / total_time) * 100 if total_time > 0 else 0
             print(f"并发效率: {efficiency:.1f}% (相比串行执行)")
         print("=" * 60)
