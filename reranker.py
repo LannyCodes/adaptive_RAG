@@ -6,7 +6,7 @@
 
 import torch
 import numpy as np
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional, Any
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
