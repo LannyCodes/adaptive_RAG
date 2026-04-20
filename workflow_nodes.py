@@ -202,7 +202,7 @@ class WorkflowNodes:
             documents = []
         
         # 步骤3: 如果检索结果不足，尝试回退检索
-        MIN_DOCS_THRESHOLD = 3
+        MIN_DOCS_THRESHOLD = 2
         if len(documents) < MIN_DOCS_THRESHOLD:
             print(f"   步骤3: 回退检索 (当前 {len(documents)} < 阈值 {MIN_DOCS_THRESHOLD})")
             try:
@@ -670,7 +670,7 @@ class WorkflowNodes:
         
         if not filtered_documents:
             # 检查是否超过最大重试次数
-            if retry_count >= 3:
+            if retry_count >= 2:
                 print(f"⚠️ 已达到最大重试次数 ({retry_count}) 且无相关文档，回退到网络搜索")
                 return "web_search"
                 
@@ -725,7 +725,7 @@ class WorkflowNodes:
         retry_count = state.get("retry_count", 0)
         
         # 检查是否超过最大重试次数
-        MAX_RETRIES = 3
+        MAX_RETRIES = 2
         if retry_count >= MAX_RETRIES:
             print(f"⚠️ 已达到最大重试次数 ({MAX_RETRIES})，返回当前生成结果")
             return "useful"

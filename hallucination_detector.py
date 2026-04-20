@@ -304,13 +304,14 @@ class NLIHallucinationDetector:
                 
         # 4. 综合评分
         total_sentences = contradiction_count + neutral_count + entailment_count
-        
+
         has_hallucination = False
         if total_sentences > 0:
             contradiction_ratio = contradiction_count / total_sentences
             neutral_ratio = neutral_count / total_sentences
-            # 阈值判断
-            has_hallucination = (contradiction_ratio > 0.3) or (neutral_ratio > 0.8)
+            # 放宽阈值：只有当矛盾比例超过 50% 或中性比例超过 95% 时才判定为幻觉
+            # 注意：NLI 模型对同义词（如"理由"vs"推理链"）容易误判为矛盾，需要更宽容的阈值
+            has_hallucination = (contradiction_ratio > 0.5) or (neutral_ratio > 0.95)
             
             # Debug 信息
             print(f"📊 NLI 检测结果: Entail={entailment_count}, Contra={contradiction_count}, Neutral={neutral_count}")
@@ -418,7 +419,7 @@ class HybridHallucinationDetector:
             vectara_result = self.detectors['vectara'].detect(generation, documents)
             results['vectara_result'] = vectara_result
             
-            if vectara_result['hallucination_score'] > 0.3:  # 降低阈值以提高灵敏度
+            if vectara_result['hallucination_score'] > 0.5:  # 调高阈值减少误报
                 results['has_hallucination'] = True
                 results['confidence'] = vectara_result['hallucination_score']
                 results['method_used'] = 'vectara'

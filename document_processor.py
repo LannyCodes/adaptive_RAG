@@ -39,8 +39,7 @@ from config import (
     ES_VERIFY_CERTS,
     # 查询扩展配置
     ENABLE_QUERY_EXPANSION,
-    QUERY_EXPANSION_MODEL,
-    QUERY_EXPANSION_PROMPT,
+    LLM_BACKEND,
     MAX_EXPANDED_QUERIES,
     # 多模态配置
     ENABLE_MULTIMODAL,
@@ -540,13 +539,33 @@ class DocumentProcessor:
         if not ENABLE_QUERY_EXPANSION:
             print("⚠️ 查询扩展已禁用")
             return
-            
+
         try:
             print("🔧 正在初始化查询扩展...")
-            from langchain_community.llms import Ollama
-            
-            self.query_expansion_model = Ollama(model=QUERY_EXPANSION_MODEL)
-            print(f"✅ 查询扩展初始化成功 (模型: {QUERY_EXPANSION_MODEL})")
+            # 使用 create_chat_model 确保使用正确的 LLM 后端 (tongyi/deepseek/ollama)
+            from routers_and_graders import create_chat_model
+            from langchain_core.output_parsers import StrOutputParser
+            from langchain_core.prompts import PromptTemplate
+
+            self.query_expansion_model = create_chat_model(temperature=0.3)
+
+            # 查询扩展提示 - 生成多个相关查询
+            expansion_prompt = PromptTemplate(
+                template="""请为以下查询生成 {num_queries} 个不同的相关查询变体，这些查询应该从不同角度探索原始查询的主题。
+            每个查询一行，不要加编号，直接输出查询。
+
+            原始查询: {query}
+
+            相关查询变体:""",
+                input_variables=["query"],
+            )
+            # 动态传入 num_queries
+            self.query_expansion_prompt = expansion_prompt.partial(
+                num_queries=str(MAX_EXPANDED_QUERIES)
+            )
+            self.query_expansion_chain = self.query_expansion_prompt | self.query_expansion_model | StrOutputParser()
+
+            print(f"✅ 查询扩展初始化成功 (使用 LLM_BACKEND: {LLM_BACKEND})")
         except Exception as e:
             print(f"⚠️ 查询扩展初始化失败: {e}")
             print("⚠️ 将不使用查询扩展")
@@ -1022,27 +1041,46 @@ class DocumentProcessor:
 
     async def async_expand_query(self, query: str) -> List[str]:
         """异步扩展查询"""
-        if not self.query_expansion_model:
+        if not self.query_expansion_chain:
             return [query]
-            
+
         try:
-            # 使用LLM生成扩展查询
-            prompt = QUERY_EXPANSION_PROMPT.format(query=query)
-            expanded_queries_text = await self._safe_async_query_expansion(self.query_expansion_model, prompt)
-            
+            import inspect
+
+            # 使用 chain 生成扩展查询
+            out = self.query_expansion_chain.ainvoke(query)
+
+            # 检查结果类型
+            if out is None:
+                return [query]
+
+            if isinstance(out, str):
+                expanded_queries_text = out
+            elif inspect.iscoroutine(out):
+                expanded_queries_text = await out
+            elif hasattr(out, '__await__'):
+                # 假可等待对象，直接使用
+                if hasattr(out, 'content'):
+                    expanded_queries_text = out.content
+                else:
+                    expanded_queries_text = str(out)
+            else:
+                expanded_queries_text = str(out)
+
             if not expanded_queries_text:
                 return [query]
-            
+
             # 解析扩展查询
             expanded_queries = [query]  # 包含原始查询
             for line in expanded_queries_text.strip().split('\n'):
                 line = line.strip()
                 if line and not line.startswith('#') and not line.startswith('//'):
                     # 移除可能的编号前缀
-                    if line[0].isdigit() and '.' in line[:5]:
+                    if line and line[0].isdigit() and '.' in line[:5]:
                         line = line.split('.', 1)[1].strip()
-                    expanded_queries.append(line)
-            
+                    if line:
+                        expanded_queries.append(line)
+
             # 限制扩展查询数量
             return expanded_queries[:MAX_EXPANDED_QUERIES + 1]
         except Exception as e:
@@ -1441,24 +1479,24 @@ class DocumentProcessor:
     
     def expand_query(self, query: str) -> List[str]:
         """扩展查询，生成相关查询"""
-        if not self.query_expansion_model:
+        if not self.query_expansion_chain:
             return [query]
-            
+
         try:
-            # 使用LLM生成扩展查询
-            prompt = QUERY_EXPANSION_PROMPT.format(query=query)
-            expanded_queries_text = self.query_expansion_model.invoke(prompt)
-            
+            # 使用 chain 生成扩展查询
+            expanded_queries_text = self.query_expansion_chain.invoke(query)
+
             # 解析扩展查询
             expanded_queries = [query]  # 包含原始查询
             for line in expanded_queries_text.strip().split('\n'):
                 line = line.strip()
                 if line and not line.startswith('#') and not line.startswith('//'):
                     # 移除可能的编号前缀
-                    if line[0].isdigit() and '.' in line[:5]:
+                    if line and line[0].isdigit() and '.' in line[:5]:
                         line = line.split('.', 1)[1].strip()
-                    expanded_queries.append(line)
-            
+                    if line:
+                        expanded_queries.append(line)
+
             # 限制扩展查询数量
             return expanded_queries[:MAX_EXPANDED_QUERIES + 1]  # +1 因为包含原始查询
         except Exception as e:
