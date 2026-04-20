@@ -551,12 +551,17 @@ class DocumentProcessor:
 
             # 查询扩展提示 - 生成多个相关查询
             expansion_prompt = PromptTemplate(
-                template="""请为以下查询生成 {num_queries} 个不同的相关查询变体，这些查询应该从不同角度探索原始查询的主题。
-            每个查询一行，不要加编号，直接输出查询。
+                template="""你是一个查询优化专家。请为原始查询生成 {num_queries} 个不同的变体，每个变体从不同角度表达同一个问题。
 
-            原始查询: {query}
+要求：
+1. 每个查询变体用一行输出
+2. 不要加编号、不要加前缀符号
+3. 变体之间要有明显差异（不同关键词、不同角度）
+4. 保持与原始查询相同的语言
 
-            相关查询变体:""",
+原始查询: {query}
+
+查询变体:""",
                 input_variables=["query"],
             )
             # 动态传入 num_queries

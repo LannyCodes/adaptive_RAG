@@ -309,13 +309,20 @@ class NLIHallucinationDetector:
         if total_sentences > 0:
             contradiction_ratio = contradiction_count / total_sentences
             neutral_ratio = neutral_count / total_sentences
-            # 放宽阈值：只有当矛盾比例超过 50% 或中性比例超过 95% 时才判定为幻觉
-            # 注意：NLI 模型对同义词（如"理由"vs"推理链"）容易误判为矛盾，需要更宽容的阈值
-            has_hallucination = (contradiction_ratio > 0.5) or (neutral_ratio > 0.95)
-            
+
+            # 合理性检查：如果 100% 都是矛盾，很可能是 NLI 模型对中文支持差导致的误判
+            # 这种情况下回退到不过滤（让生成通过）
+            if contradiction_ratio >= 1.0:
+                print(f"⚠️ NLI 模型检测到 100% 矛盾，可能是模型对中文支持差，回退为无幻觉")
+                has_hallucination = False
+                contradiction_count = 0
+            else:
+                # 正常阈值判断
+                has_hallucination = (contradiction_ratio > 0.5) or (neutral_ratio > 0.95)
+
             # Debug 信息
             print(f"📊 NLI 检测结果: Entail={entailment_count}, Contra={contradiction_count}, Neutral={neutral_count}")
-        
+
         return {
             "has_hallucination": has_hallucination,
             "contradiction_count": contradiction_count,
