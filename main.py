@@ -465,39 +465,38 @@ def main():
         # 使用 asyncio.gather 实现真正的并发执行
         async def run_concurrent_queries():
             """并发执行所有查询"""
-            tasks = []
-            for idx, test_question in enumerate(test_questions, 1):
-                # 为每个查询创建任务
-                task = asyncio.create_task(
-                    rag_system.query(test_question, verbose=False)
-                )
-                tasks.append((idx, test_question, task))
-            
-            # 并发执行所有任务
-            results = []
-            for idx, test_question, task in tasks:
+            # 先创建所有任务
+            async def query_with_logging(idx, question):
+                """带日志记录的查询包装器"""
                 print(f"\n{'='*60}")
-                print(f"查询 {idx}/{len(test_questions)}: {test_question[:50]}...")
+                print(f"查询 {idx}/{len(test_questions)}: {question[:50]}...")
                 print(f"{'='*60}")
-                
                 try:
-                    result = await task
-                    query_time = time.time() - start_time  # 相对于开始时间
-                    results.append({
-                        "question": test_question,
-                        "time": query_time,
+                    result = await rag_system.query(question, verbose=False)
+                    print(f"✅ 查询 {idx} 完成")
+                    return {
+                        "question": question,
+                        "time": time.time() - start_time,
                         "metrics": result.get("retrieval_metrics")
-                    })
-                    print(f"✅ 完成 - 耗时: {query_time:.4f}秒")
+                    }
                 except Exception as e:
-                    print(f"❌ 失败: {e}")
-                    results.append({
-                        "question": test_question,
+                    print(f"❌ 查询 {idx} 失败: {e}")
+                    return {
+                        "question": question,
                         "time": 0,
                         "error": str(e),
                         "metrics": None
-                    })
-            
+                    }
+
+            # 创建所有并发任务
+            tasks = [
+                asyncio.create_task(query_with_logging(idx, q))
+                for idx, q in enumerate(test_questions, 1)
+            ]
+
+            # 等待所有任务完成（真正并发）
+            results = await asyncio.gather(*tasks)
+
             return results
         
         # 运行并发查询

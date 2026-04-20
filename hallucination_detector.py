@@ -317,8 +317,9 @@ class NLIHallucinationDetector:
                 has_hallucination = False
                 contradiction_count = 0
             else:
-                # 正常阈值判断
-                has_hallucination = (contradiction_ratio > 0.5) or (neutral_ratio > 0.95)
+                # 正常阈值判断：只有矛盾比例超过阈值才判定为幻觉
+            # 中性（Neutral）不代表幻觉，只是"无法确定是否基于文档"
+            has_hallucination = contradiction_ratio > 0.5
 
             # Debug 信息
             print(f"📊 NLI 检测结果: Entail={entailment_count}, Contra={contradiction_count}, Neutral={neutral_count}")

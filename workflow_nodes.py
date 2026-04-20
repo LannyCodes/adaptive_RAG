@@ -264,10 +264,10 @@ class WorkflowNodes:
     def generate(self, state):
         """
         生成答案
-        
+
         Args:
             state (dict): 当前图状态
-            
+
         Returns:
             state (dict): 添加了generation键的新状态，包含LLM生成
         """
@@ -275,10 +275,25 @@ class WorkflowNodes:
         question = state["question"]
         original_question = state.get("original_question", question) # 优先使用原始问题
         documents = state["documents"]
-        
+
         # RAG生成 - 使用原始问题以确保回答用户的初始意图
         # 如果用户有特定的格式要求（如Markdown），通常包含在original_question中
-        generation = self.rag_chain.invoke({"context": documents, "question": original_question})
+        # 使用线程池执行同步调用，避免阻塞事件循环
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    generation = executor.submit(
+                        self.rag_chain.invoke,
+                        {"context": documents, "question": original_question}
+                    ).result()
+            else:
+                generation = self.rag_chain.invoke({"context": documents, "question": original_question})
+        except Exception as e:
+            print(f"⚠️ 生成失败: {e}")
+            generation = "生成答案时出错"
         return {"documents": documents, "question": question, "generation": generation}
     
     def grade_documents(self, state):
