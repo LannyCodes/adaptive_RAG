@@ -39,7 +39,7 @@ def setup_environment():
         print("⚠️  TAVILY_API_KEY 未找到")
 
 
-LLM_BACKEND = os.environ.get("LLM_BACKEND", "ollama")
+LLM_BACKEND = os.environ.get("LLM_BACKEND", "tongyi")  # 原来是使用Ollama
 LOCAL_LLM = os.environ.get("LOCAL_LLM", "qwen2:1.5b")
 
 TONGYI_API_KEY = os.environ.get("TONGYI_API_KEY") or os.environ.get("DASHSCOPE_API_KEY", "")
