@@ -46,8 +46,8 @@ class AdaptiveRAGSystem:
         print("设置 LangSmith 追踪...")
         self.langsmith_manager = setup_langsmith(
             project_name="adaptive-rag-project",
-            enable_performance_monitoring=True,
-            enable_alerts=True
+            enable_performance_monitoring=False,
+            enable_alerts=False
         )
         
         # 初始化告警回调函数
