@@ -258,11 +258,10 @@ class AdaptiveRAGSystem:
         async for output in self.app.astream(inputs, config=config):
             for key, value in output.items():
                 if verbose:
-                    # 简单的节点执行提示，模拟流式感
-                    print(f"  ↳ 执行节点: {key}...", end="\r")
+                    # 使用 ANSI 转义序列清行并打印，避免 \r 覆盖残留
+                    print(f"\033[2K\033[G  ↳ 执行节点: {key}...")
                     # 异步暂停
-                    await asyncio.sleep(0.1) 
-                    print(f"  ✅ 完成节点: {key}      ")
+                    await asyncio.sleep(0.1)
                     
                 # 记录路由决策
                 if key == "start":
@@ -299,16 +298,9 @@ class AdaptiveRAGSystem:
         print("\n" + "=" * 50)
         print("🎯 最终答案:")
         print("-" * 30)
-        
-        # 模拟流式输出效果 (打字机效果)
+
         if final_generation:
-            import sys
-            for char in final_generation:
-                sys.stdout.write(char)
-                sys.stdout.flush()
-                # 异步暂停
-                await asyncio.sleep(0.01) # 控制打字速度
-            print() # 换行
+            print(final_generation)
         else:
             print("未生成答案")
             
