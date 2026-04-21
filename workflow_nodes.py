@@ -280,17 +280,18 @@ class WorkflowNodes:
         # 如果用户有特定的格式要求（如Markdown），通常包含在original_question中
         # 使用线程池执行同步调用，避免阻塞事件循环
         import asyncio
+        import concurrent.futures
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    generation = executor.submit(
-                        self.rag_chain.invoke,
-                        {"context": documents, "question": original_question}
-                    ).result()
-            else:
-                generation = self.rag_chain.invoke({"context": documents, "question": original_question})
+            loop = asyncio.get_running_loop()
+            # 在已有事件循环运行的线程中，使用线程池执行同步调用
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                generation = executor.submit(
+                    self.rag_chain.invoke,
+                    {"context": documents, "question": original_question}
+                ).result()
+        except RuntimeError:
+            # 没有运行中的事件循环，直接执行
+            generation = self.rag_chain.invoke({"context": documents, "question": original_question})
         except Exception as e:
             print(f"⚠️ 生成失败: {e}")
             generation = "生成答案时出错"
