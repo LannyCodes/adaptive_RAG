@@ -6,7 +6,6 @@
 from typing import List
 
 from langchain_core.prompts import PromptTemplate
-from langchain_ollama import ChatOllama
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from config import (
     LOCAL_LLM,
@@ -22,6 +21,7 @@ from config import (
 
 def create_chat_model(format: str | None = None, temperature: float = 0.0, timeout: int | None = None):
     if LLM_BACKEND == "ollama":
+        from langchain_ollama import ChatOllama
         kwargs = {}
         if format is not None:
             kwargs["format"] = format
