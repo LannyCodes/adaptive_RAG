@@ -190,7 +190,7 @@ class LangSmithManager:
                 "inputs": inputs,
                 "outputs": outputs or {},
                 "metadata": metadata or {},
-                "run_type": "custom_event"
+                "run_type": "chain"
             }
             
             # 使用create_run记录事件
