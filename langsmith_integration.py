@@ -417,10 +417,13 @@ class LangSmithManager:
             "p99": percentile(99)
         }
     
-    def get_performance_report(self) -> Dict[str, Any]:
+    def get_performance_report(self, hours: int = 24) -> Dict[str, Any]:
         """
         生成性能报告
-        
+
+        Args:
+            hours: 统计最近多少小时的数据，默认 24
+
         Returns:
             Dict: 性能报告
         """
