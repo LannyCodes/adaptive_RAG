@@ -46,8 +46,8 @@ class AdaptiveRAGSystem:
         print("设置 LangSmith 追踪...")
         self.langsmith_manager = setup_langsmith(
             project_name="adaptive-rag-project",
-            enable_performance_monitoring=False,
-            enable_alerts=False
+            enable_performance_monitoring=True,
+            enable_alerts=True
         )
         
         # 初始化告警回调函数
@@ -252,7 +252,7 @@ class AdaptiveRAGSystem:
         routing_decision = "unknown"
         
         # 设置配置，增加递归限制
-        config = {"recursion_limit": 50}  # 增加到 50，默认是 25
+        config = {"recursion_limit": 50, **self.langsmith_manager.get_callback_config()}
         
         print("\n🤖 思考过程:")
         async for output in self.app.astream(inputs, config=config):
