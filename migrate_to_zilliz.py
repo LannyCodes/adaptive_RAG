@@ -56,24 +56,22 @@ def get_local_documents_via_pymilvus():
     connections.connect(alias="default", uri=local_db_path)
     print("✅ 本地连接成功")
 
-    # 检查 Collection 是否存在
+    # 查看所有 collection
     from pymilvus import utility
-    print(f"\n📋 查看本地数据库中的所有 Collection:")
     all_collections = utility.list_collections()
-    print(f"   现有 collections: {all_collections}")
+    print(f"📋 本地数据库中的 Collections: {all_collections}")
 
-    if not utility.has_collection(COLLECTION_NAME):
-        print(f"❌ Collection '{COLLECTION_NAME}' 不存在")
-        print(f"   尝试查找可能的 collection 名...")
-        # 尝试模糊匹配
-        for name in all_collections:
-            if "rag" in name.lower() or "milvus" in name.lower() or "adaptive" in name.lower():
-                print(f"   找到可能的匹配: {name}")
+    # 本地 .db 文件中的 collection 名是 rag_milvus
+    local_collection_name = "rag_milvus"
+    if not utility.has_collection(local_collection_name):
+        print(f"❌ Collection '{local_collection_name}' 不存在")
         connections.disconnect("default")
         return []
 
+    print(f"\n📖 使用 Collection: {local_collection_name}")
+
     # 加载 Collection
-    collection = Collection(COLLECTION_NAME)
+    collection = Collection(local_collection_name)
     collection.load()
 
     # 获取 schema 信息
