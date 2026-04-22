@@ -151,7 +151,7 @@ def write_to_zilliz(docs):
         return
 
     embeddings = HuggingFaceEmbeddings(
-        model=EMBEDDING_MODEL,
+        model_name=EMBEDDING_MODEL,
         model_kwargs={"device": "cpu"},
         encode_kwargs={"normalize_embeddings": True}
     )
