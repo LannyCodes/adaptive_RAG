@@ -4,8 +4,12 @@
 """
 
 import time
+import os
 from langgraph.graph import END, StateGraph, START
 from pprint import pprint
+
+# 强制设置 collection 名称（避免 Kaggle Secrets 覆盖旧值）
+os.environ["COLLECTION_NAME"] = "adaptive_rag"
 
 from config import setup_environment, validate_api_keys, ENABLE_GRAPHRAG, \
                      ENABLE_ADVANCED_RERANKER, ADVANCED_RERANKER_TYPE, \
