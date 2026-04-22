@@ -215,15 +215,11 @@ class AdaptiveRAGSystem:
         )
         
         # 编译（设置递归限制以防止无限循环）
-        # 获取 LangSmith 回调配置
-        callback_config = self.langsmith_manager.get_callback_config()
-        
         return workflow.compile(
             checkpointer=None,
             interrupt_before=None,
             interrupt_after=None,
             debug=False,
-            **callback_config  # 添加 LangSmith 回调
         )
     
     async def query(self, question: str, verbose: bool = True):
