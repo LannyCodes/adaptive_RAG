@@ -90,6 +90,9 @@ class LangSmithManager:
         
         # 从环境变量或参数获取 API 密钥
         self.api_key = api_key or os.environ.get("LANGSMITH_API_KEY")
+        # 确保 LANGCHAIN_API_KEY 环境变量被设置（新版 LangChainTracer 依赖此变量）
+        if self.api_key and not os.environ.get("LANGCHAIN_API_KEY"):
+            os.environ["LANGCHAIN_API_KEY"] = self.api_key
         
         # 从环境变量读取配置
         self.auto_flush = os.environ.get("LANGSMITH_AUTO_FLUSH", "true").lower() == "true"
@@ -109,6 +112,14 @@ class LangSmithManager:
                 api_key=self.api_key
             )
             print(f"✅ LangSmith 追踪已启用，项目: {self.project_name}")
+        except TypeError:
+            # 新版 LangChainTracer 不接受 api_key 参数，从环境变量读取
+            try:
+                self.tracer = LangChainTracer(project_name=self.project_name)
+                print(f"✅ LangSmith 追踪已启用，项目: {self.project_name}")
+            except Exception as e:
+                print(f"❌ LangSmith 追踪设置失败: {e}")
+                self.tracer = None
         except Exception as e:
             print(f"❌ LangSmith 追踪设置失败: {e}")
             self.tracer = None
