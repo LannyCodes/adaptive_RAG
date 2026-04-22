@@ -32,11 +32,24 @@ def get_local_documents_via_pymilvus():
     from pymilvus import connections, Collection
 
     local_db_path = os.environ.get("MILVUS_READONLY_URI") or "./milvus_rag.db"
-    print(f"📂 本地数据库路径: {local_db_path}")
+    print(f"📂 原始数据库路径: {local_db_path}")
 
     if not os.path.exists(local_db_path):
         print(f"❌ 本地 Milvus 文件不存在: {local_db_path}")
         return []
+
+    # Kaggle /kaggle/input/ 是只读的，Milvus Lite 需要写 lock 文件
+    # 因此需要先复制到可写目录
+    import shutil
+    if "/kaggle/input/" in local_db_path:
+        writable_path = "/kaggle/working/milvus_rag_copy.db"
+        if not os.path.exists(writable_path):
+            print(f"📂 Kaggle 只读文件系统，复制到可写目录: {writable_path}")
+            shutil.copy2(local_db_path, writable_path)
+            print("✅ 复制完成")
+        else:
+            print(f"ℹ️  使用已有副本: {writable_path}")
+        local_db_path = writable_path
 
     # 连接本地 Milvus Lite
     print(f"📂 正在连接本地 Milvus Lite...")
