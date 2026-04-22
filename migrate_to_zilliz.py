@@ -58,8 +58,17 @@ def get_local_documents_via_pymilvus():
 
     # 检查 Collection 是否存在
     from pymilvus import utility
+    print(f"\n📋 查看本地数据库中的所有 Collection:")
+    all_collections = utility.list_collections()
+    print(f"   现有 collections: {all_collections}")
+
     if not utility.has_collection(COLLECTION_NAME):
         print(f"❌ Collection '{COLLECTION_NAME}' 不存在")
+        print(f"   尝试查找可能的 collection 名...")
+        # 尝试模糊匹配
+        for name in all_collections:
+            if "rag" in name.lower() or "milvus" in name.lower() or "adaptive" in name.lower():
+                print(f"   找到可能的匹配: {name}")
         connections.disconnect("default")
         return []
 
