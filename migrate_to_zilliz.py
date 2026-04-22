@@ -87,14 +87,34 @@ def get_local_documents_via_pymilvus():
 
     print(f"📋 PK field: {pk_field}, text field: {text_field}")
 
-    # 查询所有文档
-    expr = f"{pk_field} >= 0"
-    try:
-        res = collection.query(expr=expr, output_fields=["*"], limit=100000)
-    except Exception as e:
-        print(f"⚠️ 首次查询失败: {e}")
-        expr = f'{pk_field} != ""'
-        res = collection.query(expr=expr, output_fields=["*"], limit=100000)
+    # 查询所有文档（Milvus limit 上限 16384，需要分批查询）
+    batch_limit = 16384
+    all_res = []
+    offset = 0
+
+    print(f"📖 开始分批查询文档（每批 {batch_limit} 条）...")
+    while True:
+        try:
+            res = collection.query(
+                expr=f"{pk_field} >= 0",
+                output_fields=["*"],
+                limit=batch_limit,
+                offset=offset
+            )
+        except Exception as e:
+            print(f"⚠️ 查询失败: {e}")
+            break
+
+        if not res:
+            break
+
+        all_res.extend(res)
+        print(f"   已查询 {len(all_res)} 条...")
+        if len(res) < batch_limit:
+            break
+        offset += batch_limit
+
+    res = all_res
 
     docs = []
     for item in res:
