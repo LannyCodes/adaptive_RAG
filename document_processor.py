@@ -28,7 +28,6 @@ from config import (
     MILVUS_USER,
     MILVUS_PASSWORD,
     MILVUS_URI,
-    MILVUS_READONLY_URI,
     MILVUS_INDEX_TYPE,
     MILVUS_INDEX_PARAMS,
     MILVUS_SEARCH_PARAMS,
@@ -599,26 +598,6 @@ class DocumentProcessor:
         """初始化向量数据库连接"""
         if self.vectorstore:
             return
-
-        import os
-        import shutil
-
-        # 处理 Kaggle 只读数据集：如果设置了只读源文件，且目标文件不存在，则复制过来
-        if MILVUS_READONLY_URI and len(MILVUS_READONLY_URI.strip()) > 0:
-            source_path = os.path.expanduser(MILVUS_READONLY_URI)
-            target_path = os.path.expanduser(MILVUS_URI) if MILVUS_URI else "./milvus_rag.db"
-            if not os.path.isabs(target_path):
-                target_path = os.path.abspath(target_path)
-
-            if os.path.exists(source_path) and not os.path.exists(target_path):
-                parent_dir = os.path.dirname(target_path)
-                if parent_dir and not os.path.exists(parent_dir):
-                    os.makedirs(parent_dir, exist_ok=True)
-                print(f"📂 从只读数据集复制向量库到可写目录: {source_path} -> {target_path}")
-                shutil.copy2(source_path, target_path)
-                print("✅ 复制完成，后续新增文档将写入可写副本")
-            elif os.path.exists(source_path) and os.path.exists(target_path):
-                print(f"ℹ️  检测到只读源文件已存在，使用现有可写副本: {target_path}")
 
         print("正在连接向量数据库...")
         
