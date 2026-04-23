@@ -56,6 +56,12 @@ KNOWLEDGE_BASE_URLS = [
     "https://lilianweng.github.io/posts/2023-03-15-prompt-engineering/",
     "https://lilianweng.github.io/posts/2023-10-25-adv-attack-llm/",
     "https://learnprompting.org/docs/introduction"
+    "https://lilianweng.github.io/posts/2021-07-11-diffusion-models/",
+    "https://lilianweng.github.io/posts/2024-07-07-hallucination/"
+    "https://lilianweng.github.io/posts/2024-04-12-diffusion-video/",
+    "https://lilianweng.github.io/posts/2024-11-28-reward-hacking/",
+    "https://lilianweng.github.io/posts/2025-05-01-thinking/",
+    "https://lilianweng.github.io/posts/2019-11-10-self-supervised/"
 ]
 
 # 文档分块配置
