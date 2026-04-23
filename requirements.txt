@@ -9,7 +9,7 @@ langchain-text-splitters==0.3.11
 langchain-huggingface==0.1.2  # 新的HuggingFaceEmbeddings实现，避免废弃警告
 
 # LLM集成
-# langchain-ollama==0.2.2  # 已切换到 tongyi 后端，无需此依赖
+langchain-ollama==0.2.2  # 已切换到 tongyi 后端，无需此依赖
 langchain-openai==0.2.1
 
 # 向量数据库和嵌入
