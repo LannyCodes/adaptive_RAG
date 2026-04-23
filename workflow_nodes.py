@@ -299,29 +299,36 @@ class WorkflowNodes:
     
     def grade_documents(self, state):
         """
-        确定检索到的文档是否与问题相关
-        
+        确定检索到的文档是否与问题相关（并行评分）
+
         Args:
             state (dict): 当前图状态
-            
+
         Returns:
             state (dict): 更新documents键，只包含过滤后的相关文档
         """
         print("---检查文档与问题的相关性---")
         question = state["question"]
         documents = state["documents"]
-        
-        # 为每个文档评分
+
+        # 并行评分
+        import concurrent.futures
+
+        def grade_single(doc):
+            score = self.graders["document_grader"].grade(question, doc.page_content)
+            return (doc, score == "yes")
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            results = list(executor.map(grade_single, documents))
+
         filtered_docs = []
-        for d in documents:
-            score = self.graders["document_grader"].grade(question, d.page_content)
-            grade = score
-            if grade == "yes":
+        for doc, is_relevant in results:
+            if is_relevant:
                 print("---评分：文档相关---")
-                filtered_docs.append(d)
+                filtered_docs.append(doc)
             else:
                 print("---评分：文档不相关---")
-                continue
+
         return {"documents": filtered_docs, "question": question}
     
     def transform_query(self, state):
