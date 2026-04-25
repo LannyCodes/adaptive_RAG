@@ -188,7 +188,12 @@ class WorkflowNodes:
             }
         
         # ── 单查询或重试场景 ──
-        current_query = sub_queries[0] if sub_queries else question
+        # 重试时 question 已被重写，优先使用 question 而非旧的 sub_queries
+        if retry_count > 0:
+            current_query = question  # transform_query 重写后的问题
+            sub_queries = [question]
+        else:
+            current_query = sub_queries[0] if sub_queries else question
         print(f"   当前检索查询: {current_query}")
         
         # 记录检索开始时间
@@ -523,7 +528,14 @@ class WorkflowNodes:
         
         # 重写问题，传入上下文
         better_question = self.graders["query_rewriter"].rewrite(question, context=context_summary)
-        return {"documents": documents, "question": better_question, "retry_count": retry_count}
+        return {
+            "documents": documents, 
+            "question": better_question, 
+            "retry_count": retry_count,
+            # 重置子查询状态，避免循环时复用旧的子查询
+            "sub_queries": [better_question],
+            "current_query_index": 0,
+        }
     
     def web_search(self, state):
         """
@@ -973,10 +985,10 @@ class WorkflowNodes:
         generation = state["generation"]
         retry_count = state.get("retry_count", 0)
         
-        # 检查是否超过最大重试次数
-        MAX_RETRIES = 2
-        if retry_count >= MAX_RETRIES:
-            print(f"⚠️ 已达到最大重试次数 ({MAX_RETRIES})，返回当前生成结果")
+        # 检查是否超过最大重试次数（总重试上限，防止无限循环）
+        MAX_TOTAL_RETRIES = 3
+        if retry_count >= MAX_TOTAL_RETRIES:
+            print(f"⚠️ 已达到总重试上限 ({MAX_TOTAL_RETRIES})，返回当前生成结果（可能不完全准确）")
             return "useful"
         
         score = self.graders["hallucination_grader"].grade(generation, documents)

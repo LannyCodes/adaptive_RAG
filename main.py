@@ -251,7 +251,7 @@ class AdaptiveRAGSystem:
         routing_decision = "unknown"
         
         # 设置配置，增加递归限制
-        config = {"recursion_limit": 50, **self.langsmith_manager.get_callback_config()}
+        config = {"recursion_limit": 25, **self.langsmith_manager.get_callback_config()}
         
         print("\n🤖 思考过程:")
         async for output in self.app.astream(inputs, config=config):
