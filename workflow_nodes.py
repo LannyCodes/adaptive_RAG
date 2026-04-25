@@ -110,7 +110,7 @@ class WorkflowNodes:
 
     async def retrieve(self, state):
         """
-        检索文档 (异步版本)
+        检索文档 (异步版本，子查询并行检索)
         
         Args:
             state (dict): 当前图状态
@@ -132,15 +132,64 @@ class WorkflowNodes:
             self._pending_sub_queries = None
             self._pending_original_question = None
         else:
-            sub_queries = [question]
+            sub_queries = state.get("sub_queries", None)
             original_question = state.get("original_question", question)
         
-        # 使用第一个子查询作为当前检索查询
-        if sub_queries and len(sub_queries) > 0:
-            current_query = sub_queries[0]
-            print(f"   当前检索子查询: {current_query}")
-        else:
-            current_query = question
+        if not sub_queries:
+            sub_queries = [question]
+        
+        # ── 并行检索所有子查询 ──
+        # 如果有多个子查询，并行检索后合并，避免串行逐个走完整循环
+        if len(sub_queries) > 1 and retry_count == 0:
+            print(f"   ⚡ 并行检索 {len(sub_queries)} 个子查询...")
+            import asyncio
+            all_documents = []
+            seen_contents = set()
+            
+            async def retrieve_single_query(query):
+                """检索单个子查询"""
+                try:
+                    docs = await self.doc_processor.async_enhanced_retrieve(
+                        query,
+                        top_k=5,
+                        rerank_candidates=5,  # 子查询检索减少候选数，加速
+                        image_paths=state.get("image_paths", None),
+                        use_query_expansion=False
+                    )
+                    return docs if docs else []
+                except Exception as e:
+                    print(f"   ⚠️ 子查询检索失败 '{query[:30]}...': {e}")
+                    return []
+            
+            # 并行发起所有子查询的检索
+            results = await asyncio.gather(*[retrieve_single_query(q) for q in sub_queries])
+            
+            for docs in results:
+                for doc in docs:
+                    content = getattr(doc, 'page_content', str(doc))
+                    if content not in seen_contents:
+                        all_documents.append(doc)
+                        seen_contents.add(content)
+            
+            print(f"   并行检索合并结果: {len(all_documents)} 个文档")
+            
+            # 用合并后的结果直接跳过子查询循环
+            retrieval_time = time.time() - retrieval_start_time
+            retrieval_metrics = self._evaluate_retrieval_results(original_question, all_documents, retrieval_time)
+            
+            return {
+                "documents": all_documents,
+                "question": original_question,
+                "retry_count": retry_count,
+                "retrieval_metrics": retrieval_metrics,
+                "sub_queries": sub_queries,
+                "current_query_index": len(sub_queries) - 1,  # 标记所有子查询已完成
+                "original_question": original_question,
+            }
+        
+        # ── 单查询或重试场景 ──
+        current_query = sub_queries[0] if sub_queries else question
+        print(f"   当前检索查询: {current_query}")
         
         # 记录检索开始时间
         print(f"   步骤1: 查询扩展")
@@ -875,7 +924,12 @@ class WorkflowNodes:
             return "transform_query"
         else:
             # 我们有相关文档
-            # 检查是否有更多子查询
+            # 如果所有子查询已经完成（并行检索时 current_query_index 已设为末尾），直接生成
+            if current_query_index >= len(sub_queries) - 1:
+                print("---决策：子查询已全部完成（并行检索），生成---")
+                return "generate"
+            
+            # 检查是否有更多子查询需要串行处理
             if sub_queries and current_query_index < len(sub_queries) - 1:
                 # === 早期终止检查 ===
                 # 检查当前累积的文档是否已经足以回答原始问题
