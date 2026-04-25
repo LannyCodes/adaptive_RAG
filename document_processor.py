@@ -310,7 +310,8 @@ class DocumentProcessor:
             chunk_overlap=CHUNK_OVERLAP,
             add_start_index=True,  # ✅ 关键：添加起始索引，用于后续的相邻块合并
             # ✅ 优先在中文句号、感叹号处断句，而不是生硬地切断
-            separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""]
+            # ✅ 添加 $$ 和 $ 作为分隔符，优先在 LaTeX 公式边界断开
+            separators=["\n\n", "$$", "\n", "。", "！", "？", "；", "，", "$", " ", ""]
         )
         
         # Try to initialize embeddings with error handling

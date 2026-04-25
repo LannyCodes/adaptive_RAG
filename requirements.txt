@@ -20,6 +20,11 @@ transformers==4.46.3
 huggingface-hub==0.26.0  # HuggingFace Hub客户端
 
 # 文档处理
+pypdf==5.1.0  # PDF文件解析
+PyMuPDF==1.25.3  # PDF文本提取（比pypdf质量更高，支持数学公式区域识别）
+python-docx==1.1.2  # Word (.docx) 文件解析 + OMML数学公式提取
+docx2txt==0.8  # Word (.docx) 简单文本提取（回退方案）
+lxml==5.3.0  # XML解析，用于OMML数学公式转LaTeX
 tiktoken==0.7.0
 beautifulsoup4==4.12.2
 requests==2.32.3
