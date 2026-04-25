@@ -405,7 +405,7 @@ class HybridHallucinationDetector:
     
     def detect(self, generation: str, documents: str) -> Dict:
         """
-        综合检测幻觉
+        综合检测幻觉（优化版：Vectara通过则跳过NLI，省~3s）
         
         Returns:
             {
@@ -427,23 +427,35 @@ class HybridHallucinationDetector:
             vectara_result = self.detectors['vectara'].detect(generation, documents)
             results['vectara_result'] = vectara_result
             
-            if vectara_result['hallucination_score'] > 0.5:  # 调高阈值减少误报
+            if vectara_result['hallucination_score'] > 0.5:
                 results['has_hallucination'] = True
                 results['confidence'] = vectara_result['hallucination_score']
                 results['method_used'] = 'vectara'
+                # Vectara 检测到幻觉，用 NLI 做二次确认（降低误报）
+                if 'nli' in self.detectors:
+                    nli_result = self.detectors['nli'].detect(generation, documents)
+                    results['nli_result'] = nli_result
+                    # 两个都检测到幻觉才判定为幻觉（高置信度）
+                    if not nli_result['has_hallucination']:
+                        print("   ℹ️ Vectara检测到幻觉但NLI未确认，降低置信度")
+                        results['confidence'] *= 0.5
+                        results['method_used'] = 'vectara(nli_disagree)'
+                    else:
+                        results['method_used'] = 'vectara+nli'
                 return results
             else:
-                # Vectara 未检测到幻觉，设置 method_used
+                # Vectara 未检测到幻觉 → 直接通过，跳过 NLI 逐句检测（省~3s）
                 results['method_used'] = 'vectara'
+                results['confidence'] = 1.0 - vectara_result['hallucination_score']
+                return results
         
-        # 2. 如果 Vectara 不确定或不可用，使用 NLI 二次确认
+        # 2. Vectara 不可用时，使用 NLI
         if 'nli' in self.detectors:
             nli_result = self.detectors['nli'].detect(generation, documents)
             results['nli_result'] = nli_result
             
             if nli_result['has_hallucination']:
                 results['has_hallucination'] = True
-                # 计算置信度
                 total_sentences = (nli_result['contradiction_count'] + 
                                  nli_result['neutral_count'] + 
                                  nli_result['entailment_count'])
@@ -452,22 +464,8 @@ class HybridHallucinationDetector:
                                            nli_result['neutral_count'] * 0.5) / total_sentences
                 results['method_used'] = 'nli'
             else:
-                # 未检测到幻觉，也要设置 method_used
-                if not results['method_used']:  # 只有当前面没有设置时
+                if not results['method_used']:
                     results['method_used'] = 'nli'
-        
-        # 如果两个模型都有结果，投票决定
-        if 'vectara_result' in results and 'nli_result' in results:
-            vectara_vote = results['vectara_result']['has_hallucination']
-            nli_vote = results['nli_result']['has_hallucination']
-            
-            if vectara_vote and nli_vote:
-                results['has_hallucination'] = True
-                results['confidence'] = min(
-                    results.get('vectara_result', {}).get('hallucination_score', 0.5),
-                    results.get('confidence', 0.5)
-                )
-                results['method_used'] = 'vectara+nli'
         
         return results
     

@@ -46,15 +46,34 @@ class EvaluationMetrics:
 class RetrievalEvaluator:
     """检索效果评估器"""
     
-    def __init__(self, embedding_model: str = EMBEDDING_MODEL):
+    def __init__(self, embedding_model: str = EMBEDDING_MODEL, embeddings_model=None):
         """
         初始化评估器
         
         Args:
-            embedding_model: 用于计算语义相似度的嵌入模型
+            embedding_model: 用于计算语义相似度的嵌入模型名称
+            embeddings_model: 已有的嵌入模型实例（优先使用，避免重复加载）
         """
-        self.embedding_model = SentenceTransformer(embedding_model)
+        if embeddings_model is not None:
+            # 复用已有的嵌入模型，避免重复加载到GPU
+            self.embedding_model = embeddings_model
+            self._external_model = True
+            print(f"✅ RetrievalEvaluator 复用已有嵌入模型")
+        else:
+            # 没有提供，自己加载
+            self.embedding_model = SentenceTransformer(embedding_model)
+            self._external_model = False
         
+    def _encode_texts(self, texts):
+        """编码文本，兼容 SentenceTransformer 和 LangChain HuggingFaceEmbeddings"""
+        if self._external_model:
+            # LangChain HuggingFaceEmbeddings 接口
+            embeddings = self.embedding_model.embed_documents(texts)
+            return np.array(embeddings)
+        else:
+            # SentenceTransformer 接口
+            return self.embedding_model.encode(texts, convert_to_tensor=True)
+    
     def evaluate_retrieval(self, results: List[RetrievalResult], k_values: List[int] = [1, 3, 5, 10]) -> EvaluationMetrics:
         """
         评估检索结果
@@ -232,14 +251,22 @@ class RetrievalEvaluator:
                 
             # 获取文档嵌入
             doc_texts = [doc.page_content for doc in result.retrieved_docs]
-            embeddings = self.embedding_model.encode(doc_texts, convert_to_tensor=True)
+            embeddings = self._encode_texts(doc_texts)
             
             # 计算文档之间的余弦相似度
-            cos_sim = util.pytorch_cos_sim(embeddings, embeddings)
-            
-            # 获取上三角矩阵（排除对角线）
-            upper_triangle_indices = torch.triu_indices(len(cos_sim), len(cos_sim), offset=1)
-            similarities = cos_sim[upper_triangle_indices[0], upper_triangle_indices[1]]
+            if isinstance(embeddings, torch.Tensor):
+                cos_sim = util.pytorch_cos_sim(embeddings, embeddings)
+                upper_triangle_indices = torch.triu_indices(len(cos_sim), len(cos_sim), offset=1)
+                similarities = cos_sim[upper_triangle_indices[0], upper_triangle_indices[1]]
+                diversity = 1 - similarities.mean().item()
+            else:
+                # numpy 数组
+                from sklearn.metrics.pairwise import cosine_similarity as sklearn_cos_sim
+                cos_sim = sklearn_cos_sim(embeddings)
+                n = len(cos_sim)
+                upper_indices = np.triu_indices(n, k=1)
+                similarities = cos_sim[upper_indices]
+                diversity = 1 - similarities.mean()
             
             # 多样性 = 1 - 平均相似度
             diversity = 1 - similarities.mean().item()

@@ -48,8 +48,12 @@ class WorkflowNodes:
         self.retriever = retriever if retriever is not None else getattr(doc_processor, 'retriever', None)
         self.graders = graders
         
-        # 初始化检索评估器
-        self.retrieval_evaluator = RetrievalEvaluator(embedding_model=EMBEDDING_MODEL)
+        # 初始化检索评估器（复用已有的embeddings模型，避免重复加载到GPU）
+        embeddings_for_eval = getattr(doc_processor, 'embeddings', None)
+        self.retrieval_evaluator = RetrievalEvaluator(
+            embedding_model=EMBEDDING_MODEL,
+            embeddings_model=embeddings_for_eval
+        )
         
         # 设置RAG链 - 使用本地提示模板
         rag_prompt_template = PromptTemplate(
@@ -119,9 +123,28 @@ class WorkflowNodes:
         retry_count = state.get("retry_count", 0)
         retrieval_start_time = time.time()
         
+        # 读取 route_and_decompose 暂存的分解结果
+        sub_queries = getattr(self, '_pending_sub_queries', None)
+        original_question = getattr(self, '_pending_original_question', question)
+        if sub_queries:
+            print(f"   使用并行分解结果: {len(sub_queries)} 个子查询")
+            # 清空暂存，避免后续 retrieve 误用
+            self._pending_sub_queries = None
+            self._pending_original_question = None
+        else:
+            sub_queries = [question]
+            original_question = state.get("original_question", question)
+        
+        # 使用第一个子查询作为当前检索查询
+        if sub_queries and len(sub_queries) > 0:
+            current_query = sub_queries[0]
+            print(f"   当前检索子查询: {current_query}")
+        else:
+            current_query = question
+        
         # 记录检索开始时间
         print(f"   步骤1: 查询扩展")
-        expanded_query = question
+        expanded_query = current_query
         
         # 步骤1: 查询扩展 - 增强原始查询
         try:
@@ -154,7 +177,7 @@ class WorkflowNodes:
                 documents = await self.doc_processor.async_enhanced_retrieve(
                     expanded_query, 
                     top_k=5, 
-                    rerank_candidates=20,
+                    rerank_candidates=10,  # 优化: 20→10, 减少CrossEncoder重排计算量, T4上省~2s
                     image_paths=image_paths,
                     use_query_expansion=False  # 已经在上面处理过了
                 )
@@ -252,13 +275,16 @@ class WorkflowNodes:
         print(f"   检索完成: {len(documents)} 个文档，耗时 {retrieval_time:.2f} 秒")
         
         # 评估检索结果
-        retrieval_metrics = self._evaluate_retrieval_results(question, documents, retrieval_time)
+        retrieval_metrics = self._evaluate_retrieval_results(current_query, documents, retrieval_time)
         
         return {
             "documents": documents, 
-            "question": question, 
+            "question": current_query, 
             "retry_count": retry_count,
-            "retrieval_metrics": retrieval_metrics
+            "retrieval_metrics": retrieval_metrics,
+            "sub_queries": sub_queries,
+            "current_query_index": 0,
+            "original_question": original_question,
         }
     
     def generate(self, state):
@@ -299,7 +325,7 @@ class WorkflowNodes:
     
     def grade_documents(self, state):
         """
-        确定检索到的文档是否与问题相关（并行评分）
+        确定检索到的文档是否与问题相关（批量评分，一次LLM调用）
 
         Args:
             state (dict): 当前图状态
@@ -311,7 +337,70 @@ class WorkflowNodes:
         question = state["question"]
         documents = state["documents"]
 
-        # 并行评分
+        if not documents:
+            return {"documents": [], "question": question}
+
+        # 批量评分：一次LLM调用评估所有文档，替代逐个调用
+        try:
+            from langchain_core.prompts import PromptTemplate
+            from langchain_core.output_parsers import JsonOutputParser
+            from routers_and_graders import create_chat_model
+
+            # 构建批量评分提示
+            docs_text = ""
+            for i, doc in enumerate(documents):
+                # 截取文档前500字符，避免prompt过长
+                content = doc.page_content[:500]
+                docs_text += f"\n---文档{i+1}---\n{content}\n"
+
+            batch_prompt = PromptTemplate(
+                template="""你是一个评分员，评估检索到的文档是否与用户问题相关。
+
+宽松标准：只要文档与问题有哪怕一点点关联，就给出'yes'。
+只有当文档完全不相关或主题完全相反时，才给出'no'。
+
+用户问题：{question}
+
+以下是{doc_count}个文档：
+{documents}
+
+请对每个文档给出相关性评分。返回一个JSON，包含'scores'键，值为一个列表，每个元素为'yes'或'no'。
+列表长度必须为{doc_count}，按文档编号顺序排列。
+只返回JSON，不要前言或解释。""",
+                input_variables=["question", "documents", "doc_count"],
+            )
+
+            batch_llm = create_chat_model(format="json", temperature=0.0)
+            batch_chain = batch_prompt | batch_llm | JsonOutputParser()
+
+            result = batch_chain.invoke({
+                "question": question,
+                "documents": docs_text,
+                "doc_count": len(documents)
+            })
+
+            scores = result.get("scores", [])
+
+            # 如果返回的scores数量不匹配，回退到逐个评分
+            if len(scores) != len(documents):
+                print(f"⚠️ 批量评分返回数量不匹配({len(scores)} vs {len(documents)})，回退逐个评分")
+                scores = None
+        except Exception as e:
+            print(f"⚠️ 批量评分失败: {e}，回退逐个评分")
+            scores = None
+
+        # 如果批量评分成功
+        if scores is not None:
+            filtered_docs = []
+            for i, (doc, score) in enumerate(zip(documents, scores)):
+                if score == "yes":
+                    print(f"---评分：文档{i+1}相关---")
+                    filtered_docs.append(doc)
+                else:
+                    print(f"---评分：文档{i+1}不相关---")
+            return {"documents": filtered_docs, "question": question}
+
+        # 回退：逐个评分（原始逻辑）
         import concurrent.futures
 
         def grade_single(doc):
@@ -629,6 +718,64 @@ class WorkflowNodes:
         else:
             print("---将问题路由到RAG---")
             return "vectorstore"
+    
+    def route_and_decompose(self, state):
+        """
+        路由+查询分解并行执行（优化：省~3s串行等待）
+        将路由决策和查询分解合并为一个节点，两者用线程池并行执行。
+        如果路由结果是 vectorstore，分解结果会直接注入state。
+        如果路由结果是 web_search，跳过分解。
+        """
+        import concurrent.futures
+        
+        question = state["question"]
+        print("---路由+分解（并行）---")
+        
+        # 并行执行路由和分解
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            route_future = executor.submit(self.graders["query_router"].route, question)
+            decompose_future = executor.submit(self.graders["query_decomposer"].decompose, question)
+            
+            # 获取路由结果
+            try:
+                source = route_future.result(timeout=30)
+            except Exception as e:
+                print(f"⚠️ 路由失败，回退到向量检索: {e}")
+                source = "vectorstore"
+            
+            # 如果路由到 web_search，不需要分解，直接返回
+            if source == "web_search":
+                print("---路由决策：网络搜索（跳过分解）---")
+                # 取消分解任务
+                decompose_future.cancel()
+                return "web_search"
+            
+            # 路由到 vectorstore，获取分解结果
+            print("---路由决策：向量检索---")
+            try:
+                sub_queries = decompose_future.result(timeout=30)
+            except Exception as e:
+                print(f"⚠️ 查询分解失败，使用原始问题: {e}")
+                sub_queries = [question]
+        
+        # 确保至少包含原始问题
+        if not sub_queries:
+            sub_queries = [question]
+        
+        print(f"   生成了 {len(sub_queries)} 个子查询")
+        for i, sq in enumerate(sub_queries):
+            print(f"   子查询{i+1}: {sq}")
+        
+        # 返回更新后的state + 路由结果
+        # 注意：conditional_edges 的返回值是下一个节点名称
+        # 但我们需要同时更新 state，所以通过返回 "vectorstore" 指向 retrieve
+        # state 的更新通过这种方式：在 LangGraph 中，conditional_edges 函数
+        # 只能返回节点名称，不能更新 state。所以需要另一个方案。
+        # 方案：把分解结果存入实例变量，让 retrieve 节点读取
+        self._pending_sub_queries = sub_queries
+        self._pending_original_question = question
+        
+        return "vectorstore"
     
     def prepare_next_query(self, state):
         """

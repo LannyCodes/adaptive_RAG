@@ -181,20 +181,19 @@ class AdaptiveRAGSystem:
         workflow.add_node("grade_documents", self.workflow_nodes.grade_documents)
         workflow.add_node("generate", self.workflow_nodes.generate)
         workflow.add_node("transform_query", self.workflow_nodes.transform_query)
-        workflow.add_node("decompose_query", self.workflow_nodes.decompose_query)
+        workflow.add_node("route_and_decompose", self.workflow_nodes.route_and_decompose)
         workflow.add_node("prepare_next_query", self.workflow_nodes.prepare_next_query)
         
-        # 构建图
+        # 构建图: START → route_and_decompose (路由+分解并行) → retrieve/web_search
         workflow.add_conditional_edges(
             START,
-            self.workflow_nodes.route_question,
+            self.workflow_nodes.route_and_decompose,
             {
                 "web_search": "web_search",
-                "vectorstore": "decompose_query", # 向量检索前先进行查询分解
+                "vectorstore": "retrieve",  # 分解已在 route_and_decompose 中完成，直接检索
             },
         )
         workflow.add_edge("web_search", "generate")
-        workflow.add_edge("decompose_query", "retrieve")
         workflow.add_edge("retrieve", "grade_documents")
         workflow.add_conditional_edges(
             "grade_documents",
