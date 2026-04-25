@@ -3,6 +3,15 @@
 集成所有模块，构建工作流并运行自适应RAG系统
 """
 
+import warnings
+# 抑制 langchain_tavily 的 Pydantic 字段遮蔽警告
+# (TavilyResearch 中 output_schema/stream 与 BaseTool 父类同名)
+warnings.filterwarnings(
+    "ignore",
+    message=r'.*Field name "(output_schema|stream)" in "TavilyResearch" shadows.*',
+    category=UserWarning,
+)
+
 import time
 import os
 from langgraph.graph import END, StateGraph, START
