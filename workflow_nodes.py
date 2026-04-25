@@ -356,9 +356,13 @@ class WorkflowNodes:
             batch_prompt = PromptTemplate(
                 template="""你是一个评分员，评估检索到的文档是否与用户问题相关。
 
-宽松标准：只要文档与问题有哪怕一点点关联，就给出'yes'。
-只有当文档完全不相关或主题完全相反时，才给出'no'。
+评分标准（宽松）：
+1. 只要文档与问题有哪怕一点点关联，就给出'yes'
+2. 只有当文档完全不相关或主题完全相反时，才给出'no'
+3. **特别注意**：不要因为术语不熟悉就判为不相关！专业术语（如金融、法律、医学术语）只要在文档上下文中有所提及，就应该判定为相关
+4. 文档可能从不同角度讨论问题，部分相关也算相关
 
+{retry_hint}
 用户问题：{question}
 
 以下是{doc_count}个文档：
@@ -370,13 +374,20 @@ class WorkflowNodes:
                 input_variables=["question", "documents", "doc_count"],
             )
 
+            # 重试时增加更宽松的提示
+            retry_count = state.get("retry_count", 0)
+            retry_hint = ""
+            if retry_count > 0:
+                retry_hint = "**这是重试评分，请更加宽松**：上一轮评分过于严格导致所有文档被过滤，请降低标准，只要文档可能包含有用信息就给'yes'。\n\n"
+
             batch_llm = create_chat_model(format="json", temperature=0.0)
             batch_chain = batch_prompt | batch_llm | JsonOutputParser()
 
             result = batch_chain.invoke({
                 "question": question,
                 "documents": docs_text,
-                "doc_count": len(documents)
+                "doc_count": len(documents),
+                "retry_hint": retry_hint,
             })
 
             scores = result.get("scores", [])
@@ -392,12 +403,21 @@ class WorkflowNodes:
         # 如果批量评分成功
         if scores is not None:
             filtered_docs = []
+            rejected_docs = []  # 保留被拒绝的文档，用于兜底
             for i, (doc, score) in enumerate(zip(documents, scores)):
                 if score == "yes":
                     print(f"---评分：文档{i+1}相关---")
                     filtered_docs.append(doc)
                 else:
                     print(f"---评分：文档{i+1}不相关---")
+                    rejected_docs.append(doc)
+
+            # 兜底逻辑：如果所有文档都被过滤掉，保留原始文档
+            # 避免"过度严格"导致进入无意义的重试循环
+            if not filtered_docs and documents:
+                print(f"⚠️ 所有文档都被过滤，保留原始 {len(documents)} 个文档（评分可能过于严格）")
+                filtered_docs = list(documents)
+
             return {"documents": filtered_docs, "question": question}
 
         # 回退：逐个评分（原始逻辑）
@@ -417,6 +437,11 @@ class WorkflowNodes:
                 filtered_docs.append(doc)
             else:
                 print("---评分：文档不相关---")
+
+        # 兜底逻辑：如果所有文档都被过滤掉，保留原始文档
+        if not filtered_docs and documents:
+            print(f"⚠️ 所有文档都被过滤，保留原始 {len(documents)} 个文档（评分可能过于严格）")
+            filtered_docs = list(documents)
 
         return {"documents": filtered_docs, "question": question}
     

@@ -427,11 +427,6 @@ def main():
                     if connections.has_connection("default"):
                         print(f"Milvus 连接状态: ✅ 已连接")
                         
-                        # 检查集合信息
-                        if utility.has_collection("rag_milvus", using="default"):
-                            print(f"Milvus 集合: rag_milvus ✅")
-                        else:
-                            print(f"Milvus 集合: rag_milvus ❌ (不存在)")
                     else:
                         print(f"Milvus 连接状态: ⚠️ 未连接 (将在查询时连接)")
                         
