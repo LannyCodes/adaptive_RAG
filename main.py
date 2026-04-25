@@ -17,6 +17,10 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"       # 禁用 OneDNN 优化（避免�
 #    原因: protobuf>=5.x 与旧版 grpcio/google-cloud 不兼容
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
+# 3. 抑制 HuggingFace tokenizers fork 死锁警告
+#    原因: tokenizers 并行化后进程 fork 可能导致死锁
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import warnings
 # 3. 抑制 langchain_tavily 的 Pydantic 字段遮蔽警告
 #    (TavilyResearch 中 output_schema/stream 与 BaseTool 父类同名)
