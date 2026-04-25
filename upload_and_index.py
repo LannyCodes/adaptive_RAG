@@ -38,7 +38,7 @@ from pathlib import Path
 # 依赖检查与安装
 # ─────────────────────────────────────────────
 def _ensure_deps():
-    """确保 PDF/Word 解析依赖已安装"""
+    """确保文件解析依赖已安装"""
     missing = []
     try:
         import pypdf  # noqa: F401
@@ -59,6 +59,21 @@ def _ensure_deps():
         import docx  # python-docx  # noqa: F401
     except ImportError:
         missing.append("python-docx")
+
+    try:
+        import pptx  # python-pptx  # noqa: F401
+    except ImportError:
+        missing.append("python-pptx")
+
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        missing.append("openpyxl")
+
+    try:
+        import bs4  # BeautifulSoup4  # noqa: F401
+    except ImportError:
+        missing.append("beautifulsoup4")
 
     if missing:
         print(f"📦 正在安装缺失依赖: {', '.join(missing)}")
@@ -477,10 +492,482 @@ def load_docx(file_path: str) -> list[Document]:
         return load_docx_simple(file_path)
 
 
+def load_md(file_path: str) -> list[Document]:
+    """加载 Markdown 文件，直接读取文本（Markdown 本身就用 $...$/$$...$$ 写公式）"""
+    with open(file_path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    if not text or not text.strip():
+        return []
+
+    # 检测是否包含 LaTeX 公式
+    has_latex = bool(re.search(r'\$\$.+?\$\$', text, re.DOTALL)) or \
+                bool(re.search(r'(?<!\$)\$(?!\$).+?(?<!\$)\$(?!\$)', text, re.DOTALL))
+
+    # 按标题分节（保留标题作为上下文）
+    sections = []
+    current_section = []
+    current_heading = ""
+
+    for line in text.split("\n"):
+        if line.startswith("#"):
+            # 遇到新标题，保存上一节
+            if current_section:
+                section_text = "\n".join(current_section).strip()
+                if section_text:
+                    sections.append(Document(
+                        page_content=section_text,
+                        metadata={
+                            "source": file_path,
+                            "file_type": "md",
+                            "heading": current_heading,
+                            "has_latex": has_latex,
+                        }
+                    ))
+            current_heading = line.strip("#").strip()
+            current_section = [line]
+        else:
+            current_section.append(line)
+
+    # 最后一节
+    if current_section:
+        section_text = "\n".join(current_section).strip()
+        if section_text:
+            sections.append(Document(
+                page_content=section_text,
+                metadata={
+                    "source": file_path,
+                    "file_type": "md",
+                    "heading": current_heading,
+                    "has_latex": has_latex,
+                }
+            ))
+
+    if not sections:
+        # 没有标题结构，作为单个文档
+        sections = [Document(
+            page_content=text.strip(),
+            metadata={
+                "source": file_path,
+                "file_type": "md",
+                "has_latex": has_latex,
+            }
+        )]
+
+    return sections
+
+
+def load_pptx(file_path: str) -> list[Document]:
+    """
+    使用 python-pptx 加载 PowerPoint 文件，逐页提取文本 + OMML 数学公式转 LaTeX。
+    
+    PPTX 中的数学公式与 Word 一样使用 OMML 格式，可复用 _omml_to_latex 转换器。
+    """
+    from pptx import Presentation
+    from lxml import etree
+
+    prs = Presentation(file_path)
+    docs = []
+
+    for i, slide in enumerate(prs.slides):
+        parts = []
+        math_count = 0
+
+        for shape in slide.shapes:
+            if not shape.has_text_frame:
+                continue
+
+            for para in shape.text_frame.paragraphs:
+                para_parts = []
+                for child in para._p:  # _p 是底层 XML 元素
+                    tag = etree.QName(child.tag).localname if isinstance(child.tag, str) else ''
+
+                    if tag == 'r':  # 普通文本 <a:r>
+                        for sub in child:
+                            sub_tag = etree.QName(sub.tag).localname if isinstance(sub.tag, str) else ''
+                            if sub_tag == 't':
+                                para_parts.append(sub.text or '')
+
+                    elif tag == 'oMathPara':  # 块级数学
+                        for omath in child:
+                            omath_tag = etree.QName(omath.tag).localname if isinstance(omath.tag, str) else ''
+                            if omath_tag == 'oMath':
+                                try:
+                                    omml_str = etree.tostring(omath, encoding='unicode')
+                                    latex = _omml_to_latex(omml_str)
+                                    para_parts.append(f'\n$$\n{latex}\n$$\n')
+                                    math_count += 1
+                                except Exception:
+                                    text = ''.join(omath.itertext())
+                                    para_parts.append(f' ${text}$ ')
+                                    math_count += 1
+
+                    elif tag == 'oMath':  # 行内数学
+                        try:
+                            omml_str = etree.tostring(child, encoding='unicode')
+                            latex = _omml_to_latex(omml_str)
+                            para_parts.append(f' ${latex}$ ')
+                            math_count += 1
+                        except Exception:
+                            text = ''.join(child.itertext())
+                            para_parts.append(f' ${text}$ ')
+
+                para_text = ''.join(para_parts).strip()
+                if para_text:
+                    parts.append(para_text)
+
+        slide_text = '\n'.join(parts).strip()
+        if slide_text:
+            docs.append(Document(
+                page_content=slide_text,
+                metadata={
+                    "source": file_path,
+                    "page": i + 1,
+                    "total_pages": len(prs.slides),
+                    "file_type": "pptx",
+                    "math_count": math_count,
+                    "has_latex": math_count > 0,
+                }
+            ))
+
+    return docs
+
+
+def load_txt(file_path: str) -> list[Document]:
+    """加载纯文本文件"""
+    with open(file_path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    if not text or not text.strip():
+        return []
+
+    return [Document(
+        page_content=text.strip(),
+        metadata={
+            "source": file_path,
+            "file_type": "txt",
+        }
+    )]
+
+
+# ─────────────────────────────────────────────
+# Excel / CSV 加载器
+# ─────────────────────────────────────────────
+def load_xlsx(file_path: str) -> list[Document]:
+    """加载 Excel 文件，逐行提取并格式化为文本"""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(file_path, read_only=True, data_only=True)
+    docs = []
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows = []
+        for row in ws.iter_rows(values_only=True):
+            # 将每行转为文本，None 跳过
+            cells = [str(c) for c in row if c is not None]
+            if cells:
+                rows.append(" | ".join(cells))
+
+        if rows:
+            text = f"Sheet: {sheet_name}\n" + "\n".join(rows)
+            docs.append(Document(
+                page_content=text,
+                metadata={
+                    "source": file_path,
+                    "file_type": "xlsx",
+                    "sheet": sheet_name,
+                }
+            ))
+
+    wb.close()
+    return docs
+
+
+def load_csv(file_path: str) -> list[Document]:
+    """加载 CSV 文件，逐行提取并格式化为文本"""
+    import csv
+
+    docs = []
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        rows = []
+        header = None
+        for i, row in enumerate(reader):
+            if i == 0:
+                header = row
+            if row:
+                rows.append(" | ".join(row))
+
+        if rows:
+            text = "\n".join(rows)
+            docs.append(Document(
+                page_content=text,
+                metadata={
+                    "source": file_path,
+                    "file_type": "csv",
+                    "header": header,
+                }
+            ))
+
+    return docs
+
+
+# ─────────────────────────────────────────────
+# HTML 加载器
+# ─────────────────────────────────────────────
+def load_html(file_path: str) -> list[Document]:
+    """加载 HTML 文件，提取正文文本"""
+    from bs4 import BeautifulSoup
+
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        html = f.read()
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # 移除脚本和样式
+    for tag in soup(["script", "style", "nav", "footer", "header"]):
+        tag.decompose()
+
+    text = soup.get_text(separator="\n", strip=True)
+
+    if not text:
+        return []
+
+    # 尝试获取 title
+    title = ""
+    if soup.title and soup.title.string:
+        title = soup.title.string.strip()
+
+    return [Document(
+        page_content=text,
+        metadata={
+            "source": file_path,
+            "file_type": "html",
+            "title": title,
+        }
+    )]
+
+
+# ─────────────────────────────────────────────
+# JSON 加载器
+# ─────────────────────────────────────────────
+def load_json(file_path: str) -> list[Document]:
+    """加载 JSON 文件，支持数组或对象格式"""
+    import json
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    docs = []
+
+    if isinstance(data, list):
+        # JSON 数组：每个元素作为一个 Document
+        for i, item in enumerate(data):
+            text = json.dumps(item, ensure_ascii=False, indent=2)
+            docs.append(Document(
+                page_content=text,
+                metadata={
+                    "source": file_path,
+                    "file_type": "json",
+                    "index": i,
+                }
+            ))
+    elif isinstance(data, dict):
+        # JSON 对象：尝试提取文本字段，否则整体序列化
+        # 常见文本字段名
+        text_fields = ["text", "content", "body", "description", "message", "question", "answer"]
+        found_text = None
+        for field in text_fields:
+            if field in data and isinstance(data[field], str):
+                found_text = data[field]
+                break
+
+        if found_text:
+            docs.append(Document(
+                page_content=found_text,
+                metadata={
+                    "source": file_path,
+                    "file_type": "json",
+                    **{k: str(v) for k, v in data.items() if k not in text_fields and isinstance(v, (str, int, float, bool))},
+                }
+            ))
+        else:
+            # 整体序列化
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            docs.append(Document(
+                page_content=text,
+                metadata={
+                    "source": file_path,
+                    "file_type": "json",
+                }
+            ))
+    else:
+        text = json.dumps(data, ensure_ascii=False, indent=2)
+        docs.append(Document(
+            page_content=text,
+            metadata={"source": file_path, "file_type": "json"}
+        ))
+
+    return docs
+
+
+# ─────────────────────────────────────────────
+# LaTeX 加载器
+# ─────────────────────────────────────────────
+def load_latex(file_path: str) -> list[Document]:
+    """
+    加载 .tex 文件，按 \\section/\\subsection 分节。
+    LaTeX 文件天然包含数学公式，直接保留。
+    """
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        text = f.read()
+
+    if not text or not text.strip():
+        return []
+
+    # 按 \section 分节
+    sections = []
+    current_heading = ""
+    current_lines = []
+
+    for line in text.split("\n"):
+        # 匹配 \section{...}, \subsection{...}, \chapter{...}
+        sec_match = re.match(r'\\(chapter|section|subsection|subsubsection)\{(.+?)\}', line)
+        if sec_match:
+            # 保存上一节
+            if current_lines:
+                section_text = "\n".join(current_lines).strip()
+                if section_text:
+                    sections.append(Document(
+                        page_content=section_text,
+                        metadata={
+                            "source": file_path,
+                            "file_type": "tex",
+                            "heading": current_heading,
+                            "has_latex": True,
+                        }
+                    ))
+            current_heading = sec_match.group(2)
+            current_lines = [line]
+        else:
+            current_lines.append(line)
+
+    # 最后一节
+    if current_lines:
+        section_text = "\n".join(current_lines).strip()
+        if section_text:
+            sections.append(Document(
+                page_content=section_text,
+                metadata={
+                    "source": file_path,
+                    "file_type": "tex",
+                    "heading": current_heading,
+                    "has_latex": True,
+                }
+            ))
+
+    if not sections:
+        sections = [Document(
+            page_content=text.strip(),
+            metadata={"source": file_path, "file_type": "tex", "has_latex": True}
+        )]
+
+    return sections
+
+
+# ─────────────────────────────────────────────
+# EPUB 加载器
+# ─────────────────────────────────────────────
+def load_epub(file_path: str) -> list[Document]:
+    """加载 EPUB 电子书，逐章提取文本"""
+    try:
+        from ebooklib import epub as epub_lib
+    except ImportError:
+        print("   ⚠️ ebooklib 未安装，尝试安装...")
+        import subprocess
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "ebooklib"])
+        from ebooklib import epub as epub_lib
+
+    book = epub_lib.read_epub(file_path)
+    docs = []
+
+    for i, item in enumerate(book.get_items_of_type(epub_lib.ITEM_DOCUMENT)):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(item.get_content(), "html.parser")
+        text = soup.get_text(separator="\n", strip=True)
+
+        if text and text.strip():
+            docs.append(Document(
+                page_content=text.strip(),
+                metadata={
+                    "source": file_path,
+                    "file_type": "epub",
+                    "chapter": i + 1,
+                    "chapter_id": item.get_id(),
+                }
+            ))
+
+    return docs
+
+
+# ─────────────────────────────────────────────
+# SRT 字幕加载器
+# ─────────────────────────────────────────────
+def load_srt(file_path: str) -> list[Document]:
+    """加载 SRT 字幕文件，合并为连续文本"""
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+
+    # SRT 格式：序号 → 时间轴 → 字幕文本 → 空行
+    # 提取纯文本，去掉序号和时间轴
+    lines = content.strip().split("\n")
+    text_lines = []
+    for line in lines:
+        line = line.strip()
+        # 跳过序号（纯数字行）和时间轴行
+        if line.isdigit():
+            continue
+        if "-->" in line:
+            continue
+        if line:
+            text_lines.append(line)
+
+    text = " ".join(text_lines)
+    if not text:
+        return []
+
+    return [Document(
+        page_content=text,
+        metadata={
+            "source": file_path,
+            "file_type": "srt",
+        }
+    )]
+
+
 # 文件类型 → 加载函数 映射
 LOADERS = {
     ".pdf": load_pdf,
     ".docx": load_docx,
+    ".pptx": load_pptx,
+    ".md": load_md,
+    ".markdown": load_md,
+    ".txt": load_txt,
+    ".text": load_txt,
+    ".xlsx": load_xlsx,
+    ".xls": load_xlsx,
+    ".csv": load_csv,
+    ".tsv": load_csv,
+    ".html": load_html,
+    ".htm": load_html,
+    ".json": load_json,
+    ".jsonl": load_json,
+    ".tex": load_latex,
+    ".latex": load_latex,
+    ".epub": load_epub,
+    ".srt": load_srt,
+    ".vtt": load_srt,  # WebVTT 字幕格式，与 SRT 类似
 }
 
 
