@@ -325,27 +325,65 @@ class AdaptiveRAGSystem:
         }
     
     def interactive_mode(self):
-        """交互模式，允许用户持续提问"""
+        """交互模式，自动检测运行环境并选择合适的输入方式"""
+        if self._is_notebook_env():
+            self._interactive_mode_notebook()
+        else:
+            self._interactive_mode_cli()
+
+    @staticmethod
+    def _is_notebook_env():
+        """检测是否运行在 Jupyter/Kaggle Notebook 环境中"""
+        try:
+            # 检测 IPython 交互式 shell
+            from IPython import get_ipython
+            shell = get_ipython()
+            if shell is None:
+                return False
+            shell_class = type(shell).__name__
+            # ZMQInteractiveShell = Jupyter notebook/lab, GoogleColabShell = Colab
+            if 'ZMQ' in shell_class or 'Colab' in shell_class:
+                return True
+        except (ImportError, NameError):
+            pass
+
+        # 检测 Kaggle 特征
+        import os
+        if os.environ.get('KAGGLE_KERNEL_RUN_TYPE') or os.path.exists('/kaggle'):
+            return True
+
+        # 尝试检测 stdin 是否可用（不可用则视为 notebook）
+        try:
+            import sys
+            if not sys.stdin.isatty() and 'ipykernel' in sys.modules:
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    def _interactive_mode_cli(self):
+        """命令行交互模式（标准 stdin）"""
         import asyncio
         print("\n🤖 欢迎使用自适应RAG系统!")
         print("💡 输入问题开始对话，输入 'quit' 或 'exit' 退出")
         print("-" * 50)
-        
+
         while True:
             try:
                 question = input("\n❓ 请输入您的问题: ").strip()
-                
+
                 if question.lower() in ['quit', 'exit', '退出', 'q']:
                     print("👋 感谢使用，再见!")
                     break
-                
+
                 if not question:
                     print("⚠️  请输入一个有效的问题")
                     continue
-                
+
                 # 使用 asyncio.run 执行异步查询
                 result = asyncio.run(self.query(question))
-                
+
                 # 显示检索评估摘要
                 if result.get("retrieval_metrics"):
                     metrics = result["retrieval_metrics"]
@@ -355,7 +393,7 @@ class AdaptiveRAGSystem:
                     print(f"   - Precision@3: {metrics.get('precision_at_3', 0):.4f}")
                     print(f"   - Recall@3: {metrics.get('recall_at_3', 0):.4f}")
                     print(f"   - MAP: {metrics.get('map_score', 0):.4f}")
-                
+
             except KeyboardInterrupt:
                 print("\n👋 感谢使用，再见!")
                 break
@@ -364,6 +402,151 @@ class AdaptiveRAGSystem:
                 import traceback
                 traceback.print_exc()
                 print("请重试或输入 'quit' 退出")
+
+    def _interactive_mode_notebook(self):
+        """Jupyter/Kaggle Notebook 交互模式（ipywidgets）"""
+        import asyncio
+        try:
+            import ipywidgets as widgets
+            from IPython.display import display, HTML, clear_output
+        except ImportError:
+            print("⚠️  检测到 Notebook 环境但缺少 ipywidgets，请安装: pip install ipywidgets")
+            print("📌 回退到简易模式（使用 Python input()）...")
+            self._interactive_mode_cli()
+            return
+
+        print("\n🤖 欢迎使用自适应RAG系统 (Notebook 模式)!")
+        print("💡 在下方输入框中输入问题，点击「提交」或按 Enter 发送")
+        print("💡 输入 'quit' 或 'exit' 退出")
+        print("-" * 50)
+
+        # 创建 UI 组件
+        input_box = widgets.Text(
+            value='',
+            placeholder='请输入您的问题...',
+            description='❓ 问题:',
+            layout=widgets.Layout(width='80%'),
+            style={'description_width': 'initial'}
+        )
+
+        submit_btn = widgets.Button(
+            description='提交',
+            button_style='primary',
+            tooltip='提交问题',
+            icon='paper-plane'
+        )
+
+        clear_btn = widgets.Button(
+            description='清空',
+            button_style='',
+            tooltip='清空输出',
+            icon='eraser'
+        )
+
+        output_area = widgets.Output(
+            layout=widgets.Layout(
+                max_height='600px',
+                overflow='auto',
+                border='1px solid #ddd',
+                padding='10px'
+            )
+        )
+
+        status_label = widgets.HTML(value='<span style="color: green;">✅ 就绪</span>')
+
+        # 组合布局
+        input_row = widgets.HBox([input_box, submit_btn, clear_btn])
+        ui_container = widgets.VBox([input_row, status_label, output_area])
+
+        display(ui_container)
+
+        def _process_question(question_text):
+            """处理单个问题"""
+            question = question_text.strip()
+
+            if not question:
+                with output_area:
+                    print("⚠️  请输入一个有效的问题")
+                return
+
+            if question.lower() in ['quit', 'exit', '退出', 'q']:
+                with output_area:
+                    print("👋 感谢使用，再见!")
+                status_label.value = '<span style="color: gray;">⏹️ 已退出</span>'
+                input_box.disabled = True
+                submit_btn.disabled = True
+                return
+
+            # 显示用户问题
+            with output_area:
+                print(f"\n{'='*50}")
+                print(f"❓ 问题: {question}")
+                print(f"{'='*50}")
+
+            # 更新状态
+            status_label.value = '<span style="color: orange;">⏳ 查询中...</span>'
+            input_box.disabled = True
+            submit_btn.disabled = True
+
+            try:
+                # 获取或创建事件循环
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+
+                if loop and loop.is_running():
+                    # 在已有事件循环中（如 Jupyter），使用 nest_asyncio 或创建新线程
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, self.query(question))
+                        result = future.result(timeout=300)
+                else:
+                    result = asyncio.run(self.query(question))
+
+                # 显示回答
+                with output_area:
+                    answer = result.get("answer", "无回答")
+                    print(f"\n💡 回答:\n{answer}")
+
+                    if result.get("retrieval_metrics"):
+                        metrics = result["retrieval_metrics"]
+                        print(f"\n📊 检索评估摘要:")
+                        print(f"   - 检索耗时: {metrics.get('latency', 0):.4f}秒")
+                        print(f"   - 检索文档数: {metrics.get('retrieved_docs_count', 0)}")
+                        print(f"   - Precision@3: {metrics.get('precision_at_3', 0):.4f}")
+                        print(f"   - Recall@3: {metrics.get('recall_at_3', 0):.4f}")
+                        print(f"   - MAP: {metrics.get('map_score', 0):.4f}")
+
+                status_label.value = '<span style="color: green;">✅ 查询完成</span>'
+
+            except Exception as e:
+                with output_area:
+                    print(f"❌ 发生错误: {e}")
+                    import traceback
+                    traceback.print_exc()
+                status_label.value = '<span style="color: red;">❌ 查询出错</span>'
+            finally:
+                input_box.disabled = False
+                submit_btn.disabled = False
+                input_box.value = ''
+
+        def on_submit(btn_or_text=None):
+            """提交按钮或 Enter 键回调"""
+            _process_question(input_box.value)
+
+        def on_enter(text_widget):
+            """Enter 键回调（Text 组件的 on_submit）"""
+            _process_question(text_widget.value)
+
+        def on_clear(btn):
+            """清空输出"""
+            output_area.clear_output()
+
+        # 绑定事件
+        submit_btn.on_click(on_submit)
+        input_box.on_submit(on_enter)
+        clear_btn.on_click(on_clear)
 
 
 def main():
