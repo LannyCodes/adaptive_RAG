@@ -3,9 +3,23 @@
 集成所有模块，构建工作流并运行自适应RAG系统
 """
 
+# ============================================================
+# 环境变量 —— 必须在所有 import 之前设置
+# ============================================================
+import os
+
+# 1. 抑制 CUDA 插件重复注册警告 (cuFFT/cuDNN/cuBLAS)
+#    原因: TensorFlow/JAX 与 PyTorch 同时加载时，CUDA 插件注册冲突
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"       # 只显示 FATAL
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"       # 禁用 OneDNN 优化（避免额外警告）
+
+# 2. 抑制 protobuf MessageFactory.GetPrototype 错误
+#    原因: protobuf>=5.x 与旧版 grpcio/google-cloud 不兼容
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 import warnings
-# 抑制 langchain_tavily 的 Pydantic 字段遮蔽警告
-# (TavilyResearch 中 output_schema/stream 与 BaseTool 父类同名)
+# 3. 抑制 langchain_tavily 的 Pydantic 字段遮蔽警告
+#    (TavilyResearch 中 output_schema/stream 与 BaseTool 父类同名)
 warnings.filterwarnings(
     "ignore",
     message=r'.*Field name "(output_schema|stream)" in "TavilyResearch" shadows.*',
@@ -13,7 +27,6 @@ warnings.filterwarnings(
 )
 
 import time
-import os
 from langgraph.graph import END, StateGraph, START
 from pprint import pprint
 
