@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
 环境配置和运行脚本 (自适应RAG多模态版)
-只负责配置环境和运行 main.py (包含多模态检索功能)
+配置环境并运行 main.py (包含多模态检索功能)
 
 使用方法:
-python setup_and_run_multimodal.py
+  终端:   python setup_and_run_multimodal.py
+  Kaggle: 直接在 Notebook 单元格中运行即可（自动检测环境）
 """
 
 import os
 import sys
-import subprocess
 
 print("="*60)
 print("🚀 自适应RAG (多模态) 环境配置和运行")
@@ -45,13 +45,46 @@ def setup_environment():
         sys.path.insert(0, current_dir)
         print(f"\n   ✅ 已添加到 Python 路径: {current_dir}")
     
+    # 检测运行环境
+    is_notebook = _is_notebook_env()
+    if is_notebook:
+        print("\n   📓 检测到 Notebook/Kaggle 环境 → 将使用 ipywidgets 交互模式")
+    else:
+        print("\n   💻 检测到终端环境 → 将使用命令行交互模式")
+    
     print("\n   💡 注意: 多模态功能需要Pillow库，请确保已安装")
 
 # ============================================================
-# 2. 运行 main.py
+# 环境检测
+# ============================================================
+def _is_notebook_env():
+    """检测是否运行在 Jupyter/Kaggle Notebook 环境中"""
+    try:
+        from IPython import get_ipython
+        shell = get_ipython()
+        if shell is not None:
+            shell_class = type(shell).__name__
+            if 'ZMQ' in shell_class or 'Colab' in shell_class:
+                return True
+    except (ImportError, NameError):
+        pass
+
+    if os.environ.get('KAGGLE_KERNEL_RUN_TYPE') or os.path.exists('/kaggle'):
+        return True
+
+    try:
+        if not sys.stdin.isatty() and 'ipykernel' in sys.modules:
+            return True
+    except Exception:
+        pass
+
+    return False
+
+# ============================================================
+# 2. 运行 main.py（进程内导入，兼容 Notebook 交互）
 # ============================================================
 def run_main_multimodal():
-    """运行 main.py"""
+    """在当前进程中导入并运行 main.py（而非子进程）"""
     print("\n🚀 步骤 2/2: 运行 main.py (多模态自适应检索)...")
     print("="*60)
     
@@ -64,28 +97,19 @@ def run_main_multimodal():
     print("\n🔄 启动自适应RAG系统...\n")
     
     try:
-        # 运行 main.py
-        result = subprocess.run(
-            [sys.executable, "main.py"],
-            capture_output=False,  # 实时显示输出
-        )
-        
-        if result.returncode == 0:
-            print("\n" + "="*60)
-            print("✅ 运行成功！")
-            print("="*60)
-            return True
-        else:
-            print("\n" + "="*60)
-            print(f"❌ 运行失败 (返回码: {result.returncode})")
-            print("="*60)
-            return False
+        # 在当前进程中导入 main 模块并直接调用 main()
+        # 这样 ipywidgets 才能渲染到 Notebook 中
+        import main as main_module
+        main_module.main()
+        return True
             
     except KeyboardInterrupt:
         print("\n\n⚠️ 用户中断执行")
         return False
     except Exception as e:
         print(f"\n❌ 运行时错误: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 # ============================================================
