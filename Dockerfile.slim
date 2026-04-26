@@ -10,16 +10,26 @@ ENV HF_ENDPOINT=https://hf-mirror.com
 
 WORKDIR /app
 
-# 系统依赖（build-essential: 编译 numpy/sentence-transformers 需要）
-RUN apt-get update && apt-get install -y \
-    build-essential \
+# 系统依赖 — 精简安装，避免 OOM
+#   build-essential: 编译 numpy/sentence-transformers
+#   curl: 健康检查
+#   --no-install-recommends: 不装推荐包，节省内存和磁盘
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
     curl \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # 先安装依赖（利用 Docker 缓存层）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ \
+    && rm -rf /root/.cache/pip
+
+# 编译完成后卸载编译工具，节省约 200MB 镜像体积
+RUN apt-get purge -y --auto-remove gcc g++ make \
+    && rm -rf /var/lib/apt/lists/*
 
 # 复制项目文件
 COPY . .
