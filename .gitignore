@@ -96,7 +96,6 @@ target/
 .env.local
 .env.development
 .env.test
-.env.production
 
 # 特定于本项目的忽略
 data/knowledge_graph.json
