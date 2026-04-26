@@ -10,8 +10,12 @@ ENV HF_ENDPOINT=https://hf-mirror.com
 
 WORKDIR /app
 
+# 换阿里云 Debian 镜像源（国内服务器连官方源超时）
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+
 # 系统依赖 — 精简安装，避免 OOM
-#   build-essential: 编译 numpy/sentence-transformers
+#   gcc/g++/make: 编译 numpy/sentence-transformers
 #   curl: 健康检查
 #   --no-install-recommends: 不装推荐包，节省内存和磁盘
 RUN apt-get update && apt-get install -y --no-install-recommends \
