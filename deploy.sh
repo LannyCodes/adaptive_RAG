@@ -59,8 +59,13 @@ echo "[2/7] 安装 Docker..."
 if command -v docker &> /dev/null; then
     echo "[OK] Docker 已安装: $(docker --version)"
 else
-    echo "正在安装 Docker..."
-    curl -fsSL https://get.docker.com | sh
+    echo "正在安装 Docker（使用阿里云镜像源）..."
+    # 使用阿里云 Docker CE 镜像源
+    apt-get install -y -qq software-properties-common 2>/dev/null
+    curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/centos/gpg | apt-key add - 2>/dev/null
+    add-apt-repository -y "deb [arch=amd64] https://mirrors.aliyun.com/docker-ce/linux/ubuntu $(lsb_release -cs) stable" 2>/dev/null
+    apt-get update -qq
+    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
     systemctl enable docker
     systemctl start docker
     echo "[OK] Docker 安装完成: $(docker --version)"
@@ -73,12 +78,12 @@ echo "[3/7] 安装 Docker Compose..."
 if docker compose version &> /dev/null; then
     echo "[OK] Docker Compose 已安装: $(docker compose version)"
 else
-    echo "正在安装 Docker Compose 插件..."
+    echo "正在安装 Docker Compose 插件（使用国内镜像）..."
     apt-get update -qq
     apt-get install -y -qq docker-compose-plugin 2>/dev/null || {
-        # 备选方案：手动安装
+        # 备选方案：手动安装（使用 GitHub 代理镜像）
         mkdir -p /usr/local/lib/docker/cli-plugins
-        curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
+        curl -SL https://ghproxy.com/https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
             -o /usr/local/lib/docker/cli-plugins/docker-compose
         chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
     }

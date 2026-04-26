@@ -5,6 +5,8 @@ FROM python:3.11-slim
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV TOKENIZERS_PARALLELISM=false
+# HuggingFace 镜像（国内加速模型下载）
+ENV HF_ENDPOINT=https://hf-mirror.com
 
 WORKDIR /app
 
