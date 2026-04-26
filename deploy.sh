@@ -41,10 +41,11 @@ for key in LLM_BACKEND TAVILY_API_KEY; do
 done
 
 # 检查通义千问 Key（如果选择了 tongyi 后端）
-if grep -q '^LLM_BACKEND="tongyi"' .env || grep -q "^LLM_BACKEND=tongyi" .env; then
-    if ! grep -q "^TONGYI_API_KEY=sk-" .env; then
+if grep -Eq '^LLM_BACKEND="?tongyi"?' .env; then
+    if ! grep -Eq '^TONGYI_API_KEY=+"?sk-' .env; then
         echo "⚠️  LLM_BACKEND=tongyi 但 TONGYI_API_KEY 未配置或格式不对"
         echo "   请在 .env 中设置: TONGYI_API_KEY=sk-xxxxxxxx"
+        echo "   （加不加引号均可，如：TONGYI_API_KEY=\"sk-xxx\" 或 TONGYI_API_KEY=sk-xxx）"
         exit 1
     fi
 fi
