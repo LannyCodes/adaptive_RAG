@@ -1,0 +1,36 @@
+# 精简版 Dockerfile — 云端 LLM API 部署（无需 Ollama/GPU）
+# 适用：2核8G 阿里云 ECS，使用通义千问/DeepSeek 等云端 API
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV TOKENIZERS_PARALLELISM=false
+
+WORKDIR /app
+
+# 系统依赖（build-essential: 编译 numpy/sentence-transformers 需要）
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# 先安装依赖（利用 Docker 缓存层）
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+
+# 复制项目文件
+COPY . .
+
+# 数据目录
+RUN mkdir -p /app/data /app/data/uploads
+
+# 暴露端口（server.py 默认 8000）
+EXPOSE 8000
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
+
+# 启动命令
+CMD ["python", "server.py"]

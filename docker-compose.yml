@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  adaptive-rag:
+    build:
+      context: .
+      dockerfile: Dockerfile.slim
+    container_name: adaptive-rag
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
