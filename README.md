@@ -9,595 +9,409 @@ license: Apache License 2.0
 short_description: A RAG system deployed with Docker
 ---
 
-# 自适应RAG系统 - 技术总结文档
+# 自适应 RAG 系统 (Adaptive RAG)
 
-## 📋 项目概述
-
-本项目是一个**自适应检索增强生成（Adaptive RAG）**系统，实现了智能查询路由、多源信息检索、质量保证流水线等核心功能。系统能够根据查询内容自动选择最佳信息源（本地向量数据库或网络搜索），并通过多层验证机制确保生成答案的准确性和相关性。
+> 基于 LangGraph 的智能检索增强生成系统，支持自适应路由、混合检索、多跳推理、幻觉检测和知识图谱检索。
 
 ---
 
-## 🏗️ 系统架构
+## 目录
 
-### 整体架构流程
+- [项目简介](#项目简介)
+- [系统架构](#系统架构)
+- [核心特性](#核心特性)
+- [快速开始](#快速开始)
+- [配置说明](#配置说明)
+- [API 接口](#api-接口)
+- [文件上传与索引](#文件上传与索引)
+- [Docker 部署](#docker-部署)
+- [项目结构](#项目结构)
+- [技术栈](#技术栈)
+- [许可证](#许可证)
+
+---
+
+## 项目简介
+
+本项目是一个**自适应检索增强生成（Adaptive RAG）**系统，核心流程：
+
+1. 用户上传 PDF / Word 等文档，系统自动解析、分块、向量化并存入 Milvus 向量数据库
+2. 用户输入查询后，系统通过 LangGraph 状态机完成：**智能路由 → 查询分解 → 混合检索 → 重排序 → 文档评分 → 答案生成 → 幻觉检测**
+3. 全流程可回溯、可监控，避免传统 if-else 无限回调
+
+### 适用场景
+
+- 企业内部知识库问答
+- 学术文献检索与问答
+- 多源信息聚合分析
+- 需要高准确率答案的质量保证场景
+
+---
+
+## 系统架构
 
 ```
 用户查询
-  ↓
-智能路由 (route_question)
-  ↓
-[向量存储路径] ←→ [网络搜索路径]
-  ↓                    ↓
-查询分解           网络搜索
-(decompose_query)   (web_search)
-  ↓                    ↓
-向量检索           生成答案
-(retrieve)          (generate)
-  ↓                    ↓
-文档评分           质量检查
-(grade_documents)   (grade_generation)
-  ↓                    ↓
-决策判断            [有用/无用/不支持]
-(decide_to_generate)    ↓
-  ↓                    ↓
-生成答案 ←──────────────┘
-(generate)
-  ↓
-质量检查
-(grade_generation)
-  ↓
-最终答案
+  │
+  ▼
+┌─────────────────────┐
+│  智能路由 (route)    │
+│  LLM 判断信息源      │
+└──────┬──────┬───────┘
+       │      │
+  向量检索   网络搜索
+       │      │
+       ▼      ▼
+  查询分解   Tavily API
+  (多跳推理)     │
+       │      │
+       ▼      │
+  混合检索      │
+  (向量+BM25)   │
+       │      │
+       ▼      │
+  CrossEncoder  │
+  重排序        │
+       │      │
+       ▼      │
+  文档评分      │
+  (相关性过滤)   │
+       │      │
+       ▼      ▼
+  ┌──────────────┐
+  │  答案生成     │
+  │  (RAG Chain) │
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐
+  │  幻觉检测     │
+  │  NLI+Vectara │
+  └──────┬───────┘
+         │
+    ┌────┴────┐
+    │         │
+ 可信答案   重新检索
 ```
 
 ---
 
-## 🔧 技术栈详细分析
+## 核心特性
 
-### 1. 核心框架层
-
-#### 1.1 LangChain & LangGraph
-- **技术点**:
-  - `LangChain`: LLM应用程序编排框架
-  - `LangGraph`: 复杂工作流的状态图实现
-  - `StateGraph`: 管理复杂RAG工作流状态
-  - `TypedDict`: 类型安全的状态管理
-- **应用场景**:
-  - 工作流节点定义和编排
-  - 状态管理和传递
-  - 条件分支和决策逻辑
-- **关键代码位置**: `main.py`, `workflow_nodes.py`
-
-#### 1.2 状态管理
-- **技术点**:
-  - `GraphState` (TypedDict): 定义工作流状态结构
-  - 状态字段包括: `question`, `generation`, `documents`, `retry_count`, `retrieval_metrics`, `sub_queries`, `current_query_index`, `original_question`
-- **应用场景**: 在工作流节点间传递和更新状态
+| 特性 | 说明 |
+|------|------|
+| **自适应路由** | LLM 智能判断查询应走向量检索还是网络搜索 |
+| **混合检索** | 向量语义检索 + BM25 关键词检索，权重可调 |
+| **多跳推理** | 复杂问题自动分解为子问题序列，逐步检索和推理 |
+| **CrossEncoder 重排** | 使用 `BAAI/bge-reranker-base` 对检索结果精确重排 |
+| **幻觉检测** | NLI 模型 (`nli-deberta-v3-xsmall`) + Vectara HHEM 双重检测 |
+| **GraphRAG** | 知识图谱构建、社区检测、图谱检索（默认开启） |
+| **查询优化** | 查询扩展 + 查询重写 + 桥接实体提取 |
+| **多模态支持** | CLIP 模型支持文本-图像跨模态检索 |
+| **文件上传** | 支持 PDF / Word / PPT / Excel / EPUB 等多种格式，含 LaTeX 公式感知分块 |
+| **异步架构** | 全链路异步处理，支持并发查询 |
+| **LangSmith 集成** | 全链路追踪、性能监控、告警通知 |
+| **Web UI** | FastAPI + React 18 + Tailwind CSS 内置前端 |
 
 ---
 
-### 2. 语言模型层
+## 快速开始
 
-#### 2.1 Ollama (本地LLM推理)
-- **技术点**:
-  - 本地部署的LLM推理引擎
-  - 支持Mistral、Phi、TinyLlama等多种模型
-  - 通过HTTP API提供服务 (默认端口11434)
-- **应用场景**:
-  - 查询路由决策
-  - 文档相关性评分
-  - 答案质量评估
-  - 查询分解和重写
-  - RAG答案生成
-- **关键配置**: `config.py` 中的 `LOCAL_LLM = "mistral"`
-- **关键代码位置**: `routers_and_graders.py`, `workflow_nodes.py`
+### 环境要求
 
-#### 2.2 ChatOllama
-- **技术点**: LangChain对Ollama的封装
-- **应用场景**: 统一的LLM调用接口
+- Python 3.10+
+- 推荐：NVIDIA GPU（CUDA）用于嵌入模型和重排器加速
+- 可选：Ollama（如使用本地 LLM 后端）
 
----
+### 1. 安装依赖
 
-### 3. 文档处理层
+```bash
+pip install -r requirements.txt
+```
 
-#### 3.1 文档加载
-- **技术点**:
-  - `WebBaseLoader`: 从URL加载网络内容
-  - `BeautifulSoup4`: HTML解析和内容提取
-- **应用场景**: 从指定URL加载知识库文档
-- **关键代码位置**: `document_processor.py` 的 `load_documents()` 方法
+### 2. 配置环境变量
 
-#### 3.2 文本分块
-- **技术点**:
-  - `RecursiveCharacterTextSplitter`: 递归字符文本分割器
-  - `tiktoken`: 基于BPE的编码器，用于精确计算token数量
-  - 分块策略: `chunk_size=250`, `chunk_overlap=50`
-- **应用场景**:
-  - 将长文档分割成适合向量化的块
-  - 保持上下文连贯性（通过重叠）
-- **关键代码位置**: `document_processor.py` 的 `split_documents()` 方法
+创建 `.env` 文件：
 
-#### 3.3 向量嵌入
-- **技术点**:
-  - `HuggingFaceEmbeddings`: 使用HuggingFace的嵌入模型
-  - 模型: `sentence-transformers/all-MiniLM-L6-v2` (轻量级，384维)
-  - 设备自动选择: GPU (CUDA) 或 CPU
-  - 嵌入标准化: `normalize_embeddings=True`
-- **应用场景**: 将文本转换为向量表示，用于相似度搜索
-- **关键代码位置**: `document_processor.py` 的 `__init__()` 方法
+```bash
+# 必需：Tavily 搜索 API 密钥
+TAVILY_API_KEY=tvly-xxxxxxxxxxxxxxxx
 
----
+# LLM 后端选择：tongyi（推荐）/ ollama / deepseek
+LLM_BACKEND=tongyi
 
-### 4. 向量数据库层
+# 通义千问配置（LLM_BACKEND=tongyi 时需要）
+TONGYI_API_KEY=sk-xxxxxxxx
+TONGYI_MODEL=qwen-plus
 
-#### 4.1 Milvus (向量数据库)
-- **技术点**:
-  - **Milvus Lite**: 本地文件模式，适合开发和测试
-  - **Milvus Server**: Docker/K8s部署，支持分布式
-  - **Zilliz Cloud**: 云服务模式
-  - 索引类型: `HNSW` (高性能), `IVF_FLAT` (平衡), `AUTOINDEX` (自动)
-  - 索引参数: `M=8`, `efConstruction=64`
-  - 搜索参数: `ef=10` (搜索范围)
-- **应用场景**:
-  - 存储文档向量
-  - 高效相似度搜索
-  - 支持百万级数据
-- **关键代码位置**: `document_processor.py` 的 `initialize_vectorstore()` 方法
+# DeepSeek 配置（LLM_BACKEND=deepseek 时需要）
+# DEEPSEEK_API_KEY=sk-xxxxxxxx
+# DEEPSEEK_MODEL=deepseek-chat
 
-#### 4.2 连接管理
-- **技术点**:
-  - `pymilvus`: Milvus Python客户端
-  - 连接别名管理: `alias="default"`
-  - 持久化存储: `drop_old=False`
-- **应用场景**: 管理向量数据库连接和集合
+# Ollama 配置（LLM_BACKEND=ollama 时需要）
+# LOCAL_LLM=qwen2:1.5b
+
+# Milvus 向量数据库（默认使用本地文件模式）
+# MILVUS_URI=./milvus_rag.db
+```
+
+### 3. 启动系统
+
+**方式一：Web 服务模式（推荐）**
+
+```bash
+python server.py
+```
+
+访问 `http://localhost:8000` 即可使用 Web 界面。
+
+**方式二：命令行交互模式**
+
+```bash
+python main.py
+```
+
+**方式三：Docker 部署**
+
+```bash
+docker build -t adaptive-rag .
+docker run -p 7860:7860 --env-file .env adaptive-rag
+```
 
 ---
 
-### 5. 检索层
+## 配置说明
 
-#### 5.1 基础向量检索
-- **技术点**:
-  - 余弦相似度搜索
-  - Top-K检索 (默认k=5)
-  - 异步检索: `asimilarity_search()`
-- **应用场景**: 根据查询向量找到最相似的文档
+所有配置集中在 `config.py` 中，支持通过环境变量覆盖：
 
-#### 5.2 混合检索 (Hybrid Search)
-- **技术点**:
-  - **向量检索**: 基于语义相似度
-  - **BM25检索**: 基于关键词匹配
-  - **权重融合**: `vector: 0.5, keyword: 0.5`
-  - `rank-bm25`: BM25算法实现
-  - `CustomEnsembleRetriever`: 自定义集成检索器
-- **应用场景**:
-  - 结合语义和关键词匹配
-  - 提高检索召回率
-- **关键代码位置**: `document_processor.py` 的 `CustomEnsembleRetriever` 类
+### LLM 配置
 
-#### 5.3 查询扩展 (Query Expansion)
-- **技术点**:
-  - 使用LLM生成相关扩展查询
-  - 提示模板: `QUERY_EXPANSION_PROMPT`
-  - 多查询并发检索
-  - 结果去重和合并
-- **应用场景**:
-  - 从不同角度探索查询主题
-  - 提高检索覆盖率
-- **关键代码位置**: `document_processor.py` 的 `expand_query()` 方法
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `LLM_BACKEND` | `tongyi` | LLM 后端：`tongyi` / `ollama` / `deepseek` |
+| `LOCAL_LLM` | `qwen2:1.5b` | Ollama 模型名称 |
+| `TONGYI_MODEL` | `qwen-plus` | 通义千问模型名称 |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | DeepSeek 模型名称 |
 
-#### 5.4 多模态检索
-- **技术点**:
-  - `CLIP模型`: 图像-文本联合嵌入
-  - 模型: `openai/clip-vit-base-patch32`
-  - 图像编码: 将图像转换为512维向量
-  - 跨模态检索: 文本查询图像，图像查询文本
-- **应用场景**:
-  - 支持图像和文本混合检索
-  - 图像相似度搜索
-- **关键代码位置**: `document_processor.py` 的 `multimodal_retrieve()` 方法
+### 向量数据库配置
 
-#### 5.5 多跳检索 (Multi-hop Retrieval)
-- **技术点**:
-  - 查询分解: 将复杂问题分解为子问题序列
-  - 桥接实体提取: 从上一跳结果中提取实体用于下一跳
-  - 上下文累积: 合并多跳检索结果
-  - 早期终止: 检查是否已获得足够信息
-- **应用场景**:
-  - 回答需要多步推理的复杂问题
-  - 例如: "A的作者在哪个大学工作？" → 分解为 "A的作者是谁？" + "该作者在哪个大学？"
-- **关键代码位置**: `workflow_nodes.py` 的 `decompose_query()`, `prepare_next_query()` 方法
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | 嵌入模型（支持 8192 长度） |
+| `CHUNK_SIZE` | `1024` | 文档分块大小 |
+| `CHUNK_OVERLAP` | `200` | 分块重叠 |
+| `MILVUS_URI` | `./milvus_rag.db` | Milvus Lite 本地路径 |
+| `MILVUS_INDEX_TYPE` | `HNSW` | 索引类型：HNSW / IVF_FLAT / IVF_SQ8 |
+
+### 功能开关
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `ENABLE_GRAPHRAG` | `true` | 启用知识图谱检索 |
+| `ENABLE_HYBRID_SEARCH` | `true` | 启用混合检索（向量+BM25） |
+| `ENABLE_QUERY_EXPANSION` | `true` | 启用查询扩展 |
+| `ENABLE_MULTIMODAL` | `true` | 启用多模态检索 |
+| `ENABLE_ADVANCED_RERANKER` | `false` | 启用高级重排器 |
 
 ---
 
-### 6. 重排序层 (Reranking)
+## API 接口
 
-#### 6.1 CrossEncoder重排器
-- **技术点**:
-  - 模型: `cross-encoder/ms-marco-MiniLM-L-6-v2`
-  - 联合编码: 查询和文档一起编码
-  - 准确率提升: 相比Bi-Encoder提升15-20%
-  - 适用场景: 精排阶段 (Top 20-100文档)
-- **应用场景**: 对初始检索结果进行精确重排
-- **关键代码位置**: `reranker.py` 的 `CrossEncoderReranker` 类
+系统提供 RESTful API，启动后可访问 `http://localhost:8000/docs` 查看完整 API 文档。
 
-#### 6.2 其他重排策略
-- **TF-IDF重排**: 基于词频-逆文档频率
-- **BM25重排**: 基于BM25算法
-- **语义重排**: 基于嵌入向量相似度
-- **混合重排**: 融合多种策略
-- **多样性重排**: MMR算法，避免结果重复
+### 聊天接口
 
----
+```bash
+curl -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "什么是注意力机制？"}'
+```
 
-### 7. 路由与评分层
+响应：
+```json
+{
+  "answer": "注意力机制是...",
+  "sources": ["参考文档片段1...", "参考文档片段2..."],
+  "metrics": {
+    "latency": 1.234,
+    "retrieved_docs_count": 5,
+    "precision_at_3": 0.85
+  }
+}
+```
 
-#### 7.1 查询路由 (Query Routing)
-- **技术点**:
-  - LLM-based路由决策
-  - 二进制选择: `web_search` 或 `vectorstore`
-  - 基于查询内容语义分析
-- **应用场景**: 决定使用本地知识库还是网络搜索
-- **关键代码位置**: `routers_and_graders.py` 的 `QueryRouter` 类
+### 文件上传接口
 
-#### 7.2 文档相关性评分
-- **技术点**:
-  - LLM-based评分
-  - 二进制评分: `yes` (相关) 或 `no` (不相关)
-  - 逐文档评分和过滤
-- **应用场景**: 过滤掉不相关的检索文档
-- **关键代码位置**: `routers_and_graders.py` 的 `DocumentGrader` 类
+```bash
+curl -X POST http://localhost:8000/api/upload \
+  -F "file=@/path/to/document.pdf"
+```
 
-#### 7.3 答案质量评分
-- **技术点**:
-  - LLM-based评分
-  - 评估答案是否解决了问题
-  - 二进制评分: `yes` (有用) 或 `no` (无用)
-- **应用场景**: 验证生成答案的质量
-- **关键代码位置**: `routers_and_graders.py` 的 `AnswerGrader` 类
+### 健康检查
 
-#### 7.4 答案可回答性评分
-- **技术点**:
-  - 评估当前检索文档是否足够回答问题
-  - 支持早期终止决策
-- **应用场景**: 判断是否需要继续检索
-- **关键代码位置**: `routers_and_graders.py` 的 `AnswerabilityGrader` 类
+```bash
+curl http://localhost:8000/api/health
+```
 
 ---
 
-### 8. 幻觉检测层
+## 文件上传与索引
 
-#### 8.1 NLI模型检测
-- **技术点**:
-  - 模型: `cross-encoder/nli-deberta-v3-xsmall` (轻量级)
-  - 自然语言推理 (Natural Language Inference)
-  - 三种关系: `entailment` (蕴含), `contradiction` (矛盾), `neutral` (中立)
-  - 逐句检测 + 最大蕴含策略
-- **应用场景**: 检测生成内容是否与源文档一致
-- **关键代码位置**: `hallucination_detector.py` 的 `NLIHallucinationDetector` 类
+使用独立脚本上传文件并构建向量索引：
 
-#### 8.2 Vectara检测模型
-- **技术点**:
-  - 模型: `vectara/hallucination_evaluation_model` (HHEM)
-  - 专门训练的幻觉检测模型
-  - 输出: `factuality_score`, `hallucination_score`
-- **应用场景**: 高精度幻觉检测
-- **关键代码位置**: `hallucination_detector.py` 的 `VectaraHallucinationDetector` 类
+```bash
+# 上传单个文件
+python upload_and_index.py /path/to/file.pdf
 
-#### 8.3 混合检测
-- **技术点**:
-  - 结合Vectara和NLI模型
-  - 投票机制: 多个模型结果综合判断
-  - 置信度计算
-- **应用场景**: 提供最可靠的幻觉检测
-- **关键代码位置**: `hallucination_detector.py` 的 `HybridHallucinationDetector` 类
+# 上传多个文件
+python upload_and_index.py file1.pdf file2.docx file3.pdf
 
----
+# 上传整个目录（递归扫描）
+python upload_and_index.py /path/to/folder/
 
-### 9. 查询优化层
+# 自定义分块参数
+python upload_and_index.py --chunk-size 512 --chunk-overlap 100 file.pdf
 
-#### 9.1 查询分解 (Query Decomposition)
-- **技术点**:
-  - LLM-based分解
-  - 将复杂多跳问题分解为子问题序列
-  - JSON格式输出: `{"sub_queries": [...]}`
-- **应用场景**: 处理需要多步推理的复杂查询
-- **关键代码位置**: `routers_and_graders.py` 的 `QueryDecomposer` 类
+# 使用 marker 模型做 PDF→Markdown（保留 LaTeX 公式，需 GPU）
+python upload_and_index.py --use-marker file.pdf
 
-#### 9.2 查询重写 (Query Rewriting)
-- **技术点**:
-  - LLM-based重写
-  - 基于上下文优化查询表述
-  - 提取桥接实体并注入到下一查询
-- **应用场景**:
-  - 改进检索效果
-  - 多跳检索中的查询优化
-- **关键代码位置**: `routers_and_graders.py` 的 `QueryRewriter` 类
+# 仅预览，不写入向量库
+python upload_and_index.py --dry-run file.pdf
+```
+
+支持的文件格式：PDF、Word (.docx)、PowerPoint (.pptx)、Excel (.xlsx)、EPUB 电子书
 
 ---
 
-### 10. 知识图谱层 (GraphRAG)
+## Docker 部署
 
-#### 10.1 图谱构建
-- **技术点**:
-  - `NetworkX`: 图结构管理
-  - 实体提取: 使用LLM从文档中提取实体
-  - 关系提取: 提取实体间关系
-  - 图谱持久化: JSON格式存储
-- **应用场景**: 构建结构化知识图谱
-- **关键代码位置**: `knowledge_graph.py` 的 `KnowledgeGraph` 类
+### CPU 部署
 
-#### 10.2 社区检测
-- **技术点**:
-  - `python-louvain`: Louvain社区检测算法
-  - 其他算法: `greedy`, `label_propagation`
-  - 社区摘要: 为每个社区生成摘要
-- **应用场景**:
-  - 发现知识图谱中的主题社区
-  - 支持全局查询
-- **关键代码位置**: `knowledge_graph.py` 的社区检测相关方法
+```bash
+docker build -t adaptive-rag .
+docker run -p 7860:7860 --env-file .env adaptive-rag
+```
 
-#### 10.3 图谱检索
-- **技术点**:
-  - 本地查询: 基于图遍历 (最大跳数: 2)
-  - 全局查询: 基于社区摘要
-  - 实体链接: 将查询中的实体链接到图谱节点
-- **应用场景**: 利用结构化知识进行检索
-- **关键代码位置**: `graph_retriever.py`
+### GPU 部署（推荐）
+
+```bash
+docker-compose -f docker-compose.gpu.yml up -d
+```
+
+GPU 部署需要：
+- 安装 NVIDIA Container Toolkit
+- 具备 NVIDIA GPU 及 CUDA 驱动
+
+### Hugging Face Spaces 部署
+
+详见 [README_DEPLOY.md](README_DEPLOY.md)
 
 ---
 
-### 11. 网络搜索层
+## 项目结构
 
-#### 11.1 Tavily API
-- **技术点**:
-  - `tavily-python`: Tavily搜索API客户端
-  - 实时网络搜索
-  - 结果数量: `WEB_SEARCH_RESULTS_COUNT=3`
-- **应用场景**: 获取最新信息和通用知识
-- **关键代码位置**: `workflow_nodes.py` 的 `web_search()` 方法
-
----
-
-### 12. 评估与监控层
-
-#### 12.1 检索评估
-- **技术点**:
-  - **Precision@K**: 前K个结果中相关文档的比例
-  - **Recall@K**: 前K个结果覆盖的相关文档比例
-  - **MAP (Mean Average Precision)**: 平均精度均值
-  - **MRR (Mean Reciprocal Rank)**: 平均倒数排名
-  - **NDCG**: 归一化折损累积增益
-  - **Latency**: 检索延迟
-- **应用场景**: 评估检索系统性能
-- **关键代码位置**: `retrieval_evaluation.py` 的 `RetrievalEvaluator` 类
-
-#### 12.2 可视化
-- **技术点**:
-  - `matplotlib`: 绘制评估指标图表
-  - `seaborn`: 统计可视化
-  - `pandas`: 数据处理
-- **应用场景**: 展示评估结果和性能分析
-
----
-
-### 13. 异步处理层
-
-#### 13.1 异步检索
-- **技术点**:
-  - `asyncio`: Python异步编程
-  - `asimilarity_search()`: 异步相似度搜索
-  - `ainvoke()`: 异步调用
-  - 并发查询: `asyncio.gather()`
-- **应用场景**:
-  - 提高系统响应速度
-  - 并发处理多个查询
-- **关键代码位置**: `document_processor.py` 的 `async_enhanced_retrieve()` 方法
-
-#### 13.2 线程池执行
-- **技术点**:
-  - `run_in_executor()`: 在线程池中执行CPU密集型任务
-  - 重排任务异步化
-- **应用场景**: 避免阻塞主事件循环
+```
+adaptive_RAG/
+├── main.py                  # 主入口，AdaptiveRAGSystem 类和 LangGraph 工作流
+├── server.py                # FastAPI + React Web 服务
+├── app.py                   # Python Runner 启动脚本（Kaggle/ModelScope）
+├── config.py                # 集中配置管理
+├── document_processor.py    # 文档处理、向量化、检索核心模块
+├── upload_and_index.py      # 文件上传与向量化独立脚本
+├── routers_and_graders.py   # 查询路由、文档评分、答案评分
+├── workflow_nodes.py        # LangGraph 工作流节点定义
+├── reranker.py              # 多策略重排器（TF-IDF/BM25/CrossEncoder/混合/多样性）
+├── hallucination_detector.py    # 幻觉检测（NLI/Vectara/混合）
+├── lightweight_hallucination_detector.py  # 轻量级幻觉检测
+├── knowledge_graph.py       # 知识图谱构建与社区检测
+├── graph_retriever.py       # 图谱检索（本地/全局查询）
+├── graph_indexer.py         # 图谱索引构建
+├── entity_extractor.py      # 实体提取
+├── retrieval_evaluation.py  # 检索评估（Precision/Recall/MAP/NDCG）
+├── langsmith_integration.py # LangSmith 追踪与监控集成
+├── requirements.txt         # Python 依赖
+├── Dockerfile               # Docker 镜像（CPU）
+├── Dockerfile.gpu           # Docker 镜像（GPU）
+├── docker-compose.gpu.yml   # GPU Docker Compose 配置
+├── start.sh                 # 启动脚本
+├── entrypoint.sh            # Docker 入口脚本
+├── data/                    # 数据目录（向量库、上传文件等）
+└── source/                  # 源文件目录
+```
 
 ---
 
-### 14. 配置管理层
-
-#### 14.1 环境变量管理
-- **技术点**:
-  - `python-dotenv`: 加载.env文件
-  - `getpass`: 安全输入API密钥
-  - 环境变量验证
-- **应用场景**: 安全管理API密钥和配置
-- **关键代码位置**: `config.py` 的 `setup_environment()` 方法
-
-#### 14.2 配置参数
-- **技术点**:
-  - 模型配置: `LOCAL_LLM`, `EMBEDDING_MODEL`
-  - 分块配置: `CHUNK_SIZE`, `CHUNK_OVERLAP`
-  - 向量库配置: `MILVUS_*` 参数
-  - 功能开关: `ENABLE_GRAPHRAG`, `ENABLE_HYBRID_SEARCH`, `ENABLE_QUERY_EXPANSION`, `ENABLE_MULTIMODAL`
-- **应用场景**: 集中管理系统配置
-
----
-
-## 🔄 工作流节点详解
-
-### 节点1: route_question
-- **功能**: 智能路由决策
-- **技术**: LLM-based路由
-- **输出**: `"web_search"` 或 `"vectorstore"`
-
-### 节点2: decompose_query
-- **功能**: 查询分解
-- **技术**: LLM-based分解
-- **输出**: 子问题列表
-
-### 节点3: retrieve
-- **功能**: 文档检索
-- **技术**:
-  - 混合检索 (向量 + BM25)
-  - 查询扩展
-  - 多模态检索
-  - 重排序
-- **输出**: 检索到的文档列表
-
-### 节点4: grade_documents
-- **功能**: 文档相关性评分
-- **技术**: LLM-based评分
-- **输出**: 过滤后的相关文档
-
-### 节点5: decide_to_generate
-- **功能**: 决策是否生成答案
-- **技术**:
-  - 检查文档是否足够
-  - 检查是否还有子查询
-  - 早期终止判断
-- **输出**: `"generate"`, `"prepare_next_query"`, `"transform_query"`, 或 `"web_search"`
-
-### 节点6: prepare_next_query
-- **功能**: 准备下一个子查询
-- **技术**: 查询重写 + 桥接实体提取
-- **输出**: 优化后的下一个查询
-
-### 节点7: transform_query
-- **功能**: 查询转换
-- **技术**: LLM-based重写
-- **输出**: 改进后的查询
-
-### 节点8: generate
-- **功能**: 生成答案
-- **技术**: RAG链 (Prompt + LLM)
-- **输出**: 生成的答案
-
-### 节点9: grade_generation_v_documents_and_question
-- **功能**: 答案质量检查
-- **技术**:
-- 幻觉检测
-  - 答案质量评分
-- **输出**: `"useful"`, `"not useful"`, 或 `"not supported"`
-
-### 节点10: web_search
-- **功能**: 网络搜索
-- **技术**: Tavily API
-- **输出**: 网络搜索结果
-
----
-
-## 📊 性能优化技术
-
-### 1. 索引优化
-- **HNSW索引**: 高性能近似最近邻搜索
-- **索引参数调优**: M=8, efConstruction=64
-- **搜索参数调优**: ef=10
-
-### 2. 检索优化
-- **混合检索**: 结合语义和关键词匹配
-- **查询扩展**: 多角度检索
-- **重排序**: 精确排序Top-K结果
-
-### 3. 异步处理
-- **异步检索**: 提高并发性能
-- **线程池**: CPU密集型任务异步化
-
-### 4. 缓存机制
-- **向量库持久化**: 避免重复向量化
-- **文档去重**: 避免重复处理
-
----
-
-## 🛡️ 质量保证机制
-
-### 1. 多层验证
-- **文档相关性评分**: 过滤不相关文档
-- **答案质量评分**: 验证答案有用性
-- **幻觉检测**: 确保答案基于源文档
-
-### 2. 迭代改进
-- **查询转换**: 改进检索效果
-- **重试机制**: 最大重试次数限制
-- **回退策略**: 网络搜索作为备选
-
-### 3. 早期终止
-- **答案可回答性检查**: 避免不必要的检索
-- **多跳检索优化**: 提前终止已完成的任务
-
----
-
-## 📦 依赖库总结
+## 技术栈
 
 ### 核心框架
-- `langchain>=0.1.0`: LLM应用编排
-- `langgraph>=0.0.40`: 工作流管理
-- `langchain-community>=0.0.20`: 社区集成
-- `langchain-ollama>=0.1.0`: Ollama集成
+- **LangChain** + **LangGraph** — LLM 应用编排与工作流状态管理
+- **FastAPI** + **Uvicorn** — 高性能异步 Web 服务
+- **React 18** + **Tailwind CSS** — 现代化前端界面
 
-### 向量数据库
-- `pymilvus[milvus_lite]>=2.4.2`: Milvus客户端
+### 语言模型
+- **通义千问 (Qwen)** — 推荐 LLM 后端
+- **Ollama** — 本地 LLM 推理引擎
+- **DeepSeek** — 可选 LLM 后端
 
-### 嵌入模型
-- `sentence-transformers>=2.2.0`: 嵌入模型
-- `transformers>=4.30.0`: Transformer模型
+### 向量数据库与嵌入
+- **Milvus** — 向量数据库（支持 Lite/Server/Zilliz Cloud 三种模式）
+- **BAAI/bge-m3** — 嵌入模型（8192 长度，中英双语）
+- **BAAI/bge-reranker-base** — CrossEncoder 重排模型
 
-### 文档处理
-- `tiktoken>=0.5.0`: Token编码
-- `beautifulsoup4>=4.12.0`: HTML解析
-- `rank-bm25>=0.2.2`: BM25检索
+### 检索与重排
+- **BM25** (rank-bm25) — 关键词检索
+- **Elasticsearch** — 大规模 BM25 检索（可选）
+- **CrossEncoder** — 精确重排序
 
-### 网络搜索
-- `tavily-python>=0.3.0`: Tavily API
+### 幻觉检测
+- **NLI 模型** (`nli-deberta-v3-xsmall`) — 自然语言推理检测
+- **Vectara HHEM** — 专业幻觉评估模型
 
-### 图处理
-- `networkx>=3.1`: 图结构
-- `python-louvain>=0.16`: 社区检测
+### 知识图谱
+- **NetworkX** — 图结构管理
+- **python-louvain** / **leidenalg** — 社区检测
+- **Neo4j** — 图数据库（可选）
 
-### 评估与可视化
-- `scikit-learn>=1.3.0`: 机器学习工具
-- `matplotlib>=3.7.0`: 可视化
-- `pandas>=2.0.0`: 数据处理
-
-### 工具库
-- `python-dotenv>=1.0.0`: 环境变量
-- `pydantic>=2.0.0`: 数据验证
-- `numpy>=1.24.0,<2.0`: 数值计算
+### 监控与评估
+- **LangSmith** — 全链路追踪与性能监控
+- **scikit-learn** — 检索评估指标计算
 
 ---
 
-## 🎯 核心技术亮点
+## 工作流节点详解
 
-1. **自适应路由**: 智能选择信息源
-2. **混合检索**: 语义 + 关键词双重匹配
-3. **多跳检索**: 支持复杂推理查询
-4. **专业幻觉检测**: NLI + Vectara模型
-5. **查询优化**: 分解 + 扩展 + 重写
-6. **重排序**: CrossEncoder精确排序
-7. **多模态支持**: 文本 + 图像检索
-8. **异步处理**: 提高系统性能
-9. **质量保证**: 多层验证机制
-10. **GraphRAG**: 结构化知识检索
-
----
-
-## 📈 系统性能指标
-
-- **检索准确率**: Precision@3, Recall@3, MAP
-- **响应延迟**: 检索延迟、生成延迟
-- **幻觉检测准确率**: 85-95% (使用专业模型)
-- **支持数据规模**: 百万级文档
-- **并发处理**: 异步架构支持
+| 节点 | 功能 | 输出 |
+|------|------|------|
+| `route_and_decompose` | 智能路由 + 查询分解 | `web_search` / `vectorstore` |
+| `retrieve` | 文档检索（混合检索+查询扩展+重排序） | 文档列表 |
+| `grade_documents` | 文档相关性评分与过滤 | 过滤后的相关文档 |
+| `decide_to_generate` | 决策：生成/继续检索/网络搜索 | `generate` / `prepare_next_query` / `transform_query` / `web_search` |
+| `prepare_next_query` | 准备下一个子查询（重写+桥接实体） | 优化后的查询 |
+| `transform_query` | 查询转换/重写 | 改进后的查询 |
+| `generate` | RAG 答案生成 | 生成的答案 |
+| `grade_generation` | 答案质量检查（幻觉检测+有用性评分） | `useful` / `not useful` / `not supported` |
+| `web_search` | 网络搜索（Tavily API） | 搜索结果 |
 
 ---
 
-## 🔮 技术演进方向
+## 质量保证机制
 
-1. **更强大的嵌入模型**: 支持更大规模的嵌入
-2. **更智能的路由**: 基于历史数据的路由优化
-3. **实时学习**: 从用户反馈中学习
-4. **多语言支持**: 扩展到更多语言
-5. **分布式部署**: 支持大规模分布式部署
+### 多层验证
+1. **文档相关性评分** — 过滤不相关文档
+2. **答案质量评分** — 验证答案有用性
+3. **幻觉检测** — 确保答案基于源文档（NLI + Vectara 双重检测）
+
+### 迭代改进
+- 查询转换 — 改进检索效果
+- 重试机制 — 最大重试次数限制
+- 回退策略 — 网络搜索作为备选
+
+### 早期终止
+- 答案可回答性检查 — 避免不必要的检索
+- 多跳检索优化 — 提前终止已完成的子查询
 
 ---
 
-## 📝 总结
-=======
-本项目实现了一个功能完整、技术先进的自适应RAG系统，涵盖了从文档处理、向量化、检索、重排序、生成到质量保证的完整技术栈。系统采用了多种先进技术，包括混合检索、多跳检索、专业幻觉检测、查询优化等，确保了高质量、高准确率的答案生成。
-=======
+## 许可证
+
+[Apache License 2.0](LICENSE)
