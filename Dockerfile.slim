@@ -27,8 +27,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 
 # 先安装依赖（利用 Docker 缓存层）
+#   --timeout 120: 增加下载超时到 120 秒
+#   --retries 5: 失败重试 5 次
+#   --trusted-host: 跳过 SSL 验证（国内镜像偶尔证书问题）
+#   备选镜像：清华源 https://pypi.tuna.tsinghua.edu.cn/simple/
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ \
+RUN pip install --no-cache-dir --timeout 120 --retries 5 \
+    -r requirements.txt \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com \
+    || pip install --no-cache-dir --timeout 120 --retries 5 \
+    -r requirements.txt \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+    --trusted-host pypi.tuna.tsinghua.edu.cn \
     && rm -rf /root/.cache/pip
 
 # 编译完成后卸载编译工具，节省约 200MB 镜像体积
