@@ -322,16 +322,9 @@ class KnowledgeGraphTextSplitter:
         return result
 
     def _split_generic(self, doc: Document) -> List[Document]:
-        """通用分块"""
-        from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
-            separators=["\n\n", "\n", "。", "，", " ", ""],
-        )
-
-        splits = splitter.split_text(doc.page_content)
+        """通用分块 - 纯 Python 实现，不依赖 langchain_text_splitters"""
+        separators = ["\n\n", "\n", "。", "，", " ", ""]
+        splits = self._recursive_split(doc.page_content, self.chunk_size, self.chunk_overlap, separators)
         return [
             Document(
                 page_content=s.strip(),
@@ -339,6 +332,49 @@ class KnowledgeGraphTextSplitter:
             )
             for i, s in enumerate(splits) if s.strip()
         ]
+
+    def _recursive_split(self, text: str, chunk_size: int, chunk_overlap: int, separators: list) -> list:
+        """递归字符分割 - 仿 RecursiveCharacterTextSplitter"""
+        if len(text) <= chunk_size:
+            return [text]
+
+        final_chunks = []
+        # 找到当前层级的分隔符
+        separator = separators[0] if separators else ""
+        remaining_separators = separators[1:] if len(separators) > 1 else []
+
+        if not separator:
+            # 无分隔符，硬切
+            for i in range(0, len(text), chunk_size - chunk_overlap):
+                final_chunks.append(text[i:i + chunk_size])
+        else:
+            # 按分隔符分割
+            splits = text.split(separator)
+            current_chunk = ""
+
+            for split in splits:
+                if len(split) > chunk_size and remaining_separators:
+                    # 单个 split 还是太长，用下一级分隔符继续切
+                    sub_chunks = self._recursive_split(split, chunk_size, chunk_overlap, remaining_separators)
+                    for sc in sub_chunks:
+                        if len(current_chunk) + len(separator) + len(sc) > chunk_size and current_chunk:
+                            final_chunks.append(current_chunk)
+                            # 重叠：保留末尾部分
+                            overlap_text = current_chunk[-chunk_overlap:] if chunk_overlap > 0 else ""
+                            current_chunk = overlap_text + separator + sc if overlap_text else sc
+                        else:
+                            current_chunk = current_chunk + separator + sc if current_chunk else sc
+                elif len(current_chunk) + len(separator) + len(split) > chunk_size and current_chunk:
+                    final_chunks.append(current_chunk)
+                    overlap_text = current_chunk[-chunk_overlap:] if chunk_overlap > 0 else ""
+                    current_chunk = overlap_text + separator + split if overlap_text else split
+                else:
+                    current_chunk = current_chunk + separator + split if current_chunk else split
+
+            if current_chunk:
+                final_chunks.append(current_chunk)
+
+        return final_chunks
 
 
 # ═══════════════════════════════════════════════
