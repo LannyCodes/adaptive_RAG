@@ -1,0 +1,251 @@
+{
+  "generated_at": "2026-04-28T20:27:42.273429",
+  "namespaces": {
+    "kg": "http://graphrag.example.org/kg/",
+    "entity": "http://graphrag.example.org/entity/",
+    "rel": "http://graphrag.example.org/relationship/",
+    "community": "http://graphrag.example.org/community/",
+    "report": "http://graphrag.example.org/report/",
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "owl": "http://www.w3.org/2002/07/owl#",
+    "schema": "http://schema.org/",
+    "dc": "http://purl.org/dc/elements/1.1/",
+    "dcterms": "http://purl.org/dc/terms/"
+  },
+  "tables": {
+    "entities": {
+      "rows": 3969,
+      "columns": [
+        "id",
+        "human_readable_id",
+        "title",
+        "type",
+        "description",
+        "text_unit_ids",
+        "frequency",
+        "degree"
+      ],
+      "type_distribution": {
+        "EVENT": 1681,
+        "ORGANIZATION": 1076,
+        "PERSON": 784,
+        "GEO": 422,
+        "INDUSTRY": 3,
+        "PRODUCT": 2,
+        "ORGANISM": 1
+      },
+      "top_entities_by_degree": [
+        {
+          "title": "KEVIN SCOTT",
+          "type": "PERSON",
+          "degree": 1234,
+          "frequency": 1771
+        },
+        {
+          "title": "CHRISTINA WARREN",
+          "type": "PERSON",
+          "degree": 272,
+          "frequency": 475
+        },
+        {
+          "title": "BEHIND THE TECH",
+          "type": "EVENT",
+          "degree": 208,
+          "frequency": 257
+        },
+        {
+          "title": "MICROSOFT",
+          "type": "ORGANIZATION",
+          "degree": 202,
+          "frequency": 424
+        },
+        {
+          "title": "CHARLIE STROSS",
+          "type": "PERSON",
+          "degree": 107,
+          "frequency": 45
+        },
+        {
+          "title": "WILL.I.AM",
+          "type": "PERSON",
+          "degree": 105,
+          "frequency": 35
+        },
+        {
+          "title": "NEIL DEGRASSE TYSON",
+          "type": "PERSON",
+          "degree": 102,
+          "frequency": 50
+        },
+        {
+          "title": "DANNY HILLIS",
+          "type": "PERSON",
+          "degree": 101,
+          "frequency": 58
+        },
+        {
+          "title": "REID HOFFMAN",
+          "type": "PERSON",
+          "degree": 90,
+          "frequency": 52
+        },
+        {
+          "title": "JARON LANIER",
+          "type": "PERSON",
+          "degree": 87,
+          "frequency": 38
+        },
+        {
+          "title": "JACOB COLLIER",
+          "type": "PERSON",
+          "degree": 83,
+          "frequency": 47
+        },
+        {
+          "title": "BILL GATES",
+          "type": "PERSON",
+          "degree": 82,
+          "frequency": 36
+        },
+        {
+          "title": "ASHLEY LLORENS",
+          "type": "PERSON",
+          "degree": 80,
+          "frequency": 37
+        },
+        {
+          "title": "DREW ENDY",
+          "type": "PERSON",
+          "degree": 77,
+          "frequency": 41
+        },
+        {
+          "title": "GOOGLE",
+          "type": "ORGANIZATION",
+          "degree": 75,
+          "frequency": 102
+        },
+        {
+          "title": "CHRIS URMSON",
+          "type": "PERSON",
+          "degree": 74,
+          "frequency": 41
+        },
+        {
+          "title": "XYLA FOXLIN",
+          "type": "PERSON",
+          "degree": 74,
+          "frequency": 41
+        },
+        {
+          "title": "FEI-FEI LI",
+          "type": "PERSON",
+          "degree": 70,
+          "frequency": 47
+        },
+        {
+          "title": "ALEXIS OHANIAN",
+          "type": "PERSON",
+          "degree": 69,
+          "frequency": 45
+        },
+        {
+          "title": "PHIL SPENCER",
+          "type": "PERSON",
+          "degree": 69,
+          "frequency": 44
+        }
+      ]
+    },
+    "relationships": {
+      "rows": 8625,
+      "columns": [
+        "id",
+        "human_readable_id",
+        "source",
+        "target",
+        "description",
+        "weight",
+        "combined_degree",
+        "text_unit_ids"
+      ],
+      "weight_stats": {
+        "mean": 13.12695652173913,
+        "median": 8.0,
+        "max": 3860.0,
+        "min": 1.0
+      },
+      "top_sources": {
+        "KEVIN SCOTT": 1155,
+        "CHRISTINA WARREN": 232,
+        "BEHIND THE TECH": 119,
+        "MICROSOFT": 105,
+        "WILL.I.AM": 103,
+        "CHARLIE STROSS": 102,
+        "NEIL DEGRASSE TYSON": 97,
+        "DANNY HILLIS": 94,
+        "REID HOFFMAN": 87,
+        "JARON LANIER": 83
+      }
+    },
+    "communities": {
+      "rows": 742,
+      "columns": [
+        "id",
+        "human_readable_id",
+        "community",
+        "level",
+        "parent",
+        "children",
+        "title",
+        "entity_ids",
+        "relationship_ids",
+        "text_unit_ids",
+        "period",
+        "size"
+      ]
+    },
+    "community_reports": {
+      "rows": 742,
+      "columns": [
+        "id",
+        "human_readable_id",
+        "community",
+        "level",
+        "parent",
+        "children",
+        "title",
+        "summary",
+        "full_content",
+        "rank",
+        "rating_explanation",
+        "findings",
+        "full_content_json",
+        "period",
+        "size"
+      ],
+      "level_distribution": {
+        "2": 359,
+        "1": 230,
+        "3": 91,
+        "0": 36,
+        "4": 20,
+        "5": 6
+      }
+    },
+    "text_units": {
+      "rows": 1669,
+      "columns": [
+        "id",
+        "human_readable_id",
+        "text",
+        "n_tokens",
+        "document_id",
+        "entity_ids",
+        "relationship_ids",
+        "covariate_ids"
+      ]
+    }
+  }
+}

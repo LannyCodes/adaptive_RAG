@@ -147,11 +147,49 @@ class AdaptiveRAGSystem:
             print("初始化 GraphRAG...")
             try:
                 kg = initialize_knowledge_graph()
-                # 尝试加载已有的图谱数据
-                try:
-                    kg.load_from_file("knowledge_graph.json")
-                except FileNotFoundError:
-                    print("   未找到 existing knowledge_graph.json, 将使用空图谱")
+                
+                # 按优先级尝试加载图谱数据:
+                # 1. source/knowledge_graph_export/knowledge_graph.jsonld (最完整)
+                # 2. knowledge_graph.json (本系统保存的)
+                # 3. source/knowledge_graph_export/knowledge_graph_triples.csv
+                kg_loaded = False
+                
+                jsonld_path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "source", "knowledge_graph_export", "knowledge_graph.jsonld"
+                )
+                if os.path.exists(jsonld_path):
+                    print(f"   📂 发现 JSON-LD 知识图谱数据: {jsonld_path}")
+                    try:
+                        kg.load_from_jsonld(jsonld_path)
+                        kg_loaded = True
+                        print("   ✅ 已从 JSON-LD 加载知识图谱")
+                    except Exception as e:
+                        print(f"   ⚠️ JSON-LD 加载失败: {e}")
+                
+                if not kg_loaded:
+                    try:
+                        kg.load_from_file("knowledge_graph.json")
+                        kg_loaded = True
+                    except FileNotFoundError:
+                        print("   未找到 knowledge_graph.json")
+                
+                if not kg_loaded:
+                    csv_path = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "source", "knowledge_graph_export", "knowledge_graph_triples.csv"
+                    )
+                    if os.path.exists(csv_path):
+                        print(f"   📂 发现 CSV 三元组数据: {csv_path}")
+                        try:
+                            kg.load_from_csv_triples(csv_path)
+                            kg_loaded = True
+                            print("   ✅ 已从 CSV 三元组加载知识图谱")
+                        except Exception as e:
+                            print(f"   ⚠️ CSV 加载失败: {e}")
+                
+                if not kg_loaded:
+                    print("   ⚠️ 未找到知识图谱数据文件，将使用空图谱")
                 
                 self.graph_retriever = initialize_graph_retriever(kg)
                 print("✅ GraphRAG 初始化成功")

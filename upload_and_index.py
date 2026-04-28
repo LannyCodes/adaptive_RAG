@@ -946,6 +946,230 @@ def load_srt(file_path: str) -> list[Document]:
     )]
 
 
+# ═══════════════════════════════════════════════
+# 知识图谱格式加载器
+# ═══════════════════════════════════════════════
+
+def load_jsonld(file_path: str) -> list[Document]:
+    """
+    加载 JSON-LD 格式的知识图谱数据。
+    
+    解析 GraphRAG 导出的 JSON-LD 文件，将实体、关系和社区报告
+    转换为 Document 对象，以便存入向量数据库进行语义检索。
+    """
+    import json as _json
+    
+    def _extract_name(id_uri: str) -> str:
+        return id_uri.rstrip("/").split("/")[-1]
+    
+    def _extract_type_short(type_uri: str) -> str:
+        return type_uri.rstrip("/").split("/")[-1]
+    
+    print(f"   📊 解析 JSON-LD 知识图谱数据...")
+    
+    with open(file_path, "r", encoding="utf-8") as f:
+        data = _json.load(f)
+    
+    graph = data.get("@graph", [])
+    docs = []
+    
+    entity_type_uris = {
+        "http://schema.org/PERSON",
+        "http://schema.org/ORGANIZATION",
+        "http://schema.org/EVENT",
+        "http://schema.org/GEO",
+        "http://schema.org/INDUSTRY",
+        "http://schema.org/PRODUCT",
+        "http://schema.org/ORGANISM",
+    }
+    
+    for node in graph:
+        node_type = node.get("@type", "")
+        node_id = node.get("@id", "")
+        
+        # 实体节点
+        if node_type in entity_type_uris:
+            name = node.get("schema:name") or node.get("rdfs:label") or _extract_name(node_id)
+            entity_type_short = _extract_type_short(node_type)
+            description = node.get("schema:description", "")
+            frequency = node.get("kg:frequency", 0)
+            degree = node.get("kg:degree", 0.0)
+            
+            content = f"{name} ({entity_type_short}): {description}".strip()
+            docs.append(Document(
+                page_content=content,
+                metadata={
+                    "source": file_path,
+                    "data_type": "kg_entity",
+                    "kg_name": name,
+                    "kg_entity_type": entity_type_short,
+                    "kg_frequency": int(frequency) if frequency else 0,
+                    "kg_degree": float(degree) if degree else 0.0,
+                    "file_type": "jsonld",
+                }
+            ))
+        
+        # 关系节点
+        elif node_type == "rdf:Statement":
+            subject = node.get("rdf:subject", {})
+            predicate = node.get("rdf:predicate", {})
+            obj = node.get("rdf:object", {})
+            description = node.get("schema:description", "")
+            weight = node.get("kg:weight", 1.0)
+            
+            subject_name = _extract_name(subject.get("@id", "")) if isinstance(subject, dict) else ""
+            predicate_name = _extract_name(predicate.get("@id", "")) if isinstance(predicate, dict) else ""
+            object_name = _extract_name(obj.get("@id", "")) if isinstance(obj, dict) else ""
+            
+            content = f"{subject_name} --[{predicate_name}]--> {object_name}: {description}".strip()
+            docs.append(Document(
+                page_content=content,
+                metadata={
+                    "source": file_path,
+                    "data_type": "kg_relationship",
+                    "kg_subject": subject_name,
+                    "kg_predicate": predicate_name,
+                    "kg_object": object_name,
+                    "kg_weight": float(weight) if weight else 1.0,
+                    "file_type": "jsonld",
+                }
+            ))
+        
+        # 社区报告节点
+        elif node_type == "schema:Article":
+            headline = node.get("schema:headline", "")
+            summary = node.get("schema:description", "")
+            full_content = node.get("schema:text", "")
+            community_id = _extract_name(node_id)
+            
+            content = full_content or f"{headline}\n\n{summary}"
+            docs.append(Document(
+                page_content=content.strip(),
+                metadata={
+                    "source": file_path,
+                    "data_type": "kg_community",
+                    "kg_community_id": community_id,
+                    "kg_headline": headline,
+                    "file_type": "jsonld",
+                }
+            ))
+    
+    entity_count = sum(1 for d in docs if d.metadata.get("data_type") == "kg_entity")
+    rel_count = sum(1 for d in docs if d.metadata.get("data_type") == "kg_relationship")
+    comm_count = sum(1 for d in docs if d.metadata.get("data_type") == "kg_community")
+    
+    print(f"   → 提取了 {entity_count} 个实体, {rel_count} 个关系, {comm_count} 个社区报告")
+    return docs
+
+
+def load_ttl(file_path: str) -> list[Document]:
+    """
+    加载 Turtle (.ttl) 格式的 RDF 知识图谱数据。
+    
+    使用简单的正则解析，提取实体描述和关系三元组。
+    对于复杂的 TTL 文件，建议先转换为 JSON-LD 格式。
+    """
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    
+    docs = []
+    
+    # 提取前缀定义
+    prefixes = {}
+    for match in re.finditer(r'@prefix\s+(\w*):\s*<([^>]+)>\s*\.', content):
+        prefixes[match.group(1)] = match.group(2)
+    
+    # 按句号分割三元组
+    # 简单的正则匹配: subject predicate object .
+    triple_pattern = re.compile(
+        r'(<[^>]+>|[\w]+:[\w]+)\s+(<[^>]+>|[\w]+:[\w]+)\s+(<[^>]+>|"([^"]*)"@?\w*|[\w]+:[\w]+)\s*\.',
+        re.DOTALL
+    )
+    
+    for match in triple_pattern.finditer(content):
+        subject, predicate, obj_full, obj_literal = match.groups()
+        obj = obj_literal if obj_literal else obj_full
+        
+        # 清理 URI
+        def clean_uri(uri: str) -> str:
+            if uri.startswith("<") and uri.endswith(">"):
+                uri = uri[1:-1]
+            return uri.rstrip("/").split("/")[-1]
+        
+        s_name = clean_uri(subject)
+        p_name = clean_uri(predicate)
+        o_name = obj.strip('"') if obj_literal else clean_uri(obj)
+        
+        doc_content = f"{s_name} {p_name} {o_name}"
+        docs.append(Document(
+            page_content=doc_content,
+            metadata={
+                "source": file_path,
+                "data_type": "kg_triple",
+                "kg_subject": s_name,
+                "kg_predicate": p_name,
+                "kg_object": o_name,
+                "file_type": "ttl",
+            }
+        ))
+    
+    print(f"   → 提取了 {len(docs)} 个三元组")
+    return docs
+
+
+def load_nt(file_path: str) -> list[Document]:
+    """
+    加载 N-Triples (.nt) 格式的 RDF 数据。
+    
+    N-Triples 格式简单: <subject> <predicate> <object> .
+    """
+    docs = []
+    
+    def clean_uri(uri: str) -> str:
+        uri = uri.strip()
+        if uri.startswith("<") and uri.endswith(">"):
+            uri = uri[1:-1]
+        return uri.rstrip("/").split("/")[-1]
+    
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            
+            # N-Triples 格式: <s> <p> <o> 或 <s> <p> "literal"@lang .
+            parts = re.findall(r'(<[^>]+>|"[^"]*"(?:@\w+)?)', line)
+            if len(parts) < 3:
+                continue
+            
+            subject, predicate, obj = parts[0], parts[1], parts[2]
+            
+            s_name = clean_uri(subject)
+            p_name = clean_uri(predicate)
+            
+            if obj.startswith('"'):
+                # 字面值
+                o_name = obj.strip('"').split('"@')[0]
+            else:
+                o_name = clean_uri(obj)
+            
+            doc_content = f"{s_name} {p_name} {o_name}"
+            docs.append(Document(
+                page_content=doc_content,
+                metadata={
+                    "source": file_path,
+                    "data_type": "kg_triple",
+                    "kg_subject": s_name,
+                    "kg_predicate": p_name,
+                    "kg_object": o_name,
+                    "file_type": "nt",
+                }
+            ))
+    
+    print(f"   → 提取了 {len(docs)} 个三元组")
+    return docs
+
+
 # 文件类型 → 加载函数 映射
 LOADERS = {
     ".pdf": load_pdf,
@@ -963,6 +1187,9 @@ LOADERS = {
     ".htm": load_html,
     ".json": load_json,
     ".jsonl": load_json,
+    ".jsonld": load_jsonld,     # 知识图谱 JSON-LD
+    ".ttl": load_ttl,           # 知识图谱 Turtle
+    ".nt": load_nt,             # 知识图谱 N-Triples
     ".tex": load_latex,
     ".latex": load_latex,
     ".epub": load_epub,

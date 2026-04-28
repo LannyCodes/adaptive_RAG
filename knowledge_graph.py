@@ -245,6 +245,225 @@ class KnowledgeGraph:
             )
         
         print(f"✅ 图谱已从文件加载: {filepath}")
+    
+    def load_from_jsonld(self, filepath: str):
+        """
+        从 JSON-LD 格式的知识图谱数据加载图谱
+        
+        支持从 GraphRAG 导出的 JSON-LD 文件中直接加载实体、关系和社区报告。
+        
+        Args:
+            filepath: JSON-LD 文件路径
+        """
+        import re
+        
+        def _extract_name(id_uri: str) -> str:
+            return id_uri.rstrip("/").split("/")[-1]
+        
+        def _extract_type_short(type_uri: str) -> str:
+            return type_uri.rstrip("/").split("/")[-1]
+        
+        print(f"📂 正在从 JSON-LD 文件加载知识图谱: {filepath}")
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        graph_nodes = data.get("@graph", [])
+        
+        entity_type_uris = {
+            "http://schema.org/PERSON",
+            "http://schema.org/ORGANIZATION",
+            "http://schema.org/EVENT",
+            "http://schema.org/GEO",
+            "http://schema.org/INDUSTRY",
+            "http://schema.org/PRODUCT",
+            "http://schema.org/ORGANISM",
+        }
+        
+        # 清空现有数据
+        self.graph.clear()
+        self.entities = {}
+        self.communities = {}
+        self.community_summaries = {}
+        
+        # 第一遍: 添加所有实体
+        entity_count = 0
+        for node in graph_nodes:
+            node_type = node.get("@type", "")
+            if node_type in entity_type_uris:
+                name = node.get("schema:name") or node.get("rdfs:label") or _extract_name(node.get("@id", ""))
+                entity_type_short = _extract_type_short(node_type)
+                description = node.get("schema:description", "")
+                frequency = node.get("kg:frequency", 0)
+                degree = node.get("kg:degree", 0.0)
+                
+                self.add_entity(
+                    name=name,
+                    entity_type=entity_type_short,
+                    description=description,
+                    frequency=int(frequency) if frequency else 0,
+                    degree=float(degree) if degree else 0.0,
+                )
+                entity_count += 1
+        
+        # 第二遍: 添加所有关系
+        relation_count = 0
+        for node in graph_nodes:
+            node_type = node.get("@type", "")
+            if node_type == "rdf:Statement":
+                subject = node.get("rdf:subject", {})
+                obj = node.get("rdf:object", {})
+                predicate = node.get("rdf:predicate", {})
+                description = node.get("schema:description", "")
+                weight = node.get("kg:weight", 1.0)
+                
+                subject_name = _extract_name(subject.get("@id", "")) if isinstance(subject, dict) else ""
+                object_name = _extract_name(obj.get("@id", "")) if isinstance(obj, dict) else ""
+                predicate_name = _extract_name(predicate.get("@id", "")) if isinstance(predicate, dict) else ""
+                
+                if subject_name and object_name and subject_name in self.graph and object_name in self.graph:
+                    self.add_relation(
+                        source=subject_name,
+                        target=object_name,
+                        relation_type=predicate_name,
+                        description=description,
+                        weight=float(weight) if weight else 1.0,
+                    )
+                    relation_count += 1
+        
+        # 第三遍: 加载社区报告
+        community_count = 0
+        for node in graph_nodes:
+            node_type = node.get("@type", "")
+            if node_type == "schema:Article":
+                headline = node.get("schema:headline", "")
+                summary = node.get("schema:description", "")
+                community_id = _extract_name(node.get("@id", ""))
+                
+                try:
+                    cid = int(re.search(r'\d+', community_id).group()) if re.search(r'\d+', community_id) else 0
+                except (ValueError, AttributeError):
+                    cid = hash(community_id) % 10000
+                
+                self.community_summaries[cid] = summary or headline
+                community_count += 1
+        
+        # 执行社区检测
+        if self.graph.number_of_nodes() > 0:
+            try:
+                self.detect_communities(algorithm="greedy")
+            except Exception as e:
+                print(f"⚠️ 社区检测失败: {e}")
+        
+        print(f"✅ JSON-LD 图谱加载完成:")
+        print(f"   实体: {entity_count} 个 (实际节点: {self.graph.number_of_nodes()})")
+        print(f"   关系: {relation_count} 个 (实际边: {self.graph.number_of_edges()})")
+        print(f"   社区报告: {community_count} 个")
+    
+    def load_from_csv_triples(self, filepath: str):
+        """
+        从 CSV 三元组文件加载图谱
+        
+        CSV 格式: subject, predicate, object
+        
+        Args:
+            filepath: CSV 文件路径
+        """
+        import csv
+        
+        def _extract_name(id_uri: str) -> str:
+            return id_uri.rstrip("/").split("/")[-1]
+        
+        print(f"📂 正在从 CSV 三元组文件加载知识图谱: {filepath}")
+        
+        # 清空现有数据
+        self.graph.clear()
+        self.entities = {}
+        self.communities = {}
+        self.community_summaries = {}
+        
+        entity_count = 0
+        relation_count = 0
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader, None)  # 跳过标题行
+            
+            for row in reader:
+                if len(row) < 3:
+                    continue
+                
+                subject_uri, predicate_uri, obj_value = row[0], row[1], row[2]
+                subject_name = _extract_name(subject_uri)
+                predicate_name = _extract_name(predicate_uri)
+                
+                # 判断 object 是 URI 还是字面值
+                if obj_value.startswith("http://"):
+                    object_name = _extract_name(obj_value)
+                else:
+                    object_name = obj_value.strip('@"')
+                
+                # 根据谓词类型处理
+                if predicate_name == "type":
+                    # 类型三元组: 添加实体
+                    entity_type = _extract_name(obj_value)
+                    if subject_name not in self.entities:
+                        self.add_entity(
+                            name=subject_name,
+                            entity_type=entity_type,
+                        )
+                        entity_count += 1
+                    else:
+                        self.entities[subject_name]["type"] = entity_type
+                        self.graph.nodes[subject_name]["type"] = entity_type
+                        
+                elif predicate_name == "label":
+                    # 标签三元组: 更新实体名称
+                    if subject_name in self.entities:
+                        self.entities[subject_name]["description"] = object_name
+                        
+                elif predicate_name == "description":
+                    # 描述三元组: 更新实体描述
+                    if subject_name in self.entities:
+                        self.entities[subject_name]["description"] = object_name
+                        
+                elif predicate_name in ("frequency", "degree"):
+                    # 数值属性
+                    if subject_name in self.entities:
+                        try:
+                            self.entities[subject_name][predicate_name] = float(object_name)
+                            self.graph.nodes[subject_name][predicate_name] = float(object_name)
+                        except ValueError:
+                            pass
+                            
+                else:
+                    # 关系三元组: 添加关系
+                    # 确保 source 和 target 实体存在
+                    if subject_name not in self.graph:
+                        self.add_entity(name=subject_name, entity_type="UNKNOWN")
+                        entity_count += 1
+                    if object_name not in self.graph and not obj_value.startswith("http://schema.org/"):
+                        self.add_entity(name=object_name, entity_type="UNKNOWN")
+                        entity_count += 1
+                    
+                    if subject_name in self.graph and object_name in self.graph:
+                        self.add_relation(
+                            source=subject_name,
+                            target=object_name,
+                            relation_type=predicate_name,
+                        )
+                        relation_count += 1
+        
+        # 执行社区检测
+        if self.graph.number_of_nodes() > 0:
+            try:
+                self.detect_communities(algorithm="greedy")
+            except Exception as e:
+                print(f"⚠️ 社区检测失败: {e}")
+        
+        print(f"✅ CSV 图谱加载完成:")
+        print(f"   实体: {entity_count} 个 (实际节点: {self.graph.number_of_nodes()})")
+        print(f"   关系: {relation_count} 个 (实际边: {self.graph.number_of_edges()})")
 
 
 class CommunitySummarizer:
