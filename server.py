@@ -178,14 +178,26 @@ async def chat_endpoint(request: ChatRequest):
         
         # 解析结果
         answer = result.get("answer", "无法生成回答")
-        sources = [doc.page_content[:200] + "..." for doc in result.get("source_documents", [])]
+        source_documents = result.get("source_documents", [])
+        sources = [doc.page_content[:200] + "..." for doc in source_documents]
         metrics = result.get("retrieval_metrics", {})
         
-        # 处理多模态图片结果 (如果有)
+        # 提取图片路径（从 source_documents 的 metadata 中）
         images = []
-        if ENABLE_MULTIMODAL and "images" in result:
-            # 这里简化处理，实际可能需要返回图片URL或Base64
-            images = result["images"]
+        if ENABLE_MULTIMODAL:
+            for doc in source_documents:
+                stored_path = doc.metadata.get("stored_image_path", "")
+                if stored_path:
+                    images.append(f"/api/images/{os.path.basename(stored_path)}")
+                elif doc.metadata.get("data_type") == "image" or doc.metadata.get("file_type") == "image":
+                    source = doc.metadata.get("source", "")
+                    if source:
+                        images.append(f"/api/images/{os.path.basename(source)}")
+            # 也从 workflow state 的 image_paths 提取
+            for img_path in result.get("image_paths", []):
+                img_url = f"/api/images/{os.path.basename(img_path)}"
+                if img_url not in images:
+                    images.append(img_url)
 
         return ChatResponse(
             answer=answer,
@@ -201,7 +213,7 @@ async def chat_endpoint(request: ChatRequest):
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """文件上传接口"""
+    """文件上传接口（支持图片 OCR+VLM 即时索引）"""
     try:
         # 确保上传目录存在
         upload_dir = "./data/uploads"
@@ -211,10 +223,51 @@ async def upload_file(file: UploadFile = File(...)):
         
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
+        
+        # 如果是图片文件，即时 OCR+VLM 处理并索引
+        img_exts = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext in img_exts and rag_system and hasattr(rag_system, 'doc_processor'):
+            try:
+                from upload_and_index import load_image, LatexAwareTextSplitter
+                docs = load_image(file_path)
+                if docs:
+                    splitter = LatexAwareTextSplitter()
+                    doc_splits = splitter.split_documents(docs)
+                    rag_system.doc_processor.add_documents_to_vectorstore(doc_splits)
+                    return {
+                        "filename": file.filename,
+                        "status": "success",
+                        "message": f"图片上传并索引成功 (OCR+VLM, {len(doc_splits)} 个文档块)",
+                        "indexed": True,
+                        "doc_count": len(doc_splits),
+                    }
+            except Exception as idx_e:
+                print(f"⚠️ 图片索引失败: {idx_e}")
+                return {"filename": file.filename, "status": "success", "message": "图片上传成功，但索引失败", "indexed": False}
+        
         return {"filename": file.filename, "status": "success", "message": "文件上传成功，将在下次索引重建时生效"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+
+
+@app.get("/api/images/{image_path:path}")
+async def serve_image(image_path: str):
+    """提供图片文件访问"""
+    from fastapi.responses import FileResponse
+    
+    # 尝试多个可能的位置
+    search_paths = [
+        os.path.join("./data/images", image_path),
+        os.path.join("./data/uploads", image_path),
+        image_path,  # 绝对路径
+    ]
+    
+    for path in search_paths:
+        if os.path.exists(path) and os.path.isfile(path):
+            return FileResponse(path)
+    
+    raise HTTPException(status_code=404, detail=f"图片未找到: {image_path}")
 
 # ============================================================
 # 2. 前端 React 应用 (嵌入在 Python 字符串中)
@@ -241,6 +294,11 @@ HTML_CONTENT = """
     <!-- 引入 Markdown 渲染库 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     
+    <!-- 引入 KaTeX 公式渲染 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    
     <!-- 引入 FontAwesome 图标 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -250,6 +308,8 @@ HTML_CONTENT = """
         .markdown-body ol { list-style-type: decimal; margin-left: 1.5rem; }
         .markdown-body pre { background-color: #f3f4f6; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
         .markdown-body code { background-color: #f3f4f6; padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-family: monospace; }
+        .markdown-body .katex-display { margin: 0.8rem 0; overflow-x: auto; }
+        .markdown-body .katex-inline { }
         
         /* 自定义滚动条 */
         ::-webkit-scrollbar { width: 8px; }
@@ -292,6 +352,21 @@ HTML_CONTENT = """
             
             const chatContainerRef = useRef(null);
             const fileInputRef = useRef(null);
+
+            // 每次消息更新后渲染 LaTeX 公式
+            useEffect(() => {
+                if (chatContainerRef.current && typeof renderMathInElement === 'function') {
+                    renderMathInElement(chatContainerRef.current, {
+                        delimiters: [
+                            {left: '$$', right: '$$', display: true},
+                            {left: '$', right: '$', display: false},
+                            {left: '\\(', right: '\\)', display: false},
+                            {left: '\\[', right: '\\]', display: true}
+                        ],
+                        throwOnError: false
+                    });
+                }
+            }, [messages]);
 
             // 初始化检查健康状态
             useEffect(() => {
@@ -516,7 +591,26 @@ HTML_CONTENT = """
                                             <div className="flex flex-col space-y-2 w-full">
                                                 <div 
                                                     className="bg-white border border-slate-200 px-6 py-4 rounded-2xl rounded-tl-none shadow-sm w-full markdown-body"
-                                                    dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }}
+                                                    dangerouslySetInnerHTML={{ __html: (function() {
+                                                        // 先保护 LaTeX 公式不被 marked 破坏
+                                                        let text = msg.content;
+                                                        const latexBlocks = [];
+                                                        // 保护 $$...$$ (块级公式)
+                                                        text = text.replace(/\$\$([\s\S]*?)\$\$/g, (m, p1) => {
+                                                            latexBlocks.push('<span class="katex-display">' + katex.renderToString(p1.trim(), {displayMode: true, throwOnError: false}) + '</span>');
+                                                            return '%%LATEX_BLOCK_' + (latexBlocks.length - 1) + '%%';
+                                                        });
+                                                        // 保护 $...$ (行内公式)
+                                                        text = text.replace(/\$([^\$\n]+?)\$/g, (m, p1) => {
+                                                            latexBlocks.push('<span class="katex-inline">' + katex.renderToString(p1.trim(), {displayMode: false, throwOnError: false}) + '</span>');
+                                                            return '%%LATEX_BLOCK_' + (latexBlocks.length - 1) + '%%';
+                                                        });
+                                                        // marked 渲染 Markdown
+                                                        let html = marked.parse(text);
+                                                        // 还原 LaTeX 公式
+                                                        html = html.replace(/%%LATEX_BLOCK_(\d+)%%/g, (m, idx) => latexBlocks[parseInt(idx)]);
+                                                        return html;
+                                                    })() }}
                                                 ></div>
                                                 
                                                 {showSources && msg.sources && msg.sources.length > 0 && (
@@ -529,6 +623,22 @@ HTML_CONTENT = """
                                                                 {source}
                                                             </div>
                                                         ))}
+                                                    </div>
+                                                )}
+
+                                                {msg.images && msg.images.length > 0 && (
+                                                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mt-2">
+                                                        <div className="font-semibold mb-2 flex items-center text-slate-400 text-xs">
+                                                            <i className="fa-solid fa-image mr-2"></i> 相关图片
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {msg.images.map((imgUrl, idx) => (
+                                                                <a key={idx} href={imgUrl} target="_blank" rel="noopener noreferrer">
+                                                                    <img src={imgUrl} alt={`相关图片 ${idx+1}`}
+                                                                        className="h-24 w-auto rounded-lg border border-slate-200 object-cover hover:opacity-80 transition-opacity cursor-pointer" />
+                                                                </a>
+                                                            ))}
+                                                        </div>
                                                     </div>
                                                 )}
 

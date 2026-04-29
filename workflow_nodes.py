@@ -33,6 +33,7 @@ class GraphState(TypedDict):
         current_query_index: 当前处理的子问题索引
         original_question: 原始问题，用于早期终止检查
         kg_context: 知识图谱扩展上下文（实体邻域、关系路径、社区摘要）
+        image_paths: 检索结果中包含的图片路径列表
     """
     question: str
     generation: str
@@ -43,6 +44,7 @@ class GraphState(TypedDict):
     current_query_index: int  # 当前处理的子问题索引
     original_question: str # 原始问题，用于早期终止检查
     kg_context: List[str]  # 知识图谱扩展上下文
+    image_paths: List[str]  # 检索结果中的图片路径
 
 
 class WorkflowNodes:
@@ -389,6 +391,20 @@ class WorkflowNodes:
         documents = state["documents"]
         kg_context = state.get("kg_context", [])
 
+        # 提取图片路径（用于前端展示）
+        image_paths = []
+        for doc in documents:
+            stored_path = doc.metadata.get("stored_image_path", "")
+            if stored_path and os.path.exists(stored_path):
+                image_paths.append(stored_path)
+            elif doc.metadata.get("data_type") == "image" or doc.metadata.get("file_type") == "image":
+                source = doc.metadata.get("source", "")
+                if source and os.path.exists(source):
+                    image_paths.append(source)
+
+        if image_paths:
+            print(f"   🖼️ 检索结果包含 {len(image_paths)} 张图片")
+
         # 构建上下文：普通文档 + 知识图谱扩展上下文
         context = documents
         if kg_context:
@@ -419,7 +435,7 @@ class WorkflowNodes:
         except Exception as e:
             print(f"⚠️ 生成失败: {e}")
             generation = "生成答案时出错"
-        return {"documents": documents, "question": question, "generation": generation, "kg_context": kg_context}
+        return {"documents": documents, "question": question, "generation": generation, "kg_context": kg_context, "image_paths": image_paths}
     
     def grade_documents(self, state):
         """

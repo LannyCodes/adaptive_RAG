@@ -75,6 +75,16 @@ def _ensure_deps():
     except ImportError:
         missing.append("beautifulsoup4")
 
+    try:
+        from PIL import Image  # noqa: F401
+    except ImportError:
+        missing.append("Pillow")
+
+    try:
+        from openai import OpenAI  # noqa: F401 — VLM 调用需要
+    except ImportError:
+        missing.append("openai")
+
     if missing:
         print(f"📦 正在安装缺失依赖: {', '.join(missing)}")
         import subprocess
@@ -385,81 +395,168 @@ def _omml_to_latex(omml_xml: str) -> str:
     return latex.strip()
 
 
+def _docx_cell_to_text(cell) -> str:
+    """提取 Word 表格单元格的文本（含段落内 OMML 公式）"""
+    from lxml import etree
+    parts = []
+    for para in cell.paragraphs:
+        para_parts = []
+        for child in para._element:
+            tag = etree.QName(child.tag).localname if isinstance(child.tag, str) else ''
+            if tag == 'r':
+                for sub in child:
+                    sub_tag = etree.QName(sub.tag).localname if isinstance(sub.tag, str) else ''
+                    if sub_tag == 't':
+                        para_parts.append(sub.text or '')
+            elif tag in ('oMathPara', 'oMath'):
+                try:
+                    omml_str = etree.tostring(child, encoding='unicode')
+                    latex = _omml_to_latex(omml_str)
+                    para_parts.append(f' ${latex}$ ')
+                except Exception:
+                    para_parts.append(''.join(child.itertext()))
+        text = ''.join(para_parts).strip()
+        if text:
+            parts.append(text)
+    return ' '.join(parts)
+
+
+def _docx_table_to_markdown(table) -> str:
+    """将 Word 表格转为 Markdown 格式"""
+    rows_data = []
+    for row in table.rows:
+        cells = [_docx_cell_to_text(cell).replace('|', '│').replace('\n', ' ') for cell in row.cells]
+        # 处理合并单元格：python-docx 会对合并单元格重复返回内容，去重
+        rows_data.append(cells)
+
+    if not rows_data:
+        return ''
+
+    # 去重连续重复行（合并单元格导致）
+    deduped_rows = [rows_data[0]]
+    for row in rows_data[1:]:
+        if row != deduped_rows[-1]:
+            deduped_rows.append(row)
+
+    col_count = max(len(r) for r in deduped_rows) if deduped_rows else 0
+    if col_count == 0:
+        return ''
+
+    # 补齐列数
+    for row in deduped_rows:
+        while len(row) < col_count:
+            row.append('')
+
+    # 构建 Markdown 表格
+    lines = []
+    # 表头
+    lines.append('| ' + ' | '.join(deduped_rows[0]) + ' |')
+    # 分隔线
+    lines.append('| ' + ' | '.join(['---'] * col_count) + ' |')
+    # 数据行
+    for row in deduped_rows[1:]:
+        lines.append('| ' + ' | '.join(row) + ' |')
+
+    return '\n'.join(lines)
+
+
 def load_docx_with_math(file_path: str) -> list[Document]:
     """
-    使用 python-docx 加载 Word 文件，提取文本 + OMML 数学公式转 LaTeX。
+    使用 python-docx 加载 Word 文件，提取文本 + 表格 + OMML 数学公式转 LaTeX。
     
     相比 docx2txt，此方法能：
     1. 识别 Word 中的 OMML 数学公式（<m:oMath> 元素）
     2. 将 OMML 转为 LaTeX 格式，用 $...$ 包裹
     3. 保留公式的精确语义
+    4. 提取表格并转为 Markdown 格式，保持表格结构可检索
     """
     from docx import Document as DocxDocument
     from lxml import etree
 
     doc = DocxDocument(file_path)
-    paragraphs_content = []
+    content_blocks = []  # 按 Word 文档顺序存储内容块
     math_count = 0
+    table_count = 0
 
-    for para in doc.paragraphs:
-        parts = []
-        # 遍历段落中的每个子元素
-        for child in para._element:
-            tag = etree.QName(child.tag).localname if isinstance(child.tag, str) else ''
+    # 构建 body 子元素顺序映射，以便按原始顺序交替提取段落和表格
+    body = doc.element.body
+    para_idx = 0
+    table_idx = 0
 
-            if tag == 'r':  # 普通文本运行 <w:r>
-                for sub in child:
-                    sub_tag = etree.QName(sub.tag).localname if isinstance(sub.tag, str) else ''
-                    if sub_tag == 't':
-                        text = sub.text or ''
-                        parts.append(text)
+    for child in body:
+        tag = etree.QName(child.tag).localname if isinstance(child.tag, str) else ''
 
-            elif tag == 'oMathPara':  # 块级数学段落
-                for omath in child:
-                    omath_tag = etree.QName(omath.tag).localname if isinstance(omath.tag, str) else ''
-                    if omath_tag == 'oMath':
+        if tag == 'p':  # 段落
+            if para_idx < len(doc.paragraphs):
+                para = doc.paragraphs[para_idx]
+                parts = []
+                for p_child in para._element:
+                    p_tag = etree.QName(p_child.tag).localname if isinstance(p_child.tag, str) else ''
+
+                    if p_tag == 'r':  # 普通文本运行 <w:r>
+                        for sub in p_child:
+                            sub_tag = etree.QName(sub.tag).localname if isinstance(sub.tag, str) else ''
+                            if sub_tag == 't':
+                                parts.append(sub.text or '')
+
+                    elif p_tag == 'oMathPara':  # 块级数学段落
+                        for omath in p_child:
+                            omath_tag = etree.QName(omath.tag).localname if isinstance(omath.tag, str) else ''
+                            if omath_tag == 'oMath':
+                                try:
+                                    omml_str = etree.tostring(omath, encoding='unicode')
+                                    latex = _omml_to_latex(omml_str)
+                                    parts.append(f'\n$$\n{latex}\n$$\n')
+                                    math_count += 1
+                                except Exception:
+                                    text = ''.join(omath.itertext())
+                                    parts.append(f' ${text}$ ')
+                                    math_count += 1
+
+                    elif p_tag == 'oMath':  # 行内数学公式
                         try:
-                            omml_str = etree.tostring(omath, encoding='unicode')
+                            omml_str = etree.tostring(p_child, encoding='unicode')
                             latex = _omml_to_latex(omml_str)
-                            parts.append(f'\n$$\n{latex}\n$$\n')
+                            parts.append(f' ${latex}$ ')
                             math_count += 1
-                        except Exception as e:
-                            # 转换失败时，提取纯文本
-                            text = ''.join(omath.itertext())
+                        except Exception:
+                            text = ''.join(p_child.itertext())
                             parts.append(f' ${text}$ ')
-                            math_count += 1
 
-            elif tag == 'oMath':  # 行内数学公式
-                try:
-                    omml_str = etree.tostring(child, encoding='unicode')
-                    latex = _omml_to_latex(omml_str)
-                    parts.append(f' ${latex}$ ')
-                    math_count += 1
-                except Exception as e:
-                    text = ''.join(child.itertext())
-                    parts.append(f' ${text}$ ')
+                para_text = ''.join(parts).strip()
+                if para_text:
+                    content_blocks.append(para_text)
+                para_idx += 1
 
-        para_text = ''.join(parts).strip()
-        if para_text:
-            paragraphs_content.append(para_text)
+        elif tag == 'tbl':  # 表格
+            if table_idx < len(doc.tables):
+                table = doc.tables[table_idx]
+                md_table = _docx_table_to_markdown(table)
+                if md_table:
+                    content_blocks.append(md_table)
+                    table_count += 1
+                table_idx += 1
 
-    if not paragraphs_content:
+    if not content_blocks:
         return []
 
-    full_text = '\n\n'.join(paragraphs_content)
+    full_text = '\n\n'.join(content_blocks)
     has_latex = math_count > 0
 
-    if has_latex:
+    if math_count:
         print(f"   → 提取了 {math_count} 个数学公式 (OMML→LaTeX)")
+    if table_count:
+        print(f"   → 提取了 {table_count} 个表格 (Markdown)")
 
     return [Document(
         page_content=full_text,
         metadata={
             "source": file_path,
             "file_type": "docx",
-            "extraction_method": "python-docx+omml",
+            "extraction_method": "python-docx+omml+table",
             "math_count": math_count,
             "has_latex": has_latex,
+            "table_count": table_count,
         }
     )]
 
@@ -1170,6 +1267,251 @@ def load_nt(file_path: str) -> list[Document]:
     return docs
 
 
+# ═══════════════════════════════════════════════
+# 图片加载器 — OCR + VLM 双通道
+# ═══════════════════════════════════════════════
+
+def _ocr_with_paddleocr(image_path: str, lang: str = "ch") -> str:
+    """使用 PaddleOCR 提取图片文字"""
+    try:
+        from paddleocr import PaddleOCR
+    except ImportError:
+        print("   ⚠️ PaddleOCR 未安装，尝试安装...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "paddleocr", "paddlepaddle"])
+        from paddleocr import PaddleOCR
+
+    ocr = PaddleOCR(use_angle_cls=True, lang=lang, show_log=False)
+    result = ocr.ocr(image_path, cls=True)
+    if not result or not result[0]:
+        return ""
+    lines = [line[1][0] for line in result[0] if line[1][0].strip()]
+    return "\n".join(lines)
+
+
+def _ocr_with_easyocr(image_path: str, lang: str = "ch") -> str:
+    """使用 EasyOCR 提取图片文字"""
+    try:
+        import easyocr
+    except ImportError:
+        print("   ⚠️ EasyOCR 未安装，尝试安装...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "easyocr"])
+        import easyocr
+
+    lang_list = ["ch_sim", "en"] if lang == "ch" else [lang]
+    reader = easyocr.Reader(lang_list)
+    result = reader.readtext(image_path)
+    lines = [text for (_, text, _) in result if text.strip()]
+    return "\n".join(lines)
+
+
+def _ocr_with_tesseract(image_path: str, lang: str = "chi_sim") -> str:
+    """使用 Tesseract OCR 提取图片文字"""
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        print("   ⚠️ pytesseract/Pillow 未安装，尝试安装...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "pytesseract", "Pillow"])
+        import pytesseract
+        from PIL import Image
+
+    tesseract_lang = "chi_sim+eng" if lang == "ch" else lang
+    img = Image.open(image_path)
+    return pytesseract.image_to_string(img, lang=tesseract_lang).strip()
+
+
+def _ocr_image(image_path: str) -> str:
+    """
+    自动选择 OCR 引擎提取图片文字。
+    优先级: paddleocr > easyocr > tesseract
+    """
+    from config import OCR_ENGINE, OCR_LANGUAGE
+
+    engine = OCR_ENGINE
+    lang = OCR_LANGUAGE
+
+    if engine == "paddleocr":
+        return _ocr_with_paddleocr(image_path, lang)
+    elif engine == "easyocr":
+        return _ocr_with_easyocr(image_path, lang)
+    elif engine == "tesseract":
+        return _ocr_with_tesseract(image_path, lang)
+
+    # auto 模式：按优先级尝试
+    errors = []
+    for name, func in [("paddleocr", _ocr_with_paddleocr), ("easyocr", _ocr_with_easyocr), ("tesseract", _ocr_with_tesseract)]:
+        try:
+            text = func(image_path, lang)
+            if text.strip():
+                return text
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+            continue
+
+    if errors:
+        print(f"   ⚠️ 所有 OCR 引擎均失败: {'; '.join(errors)}")
+    return ""
+
+
+def _vlm_describe_image(image_path: str) -> str:
+    """
+    使用 VLM (视觉语言模型) 描述图片内容。
+    支持通义千问 Qwen-VL / OpenAI GPT-4o 等。
+    """
+    from config import VLM_BACKEND, VLM_MODEL, VLM_API_KEY, VLM_BASE_URL
+    import base64
+
+    # 读取图片并编码为 base64
+    with open(image_path, "rb") as f:
+        img_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    ext = Path(image_path).suffix.lower()
+    mime_map = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".png": "image/png", ".gif": "image/gif",
+        ".bmp": "image/bmp", ".webp": "image/webp",
+        ".tiff": "image/tiff", ".tif": "image/tiff",
+    }
+    mime_type = mime_map.get(ext, "image/jpeg")
+
+    prompt = """请详细描述这张图片的内容。包括：
+1. 图片中的所有文字内容（逐字抄录）
+2. 图片的类型（如：发票、合同、表格、照片、图表、印章、签名等）
+3. 图片中的关键视觉元素（颜色、布局、图形等）
+4. 如果是文档类图片，说明文档的格式和结构
+
+请用中文回答，尽量详细和准确。"""
+
+    if VLM_BACKEND in ("tongyi", "openai"):
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=VLM_API_KEY, base_url=VLM_BASE_URL)
+            response = client.chat.completions.create(
+                model=VLM_MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mime_type};base64,{img_b64}"},
+                            },
+                        ],
+                    }
+                ],
+                max_tokens=1024,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"   ⚠️ VLM 描述失败: {e}")
+            return ""
+
+    # 本地 VLM（如 Qwen2-VL）
+    elif VLM_BACKEND == "local":
+        try:
+            from transformers import AutoProcessor, AutoModelForVision2Seq
+            import torch
+
+            # 懒加载
+            if not hasattr(_vlm_describe_image, "_local_model"):
+                model_name = VLM_MODEL
+                print(f"   🔧 加载本地 VLM: {model_name}...")
+                _vlm_describe_image._local_processor = AutoProcessor.from_pretrained(model_name)
+                _vlm_describe_image._local_model = AutoModelForVision2Seq.from_pretrained(
+                    model_name, torch_dtype=torch.float16, device_map="auto"
+                )
+
+            from PIL import Image
+            img = Image.open(image_path).convert("RGB")
+            processor = _vlm_describe_image._local_processor
+            model = _vlm_describe_image._local_model
+
+            inputs = processor(text=prompt, images=img, return_tensors="pt").to(model.device)
+            output = model.generate(**inputs, max_new_tokens=512)
+            return processor.decode(output[0], skip_special_tokens=True).strip()
+        except Exception as e:
+            print(f"   ⚠️ 本地 VLM 描述失败: {e}")
+            return ""
+
+    return ""
+
+
+def load_image(file_path: str) -> list[Document]:
+    """
+    加载图片文件，使用 OCR + VLM 双通道提取内容。
+
+    - OCR 通道：提取图片上的文字
+    - VLM 通道：视觉模型描述图片内容（印章、图表、照片等无文字内容）
+    - 双通道合并去重 → 用 BGE-M3 编码文本 → 存入 Milvus
+    """
+    import shutil
+    from config import IMAGE_STORAGE_DIR
+
+    print(f"🖼️ 加载图片: {file_path}")
+    print("   🔍 双通道处理: OCR + VLM...")
+
+    # 复制图片到存储目录（检索时可返回图片路径）
+    os.makedirs(IMAGE_STORAGE_DIR, exist_ok=True)
+    stored_path = os.path.join(IMAGE_STORAGE_DIR, os.path.basename(file_path))
+    if not os.path.exists(stored_path):
+        shutil.copy2(file_path, stored_path)
+
+    ocr_text = ""
+    vlm_text = ""
+
+    # 通道 1: OCR
+    try:
+        ocr_text = _ocr_image(file_path)
+        if ocr_text:
+            print(f"   ✅ OCR 提取文字: {len(ocr_text)} 字符")
+        else:
+            print(f"   ℹ️ OCR 未检测到文字（可能是无文字图片）")
+    except Exception as e:
+        print(f"   ⚠️ OCR 处理失败: {e}")
+
+    # 通道 2: VLM
+    try:
+        vlm_text = _vlm_describe_image(file_path)
+        if vlm_text:
+            print(f"   ✅ VLM 描述: {len(vlm_text)} 字符")
+        else:
+            print(f"   ℹ️ VLM 未返回描述")
+    except Exception as e:
+        print(f"   ⚠️ VLM 处理失败: {e}")
+
+    # 合并两通道内容
+    content_parts = []
+
+    if ocr_text and vlm_text:
+        content_parts.append(f"【图片文字内容】\n{ocr_text}")
+        content_parts.append(f"【图片视觉描述】\n{vlm_text}")
+    elif ocr_text:
+        content_parts.append(f"【图片文字内容】\n{ocr_text}")
+    elif vlm_text:
+        content_parts.append(f"【图片视觉描述】\n{vlm_text}")
+    else:
+        content_parts.append(f"图片文件: {os.path.basename(file_path)}")
+
+    full_content = "\n\n".join(content_parts)
+
+    return [Document(
+        page_content=full_content,
+        metadata={
+            "source": file_path,
+            "stored_image_path": stored_path,
+            "file_type": "image",
+            "data_type": "image",
+            "ocr_text_length": len(ocr_text),
+            "vlm_text_length": len(vlm_text),
+            "has_ocr_text": bool(ocr_text),
+            "has_vlm_description": bool(vlm_text),
+            "extraction_method": "ocr+vlm",
+        }
+    )]
+
+
 # 文件类型 → 加载函数 映射
 LOADERS = {
     ".pdf": load_pdf,
@@ -1195,6 +1537,11 @@ LOADERS = {
     ".epub": load_epub,
     ".srt": load_srt,
     ".vtt": load_srt,  # WebVTT 字幕格式，与 SRT 类似
+    # 图片格式 — OCR + VLM 双通道
+    ".jpg": load_image, ".jpeg": load_image,
+    ".png": load_image, ".gif": load_image,
+    ".bmp": load_image, ".webp": load_image,
+    ".tiff": load_image, ".tif": load_image,
 }
 
 

@@ -74,8 +74,16 @@ from config import (
     MAX_EXPANDED_QUERIES,
     # 多模态配置
     ENABLE_MULTIMODAL,
-    MULTIMODAL_IMAGE_MODEL,
     SUPPORTED_IMAGE_FORMATS,
+    IMAGE_STORAGE_DIR,
+    VLM_BACKEND,
+    VLM_MODEL,
+    VLM_API_KEY,
+    VLM_BASE_URL,
+    OCR_ENGINE,
+    OCR_LANGUAGE,
+    # 旧配置（保留兼容）
+    MULTIMODAL_IMAGE_MODEL,
     IMAGE_EMBEDDING_DIM,
     MULTIMODAL_WEIGHTS
 )
@@ -547,24 +555,34 @@ class DocumentProcessor:
             return False
     
     def _setup_multimodal(self):
-        """设置多模态支持"""
+        """设置多模态支持（OCR + VLM 双通道模式）"""
         if not ENABLE_MULTIMODAL:
-            print("⚠️ 多模态支持已禁用")
+            print("ℹ️ 多模态支持已禁用")
             return
-            
+
         try:
-            print("🔧 正在初始化多模态支持...")
-            from transformers import CLIPProcessor, CLIPModel
-            import torch
-            
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            self.image_embeddings_model = CLIPModel.from_pretrained(MULTIMODAL_IMAGE_MODEL).to(device)
-            self.image_processor = CLIPProcessor.from_pretrained(MULTIMODAL_IMAGE_MODEL)
-            print(f"✅ 多模态支持初始化成功 (设备: {device})")
+            print("🔧 正在初始化多模态支持 (OCR + VLM 双通道)...")
+            # 确保图片存储目录存在
+            os.makedirs(IMAGE_STORAGE_DIR, exist_ok=True)
+
+            # 检查 VLM 配置
+            if VLM_BACKEND in ("tongyi", "openai"):
+                if VLM_API_KEY:
+                    print(f"   ✅ VLM 后端: {VLM_BACKEND}, 模型: {VLM_MODEL}")
+                else:
+                    print(f"   ⚠️ VLM_API_KEY 未设置，图片描述功能不可用")
+            elif VLM_BACKEND == "local":
+                print(f"   ℹ️ VLM 后端: 本地模型 (懒加载)")
+            else:
+                print(f"   ⚠️ 未知 VLM 后端: {VLM_BACKEND}")
+
+            # OCR 引擎状态（懒加载，不在启动时加载）
+            print(f"   ✅ OCR 引擎: {OCR_ENGINE} (懒加载)")
+            print(f"   ✅ 图片存储目录: {IMAGE_STORAGE_DIR}")
+            print(f"   ✅ 多模态支持初始化成功 (OCR + VLM 模式)")
         except Exception as e:
             print(f"⚠️ 多模态支持初始化失败: {e}")
             print("⚠️ 将仅使用文本检索")
-            self.image_embeddings_model = None
     
     def _setup_query_expansion(self):
         """设置查询扩展"""
@@ -775,9 +793,11 @@ class DocumentProcessor:
             
         # 添加元数据
         for doc in doc_splits:
-            if 'source_type' not in doc.metadata:
+            if 'data_type' not in doc.metadata and 'source_type' not in doc.metadata:
                 source = doc.metadata.get('source', '')
-                if any(fmt in source.lower() for fmt in SUPPORTED_IMAGE_FORMATS):
+                if doc.metadata.get('file_type') == 'image' or any(
+                    fmt in source.lower() for fmt in SUPPORTED_IMAGE_FORMATS
+                ):
                     doc.metadata['data_type'] = 'image'
                 else:
                     doc.metadata['data_type'] = 'text'
@@ -954,18 +974,15 @@ class DocumentProcessor:
         # 1. 初始化向量库连接
         self.initialize_vectorstore()
         
-        # 2. 检查已存在的 URL (去重)
-        existing_urls = self.check_existing_urls(urls)
-        new_urls = [url for url in urls if url not in existing_urls]
-        
+        # 2. 直接加载所有 URL 文档（不再做重复检查）
         doc_splits = []
-        if new_urls:
-            print(f"🔄 发现 {len(new_urls)} 个新 URL，开始处理...")
-            docs = self.load_documents(new_urls)
+        if urls:
+            print(f"🔄 开始处理 {len(urls)} 个 URL...")
+            docs = self.load_documents(urls)
             doc_splits = self.split_documents(docs)
             self.add_documents_to_vectorstore(doc_splits)
         else:
-            print("✅ 所有 URL 已存在，跳过文档加载和向量化")
+            print("ℹ️ 无 URL 需要加载")
             
         # 3. 初始化混合检索 (Elasticsearch BM25)
         # 改进方案：使用 Elasticsearch 替代内存版 BM25，支持百万级数据
@@ -983,9 +1000,9 @@ class DocumentProcessor:
                         
                     print(f"📊 Elasticsearch 索引当前包含 {count} 个文档")
                     
-                    # 自动迁移逻辑：如果 ES 为空但 VectorStore 不为空，且本次没有新文档入库(避免重复)，尝试同步
+                    # 自动迁移逻辑：如果 ES 为空但 VectorStore 不为空，尝试同步
                     # 注意：如果 doc_splits 有值，它们已经在 add_documents_to_vectorstore 中被同步了，所以这里只需关注旧数据
-                    if count == 0 and len(existing_urls) > 0:
+                    if count == 0 and not doc_splits:
                         print("⚠️ Elasticsearch 索引为空，但向量库中有数据。正在尝试同步数据...")
                         all_docs = self.get_all_documents_from_vectorstore()
                         if all_docs:
@@ -1571,91 +1588,62 @@ class DocumentProcessor:
             return [query]
     
     def encode_image(self, image_path: str) -> np.ndarray:
-        """编码图像为嵌入向量"""
-        if not self.image_embeddings_model:
-            raise ValueError("多模态支持未初始化")
-            
-        try:
-            # 加载并处理图像
-            image = Image.open(image_path).convert('RGB')
-            inputs = self.image_processor(images=image, return_tensors="pt")
-            
-            # 获取图像嵌入
-            with torch.no_grad():
-                image_features = self.image_embeddings_model.get_image_features(**inputs)
-                # 标准化嵌入向量
-                image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
-                
-            return image_features.cpu().numpy().flatten()
-        except Exception as e:
-            print(f"⚠️ 图像编码失败: {e}")
-            raise
+        """
+        编码图像为嵌入向量（已弃用 CLIP，保留接口兼容）。
+        
+        新方案: 图片通过 OCR+VLM 转为文本后，用 BGE-M3 编码，
+        不再需要单独的图像嵌入模型。
+        """
+        raise NotImplementedError(
+            "encode_image 已弃用。新方案通过 OCR+VLM 将图片转为文本，"
+            "再用 BGE-M3 编码，无需单独的图像嵌入模型。"
+        )
     
     def multimodal_retrieve(self, query: str, image_paths: List[str] = None, top_k: int = 5) -> List:
-        """多模态检索，结合文本和图像"""
-        if not ENABLE_MULTIMODAL or not self.image_embeddings_model:
-            # 如果多模态未启用，回退到文本检索
+        """
+        多模态检索 (OCR+VLM 模式)。
+        
+        图片已在入库时通过 OCR+VLM 转为文本并用 BGE-M3 编码，
+        与普通文本共存于同一向量空间。检索时无需区分模态。
+        """
+        if not ENABLE_MULTIMODAL:
             return self.hybrid_retrieve(query, top_k) if ENABLE_HYBRID_SEARCH else self.retriever.invoke(query)[:top_k]
         
-        # 1. 文本查询 (Text-to-Text & Text-to-Image)
-        # 如果提供了文本查询，我们希望它能检索到文本和相关图像
-        # 此时不应该限制 data_type，或者应该显式包含两者
-        
-        # 如果没有提供图像，这可能是一个纯文本查询，但也可能想搜图
-        # 这里我们让 self.retriever (或 hybrid) 负责所有模态的检索
-        # (前提是它们都在同一个向量空间，CLIP 可以做到这一点)
+        # 文本查询即可同时检索文本和图片（因为图片内容已转为文本存入同一集合）
         text_docs = []
         if query:
-             text_docs = self.hybrid_retrieve(query, top_k) if ENABLE_HYBRID_SEARCH else self.retriever.invoke(query)[:top_k]
+            text_docs = self.hybrid_retrieve(query, top_k) if ENABLE_HYBRID_SEARCH else self.retriever.invoke(query)[:top_k]
         
-        # 如果没有提供图像输入，直接返回文本查询的结果
-        if not image_paths:
-            return text_docs
-            
-        try:
-            # 2. 图像查询 (Image-to-Text & Image-to-Image)
-            image_results = []
-            for image_path in image_paths:
-                # 检查文件格式
-                file_ext = image_path.split('.')[-1].lower()
-                if file_ext not in SUPPORTED_IMAGE_FORMATS:
-                    print(f"⚠️ 不支持的图像格式: {file_ext}")
-                    continue
-                    
-                # 编码图像
-                image_embedding = self.encode_image(image_path)
-                
-                # 使用图像嵌入进行检索
-                if self.vectorstore:
-                    # 图像可以检索文本描述，也可以检索相似图像
-                    # 这里我们不做限制，检索所有类型
-                    img_docs = self.vectorstore.similarity_search_by_vector(
-                        embedding=image_embedding,
-                        k=top_k
-                    )
-                    image_results.extend(img_docs)
-                
-            # 合并文本查询结果和图像查询结果
-            # 简单合并并去重
-            all_docs = text_docs + image_results
+        # 如果用户提供了图片作为查询输入，用 VLM 描述后再文本检索
+        if image_paths:
+            try:
+                for img_path in image_paths:
+                    from upload_and_index import _vlm_describe_image
+                    img_desc = _vlm_describe_image(img_path)
+                    if img_desc:
+                        # 用图片描述作为查询，检索相似内容
+                        img_docs = self.hybrid_retrieve(img_desc, top_k) if ENABLE_HYBRID_SEARCH else self.retriever.invoke(img_desc)[:top_k]
+                        text_docs.extend(img_docs)
+            except Exception as e:
+                print(f"⚠️ 图片查询检索失败: {e}")
             
             # 去重
             unique_docs = []
-            seen_content = set()
-            for doc in all_docs:
-                content = doc.page_content
-                if content not in seen_content:
-                    seen_content.add(content)
+            seen = set()
+            for doc in text_docs:
+                if doc.page_content not in seen:
+                    seen.add(doc.page_content)
                     unique_docs.append(doc)
-            
-            final_docs = unique_docs[:top_k]
-            
-            print(f"✅ 多模态检索完成，返回 {len(final_docs)} 个结果")
-            return final_docs
-        except Exception as e:
-            print(f"⚠️ 多模态检索失败: {e}")
-            print("回退到文本检索")
-            return text_docs
+            text_docs = unique_docs[:top_k]
+        
+        # 标记结果中的图片文档
+        for doc in text_docs:
+            if doc.metadata.get("data_type") == "image" or doc.metadata.get("file_type") == "image":
+                doc.metadata["_is_image_result"] = True
+        
+        print(f"✅ 多模态检索完成，返回 {len(text_docs)} 个结果 "
+              f"(含 {sum(1 for d in text_docs if d.metadata.get('_is_image_result'))} 个图片)")
+        return text_docs
     
     def hybrid_retrieve(self, query: str, top_k: int = 5) -> List:
         """混合检索，结合向量检索和关键词检索"""
