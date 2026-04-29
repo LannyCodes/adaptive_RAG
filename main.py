@@ -649,15 +649,15 @@ def main():
             # "什么是提示工程中的上下文提示？",
             # "什么是自监督学习？",
             # "什么是提示工程指南？"
-            "MinMaxScaler的公式是什么？请列出公式并说明",
-            "什么是主体资信供应商风险偏离度？",
-            "如何提升LLM面对对抗性攻击的鲁棒性？",
+            # "MinMaxScaler的公式是什么？请列出公式并说明",
+            # "什么是主体资信供应商风险偏离度？",
+            # "如何提升LLM面对对抗性攻击的鲁棒性？",
             # "AI Agent的工具使用能力是如何工作的？",
             "谁和 Ben Bloomberg 一起开发了 Harmoniser？",
-            "Behind the Tech 播客都有哪些嘉宾？",
-            "MIT 和微软之间有什么联系？",
-            "Kevin Scott 和 Jacob Collier 有什么关系？",
-            "Kevin Scott 是谁？"
+            # "Behind the Tech 播客都有哪些嘉宾？",
+            # "MIT 和微软之间有什么联系？",
+            # "Kevin Scott 和 Jacob Collier 有什么关系？",
+            # "Kevin Scott 是谁？"
         ]
         
         # 检查GPU使用情况
