@@ -856,29 +856,38 @@ class DocumentProcessor:
                         
                         # 分批查询，避免 gRPC 响应超过 4MB 限制
                         # KG 实体描述很长，一次查太多会超出限制
+                        # Milvus 限制: offset + limit ≤ 16384
+                        MAX_QUERY_WINDOW = 16384
                         batch_size = 200
-                        query_limit = limit if limit else 16384
+                        query_limit = limit if limit else MAX_QUERY_WINDOW
                         offset = 0
                         
                         while offset < query_limit:
+                            # 确保 offset + limit 不超过 Milvus 最大窗口
+                            current_limit = min(batch_size, MAX_QUERY_WINDOW - offset)
+                            if current_limit <= 0:
+                                break
                             try:
                                 expr = f"{pk_field} >= 0"
                                 batch = col.query(
                                     expr=expr,
                                     output_fields=[text_field, "source", "data_type"],
-                                    limit=batch_size,
+                                    limit=current_limit,
                                     offset=offset,
                                 )
                             except Exception as batch_e:
                                 # 如果分批也失败，尝试更小的批次
                                 if batch_size > 50:
                                     batch_size = 50
+                                    current_limit = min(batch_size, MAX_QUERY_WINDOW - offset)
+                                    if current_limit <= 0:
+                                        break
                                     print(f"   🔄 缩小查询批次到 {batch_size} 重试...")
                                     try:
                                         batch = col.query(
                                             expr=expr,
                                             output_fields=[text_field, "source", "data_type"],
-                                            limit=batch_size,
+                                            limit=current_limit,
                                             offset=offset,
                                         )
                                     except Exception:
