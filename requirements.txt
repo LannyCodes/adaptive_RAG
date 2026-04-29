@@ -32,6 +32,13 @@ tiktoken==0.7.0
 beautifulsoup4==4.12.2
 requests==2.32.3
 Pillow==10.4.0  # 图像处理，支持多模态功能
+openai>=1.0.0  # VLM API 客户端（通义千问/Qwen-VL 等视觉语言模型）
+
+# OCR 引擎（三选一，按优先级自动回退）
+paddleocr>=2.7.0  # PaddleOCR（推荐，中文识别效果最好）
+paddlepaddle>=2.5.0  # PaddleOCR 依赖的深度学习框架
+easyocr>=1.7.0  # EasyOCR（回退方案，多语言支持）
+pytesseract>=0.3.10  # Tesseract OCR（最后回退方案，需系统安装 tesseract-ocr）
 rank-bm25==0.2.2  # BM25检索，用于混合搜索
 elasticsearch==8.9.0  # Elasticsearch 客户端，用于大规模 BM25 检索
 
