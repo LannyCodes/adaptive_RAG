@@ -643,8 +643,13 @@ class DocumentProcessor:
                 if connections.has_connection("default"):
                     connections.disconnect("default")
 
-                connections.connect(alias="default", **connection_args)
-                print("✅ pymilvus 全局连接建立成功")
+                # 增大 gRPC 消息限制：KG 实体描述较长，默认 4MB 不够
+                grpc_options = [
+                    ("grpc.max_send_message_length", 64 * 1024 * 1024),
+                    ("grpc.max_receive_message_length", 64 * 1024 * 1024),
+                ]
+                connections.connect(alias="default", **connection_args, options=grpc_options)
+                print("✅ pymilvus 全局连接建立成功 (gRPC max=64MB)")
 
                 if utility.has_collection(COLLECTION_NAME, using="default"):
                     print(f"✅ 集合 {COLLECTION_NAME} 已存在")
@@ -666,7 +671,13 @@ class DocumentProcessor:
             self.vectorstore = Milvus(
                 embedding_function=self.embeddings,
                 collection_name=COLLECTION_NAME,
-                connection_args={"alias": "default"},
+                connection_args={
+                    "alias": "default",
+                    "options": [
+                        ("grpc.max_send_message_length", 64 * 1024 * 1024),
+                        ("grpc.max_receive_message_length", 64 * 1024 * 1024),
+                    ],
+                },
                 index_params={
                     "metric_type": "L2",
                     "index_type": final_index_type,

@@ -470,8 +470,12 @@ def main():
 
     # 连接 Milvus
     print(f"\n🔌 连接 Zilliz Cloud...")
-    connections.connect(alias="default", uri=MILVUS_URI, token=MILVUS_PASSWORD)
-    print("✅ 已连接")
+    grpc_options = [
+        ("grpc.max_send_message_length", 64 * 1024 * 1024),
+        ("grpc.max_receive_message_length", 64 * 1024 * 1024),
+    ]
+    connections.connect(alias="default", uri=MILVUS_URI, token=MILVUS_PASSWORD, options=grpc_options)
+    print("✅ 已连接 (gRPC max=64MB)")
 
     collections = utility.list_collections()
     if COLLECTION_NAME in collections:
