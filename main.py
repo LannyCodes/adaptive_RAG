@@ -150,8 +150,9 @@ class AdaptiveRAGSystem:
                 
                 # 按优先级尝试加载图谱数据:
                 # 1. source/knowledge_graph_export/knowledge_graph.jsonld (最完整)
-                # 2. knowledge_graph.json (本系统保存的)
-                # 3. source/knowledge_graph_export/knowledge_graph_triples.csv
+                # 2. data/knowledge_graph.json (Kaggle 导出)
+                # 3. knowledge_graph.json (项目根目录)
+                # 4. source/knowledge_graph_export/knowledge_graph_triples.csv
                 kg_loaded = False
                 
                 jsonld_path = os.path.join(
@@ -166,6 +167,21 @@ class AdaptiveRAGSystem:
                         print("   ✅ 已从 JSON-LD 加载知识图谱")
                     except Exception as e:
                         print(f"   ⚠️ JSON-LD 加载失败: {e}")
+                
+                if not kg_loaded:
+                    # 尝试从 data/ 目录加载（Kaggle 导出路径）
+                    data_kg_path = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "data", "knowledge_graph.json"
+                    )
+                    if os.path.exists(data_kg_path):
+                        print(f"   📂 发现 data/knowledge_graph.json")
+                        try:
+                            kg.load_from_file(data_kg_path)
+                            kg_loaded = True
+                            print("   ✅ 已从 data/knowledge_graph.json 加载知识图谱")
+                        except Exception as e:
+                            print(f"   ⚠️ data/knowledge_graph.json 加载失败: {e}")
                 
                 if not kg_loaded:
                     try:
@@ -234,7 +250,8 @@ class AdaptiveRAGSystem:
         self.workflow_nodes = WorkflowNodes(
             doc_processor=self.doc_processor,
             graders=self.graders,
-            retriever=self.retriever
+            retriever=self.retriever,
+            graph_retriever=self.graph_retriever  # 传递 GraphRAG 检索器
         )
         
         workflow = StateGraph(GraphState)

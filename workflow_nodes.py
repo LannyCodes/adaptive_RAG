@@ -12,7 +12,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.prompts import PromptTemplate
 import inspect
 
-from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, ENABLE_QUERY_EXPANSION, ENABLE_MULTIMODAL, EMBEDDING_MODEL
+from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, ENABLE_QUERY_EXPANSION, ENABLE_MULTIMODAL, EMBEDDING_MODEL, ENABLE_GRAPHRAG
 from document_processor import DocumentProcessor
 from retrieval_evaluation import RetrievalEvaluator, RetrievalResult
 from pprint import pprint
@@ -29,6 +29,10 @@ class GraphState(TypedDict):
         documents: 文档列表
         retry_count: 重试计数器，防止无限循环
         retrieval_metrics: 检索评估指标
+        sub_queries: 分解后的子问题列表
+        current_query_index: 当前处理的子问题索引
+        original_question: 原始问题，用于早期终止检查
+        kg_context: 知识图谱扩展上下文（实体邻域、关系路径、社区摘要）
     """
     question: str
     generation: str
@@ -38,15 +42,17 @@ class GraphState(TypedDict):
     sub_queries: List[str]  # 分解后的子问题列表
     current_query_index: int  # 当前处理的子问题索引
     original_question: str # 原始问题，用于早期终止检查
+    kg_context: List[str]  # 知识图谱扩展上下文
 
 
 class WorkflowNodes:
     """工作流节点类，包含所有节点函数"""
     
-    def __init__(self, doc_processor, graders, retriever=None):
+    def __init__(self, doc_processor, graders, retriever=None, graph_retriever=None):
         self.doc_processor = doc_processor  # 接收DocumentProcessor实例
         self.retriever = retriever if retriever is not None else getattr(doc_processor, 'retriever', None)
         self.graders = graders
+        self.graph_retriever = graph_retriever  # GraphRAG检索器
         
         # 初始化检索评估器（复用已有的embeddings模型，避免重复加载到GPU）
         embeddings_for_eval = getattr(doc_processor, 'embeddings', None)
@@ -177,6 +183,17 @@ class WorkflowNodes:
             retrieval_time = time.time() - retrieval_start_time
             retrieval_metrics = self._evaluate_retrieval_results(original_question, all_documents, retrieval_time)
             
+            # 知识图谱扩展（并行检索路径）
+            kg_context = state.get("kg_context", [])
+            if self.graph_retriever and ENABLE_GRAPHRAG:
+                kg_hits = [d for d in all_documents if d.metadata.get("data_type", "").startswith("kg_")]
+                if kg_hits:
+                    print(f"   🔗 检测到 {len(kg_hits)} 条知识图谱命中，触发图谱扩展...")
+                    try:
+                        kg_context = self._expand_with_knowledge_graph(original_question, kg_hits, kg_context)
+                    except Exception as e:
+                        print(f"   ⚠️ 知识图谱扩展失败: {e}")
+            
             return {
                 "documents": all_documents,
                 "question": original_question,
@@ -185,6 +202,7 @@ class WorkflowNodes:
                 "sub_queries": sub_queries,
                 "current_query_index": len(sub_queries) - 1,  # 标记所有子查询已完成
                 "original_question": original_question,
+                "kg_context": kg_context,
             }
         
         # ── 单查询或重试场景 ──
@@ -302,6 +320,19 @@ class WorkflowNodes:
             except Exception as fallback_e:
                 print(f"❌ 回退检索也失败: {fallback_e}")
         
+        # === 知识图谱扩展：检测 KG 命中并扩展上下文 ===
+        kg_context = state.get("kg_context", [])
+        if self.graph_retriever and ENABLE_GRAPHRAG:
+            # 检测检索结果中是否包含知识图谱文档
+            kg_hits = [d for d in documents if d.metadata.get("data_type", "").startswith("kg_")]
+            if kg_hits:
+                print(f"   🔗 检测到 {len(kg_hits)} 条知识图谱命中，触发图谱扩展...")
+                try:
+                    kg_context = self._expand_with_knowledge_graph(question, kg_hits, kg_context)
+                except Exception as e:
+                    print(f"   ⚠️ 知识图谱扩展失败: {e}")
+        # =================================
+
         # === 向量多跳检索支持：合并上下文 ===
         # 如果这不是第一次检索（即重试次数 > 0 或 正在处理后续子查询），说明之前的检索结果可能不完整或问题被重写了
         # 我们应该保留之前的有价值文档，实现 "累积式上下文" (Accumulated Context)
@@ -339,6 +370,7 @@ class WorkflowNodes:
             "sub_queries": sub_queries,
             "current_query_index": 0,
             "original_question": original_question,
+            "kg_context": kg_context,
         }
     
     def generate(self, state):
@@ -355,6 +387,18 @@ class WorkflowNodes:
         question = state["question"]
         original_question = state.get("original_question", question) # 优先使用原始问题
         documents = state["documents"]
+        kg_context = state.get("kg_context", [])
+
+        # 构建上下文：普通文档 + 知识图谱扩展上下文
+        context = documents
+        if kg_context:
+            print(f"   🔗 融合 {len(kg_context)} 条知识图谱扩展上下文")
+            # 将 KG 上下文转为 Document 对象加入 context
+            for kc in kg_context:
+                if isinstance(kc, str):
+                    context.append(Document(page_content=kc, metadata={"data_type": "kg_expanded"}))
+                elif isinstance(kc, Document):
+                    context.append(kc)
 
         # RAG生成 - 使用原始问题以确保回答用户的初始意图
         # 如果用户有特定的格式要求（如Markdown），通常包含在original_question中
@@ -367,15 +411,15 @@ class WorkflowNodes:
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 generation = executor.submit(
                     self.rag_chain.invoke,
-                    {"context": documents, "question": original_question}
+                    {"context": context, "question": original_question}
                 ).result()
         except RuntimeError:
             # 没有运行中的事件循环，直接执行
-            generation = self.rag_chain.invoke({"context": documents, "question": original_question})
+            generation = self.rag_chain.invoke({"context": context, "question": original_question})
         except Exception as e:
             print(f"⚠️ 生成失败: {e}")
             generation = "生成答案时出错"
-        return {"documents": documents, "question": question, "generation": generation}
+        return {"documents": documents, "question": question, "generation": generation, "kg_context": kg_context}
     
     def grade_documents(self, state):
         """
@@ -1011,6 +1055,113 @@ class WorkflowNodes:
             print("---决策：生成不基于文档，重新转换查询---")
             return "not supported"
     
+    def _expand_with_knowledge_graph(self, question: str, kg_hits: list, existing_context: list) -> list:
+        """
+        基于向量检索命中的 KG 文档，用图谱遍历扩展上下文
+        
+        流程:
+        1. 从 kg_hits 提取种子实体名称
+        2. 在 NetworkX 图谱中查找邻居实体和关系
+        3. 获取相关社区摘要
+        4. 去重后追加到 kg_context
+        
+        Args:
+            question: 用户问题
+            kg_hits: 检索命中的 KG 文档列表
+            existing_context: 已有的 KG 上下文
+            
+        Returns:
+            扩展后的 KG 上下文列表
+        """
+        kg = self.graph_retriever.kg
+        context = list(existing_context)
+        seen = set(existing_context)
+        
+        # 1. 提取种子实体
+        seed_entities = set()
+        for doc in kg_hits:
+            data_type = doc.metadata.get("data_type", "")
+            if data_type == "kg_entity":
+                name = doc.metadata.get("kg_name", "")
+                if name:
+                    seed_entities.add(name)
+            elif data_type == "kg_relationship":
+                subj = doc.metadata.get("kg_subject", "")
+                obj = doc.metadata.get("kg_object", "")
+                if subj:
+                    seed_entities.add(subj)
+                if obj:
+                    seed_entities.add(obj)
+        
+        if not seed_entities:
+            return context
+        
+        print(f"   种子实体: {list(seed_entities)[:5]}{'...' if len(seed_entities) > 5 else ''}")
+        
+        # 2. 图谱遍历：获取种子实体的邻居和关系（2跳）
+        expanded_entities = set(seed_entities)
+        relations_found = []
+        
+        for entity in seed_entities:
+            if entity not in kg.graph:
+                continue
+            
+            # 1跳邻居
+            neighbors = kg.get_node_neighbors(entity, depth=2) if hasattr(kg, 'get_node_neighbors') else []
+            expanded_entities.update(neighbors)
+            
+            # 收集关系
+            for neighbor in neighbors:
+                if kg.graph.has_edge(entity, neighbor):
+                    edge_data = kg.graph.get_edge_data(entity, neighbor)
+                    if isinstance(edge_data, dict):
+                        rel_type = edge_data.get('relation_type', 'RELATED')
+                        desc = edge_data.get('description', '')
+                        weight = edge_data.get('weight', 1.0)
+                        rel_text = f"{entity} --[{rel_type}]--> {neighbor}"
+                        if desc:
+                            rel_text += f": {desc}"
+                        if rel_text not in seen:
+                            relations_found.append(rel_text)
+                            seen.add(rel_text)
+        
+        # 3. 收集实体信息
+        entity_infos = []
+        for entity in list(expanded_entities)[:20]:  # 限制数量
+            info = kg.get_entity_info(entity) if hasattr(kg, 'get_entity_info') else None
+            if info:
+                etype = info.get('type', 'UNKNOWN')
+                desc = info.get('description', '')
+                text = f"{entity} ({etype}): {desc}"
+                if text not in seen:
+                    entity_infos.append(text)
+                    seen.add(text)
+        
+        # 4. 收集相关社区摘要
+        community_texts = []
+        if hasattr(kg, 'community_summaries') and kg.community_summaries:
+            # 找包含种子实体的社区
+            for cid, members in (kg.communities or {}).items():
+                if isinstance(members, (list, set)) and any(e in members for e in seed_entities):
+                    summary = kg.community_summaries.get(cid, "")
+                    if summary and summary not in seen:
+                        community_texts.append(f"[社区摘要 {cid}] {summary}")
+                        seen.add(summary)
+                        if len(community_texts) >= 3:  # 最多3个社区
+                            break
+        
+        # 5. 组装扩展上下文
+        if entity_infos:
+            context.append(f"【知识图谱-扩展实体】\n" + "\n".join(entity_infos[:15]))
+        if relations_found:
+            context.append(f"【知识图谱-扩展关系】\n" + "\n".join(relations_found[:15]))
+        if community_texts:
+            context.append(f"【知识图谱-社区摘要】\n" + "\n".join(community_texts))
+        
+        print(f"   扩展结果: {len(entity_infos)} 实体, {len(relations_found)} 关系, {len(community_texts)} 社区")
+        
+        return context
+
     def _evaluate_retrieval_results(self, question, documents, retrieval_time):
         """
         评估检索结果的质量
