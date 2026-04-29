@@ -3,6 +3,37 @@
 负责文档加载、文本分块、向量化和向量数据库初始化
 """
 
+import os
+
+# 全局设置 pymilvus gRPC 消息大小限制 (默认 4MB 太小，KG 实体描述很长)
+# 通过 monkey-patch 确保所有连接都带增大的 gRPC 限制
+_GRPC_OPTIONS = [
+    ("grpc.max_send_message_length", 64 * 1024 * 1024),
+    ("grpc.max_receive_message_length", 64 * 1024 * 1024),
+]
+
+try:
+    from pymilvus import connections as _pm_conn
+    _original_connect = _pm_conn.connect
+
+    def _patched_connect(*args, **kwargs):
+        # 合并 gRPC options，不覆盖用户显式传入的
+        existing_opts = kwargs.get("options", [])
+        if not existing_opts:
+            kwargs["options"] = _GRPC_OPTIONS
+        else:
+            # 合并去重
+            opt_keys = {k for k, _ in existing_opts}
+            for k, v in _GRPC_OPTIONS:
+                if k not in opt_keys:
+                    existing_opts.append((k, v))
+        return _original_connect(*args, **kwargs)
+
+    _pm_conn.connect = _patched_connect
+    print("✅ 已注入 pymilvus gRPC 消息限制 (64MB)")
+except ImportError:
+    pass  # pymilvus 未安装，后续会报错
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_milvus import Milvus
@@ -643,13 +674,8 @@ class DocumentProcessor:
                 if connections.has_connection("default"):
                     connections.disconnect("default")
 
-                # 增大 gRPC 消息限制：KG 实体描述较长，默认 4MB 不够
-                grpc_options = [
-                    ("grpc.max_send_message_length", 64 * 1024 * 1024),
-                    ("grpc.max_receive_message_length", 64 * 1024 * 1024),
-                ]
-                connections.connect(alias="default", **connection_args, options=grpc_options)
-                print("✅ pymilvus 全局连接建立成功 (gRPC max=64MB)")
+                connections.connect(alias="default", **connection_args)
+                print("✅ pymilvus 全局连接建立成功")
 
                 if utility.has_collection(COLLECTION_NAME, using="default"):
                     print(f"✅ 集合 {COLLECTION_NAME} 已存在")
@@ -671,13 +697,7 @@ class DocumentProcessor:
             self.vectorstore = Milvus(
                 embedding_function=self.embeddings,
                 collection_name=COLLECTION_NAME,
-                connection_args={
-                    "alias": "default",
-                    "options": [
-                        ("grpc.max_send_message_length", 64 * 1024 * 1024),
-                        ("grpc.max_receive_message_length", 64 * 1024 * 1024),
-                    ],
-                },
+                connection_args={"alias": "default"},
                 index_params={
                     "metric_type": "L2",
                     "index_type": final_index_type,
@@ -834,30 +854,51 @@ class DocumentProcessor:
                         # 确定文本字段名
                         text_field = self.vectorstore._text_field if hasattr(self.vectorstore, "_text_field") else "text"
                         
-                        # 构造查询
-                        # 注意：Milvus query limit 限制 (默认 16384)
-                        # 对于百万级数据，应该使用 iterator，但 pymilvus 的 iterator 接口随版本变化
-                        # 这里先尝试获取尽可能多的数据 (比如 10000 条作为示例，或者分批)
-                        
+                        # 分批查询，避免 gRPC 响应超过 4MB 限制
+                        # KG 实体描述很长，一次查太多会超出限制
+                        batch_size = 200
                         query_limit = limit if limit else 16384
+                        offset = 0
                         
-                        # 尝试查询
-                        # 假设 PK 是 INT64，使用 >= 0 匹配所有
-                        expr = f"{pk_field} >= 0"
-                        # 如果 PK 是字符串 (VARCHAR)，使用 != ""
-                        # 这里我们简单尝试，如果不成功则捕获异常
-                        
-                        res = col.query(
-                            expr=expr,
-                            output_fields=[text_field, "source", "data_type"], # 获取必要的字段
-                            limit=query_limit
-                        )
-                        
-                        for item in res:
-                            content = item.get(text_field, "")
-                            # 构造 metadata (排除文本和PK)
-                            meta = {k: v for k, v in item.items() if k != text_field and k != pk_field}
-                            docs.append(Document(page_content=content, metadata=meta))
+                        while offset < query_limit:
+                            try:
+                                expr = f"{pk_field} >= 0"
+                                batch = col.query(
+                                    expr=expr,
+                                    output_fields=[text_field, "source", "data_type"],
+                                    limit=batch_size,
+                                    offset=offset,
+                                )
+                            except Exception as batch_e:
+                                # 如果分批也失败，尝试更小的批次
+                                if batch_size > 50:
+                                    batch_size = 50
+                                    print(f"   🔄 缩小查询批次到 {batch_size} 重试...")
+                                    try:
+                                        batch = col.query(
+                                            expr=expr,
+                                            output_fields=[text_field, "source", "data_type"],
+                                            limit=batch_size,
+                                            offset=offset,
+                                        )
+                                    except Exception:
+                                        print(f"   ⚠️ 批次查询失败 (offset={offset}): {batch_e}")
+                                        break
+                                else:
+                                    print(f"   ⚠️ 批次查询失败 (offset={offset}): {batch_e}")
+                                    break
+                            
+                            if not batch:
+                                break
+                            
+                            for item in batch:
+                                content = item.get(text_field, "")
+                                meta = {k: v for k, v in item.items() if k != text_field and k != pk_field}
+                                docs.append(Document(page_content=content, metadata=meta))
+                            
+                            offset += len(batch)
+                            if len(batch) < batch_size:
+                                break  # 最后一批不足，说明数据已查完
                         
                         if len(docs) > 0:
                             print(f"✅ 从 Milvus 加载了 {len(docs)} 条文档用于构建 BM25")
