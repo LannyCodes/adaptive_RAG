@@ -213,7 +213,7 @@ async def chat_endpoint(request: ChatRequest):
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """文件上传接口（支持图片 OCR+VLM 即时索引）"""
+    """文件上传接口（所有文件即时解析+向量化，图片额外 OCR+VLM）"""
     try:
         # 确保上传目录存在
         upload_dir = "./data/uploads"
@@ -224,29 +224,56 @@ async def upload_file(file: UploadFile = File(...)):
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        # 如果是图片文件，即时 OCR+VLM 处理并索引
-        img_exts = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
+        # 检查文件扩展名是否支持
         ext = os.path.splitext(file.filename)[1].lower()
-        if ext in img_exts and rag_system and hasattr(rag_system, 'doc_processor'):
-            try:
-                from upload_and_index import load_image, LatexAwareTextSplitter
-                docs = load_image(file_path)
-                if docs:
-                    splitter = LatexAwareTextSplitter()
-                    doc_splits = splitter.split_documents(docs)
-                    rag_system.doc_processor.add_documents_to_vectorstore(doc_splits)
-                    return {
-                        "filename": file.filename,
-                        "status": "success",
-                        "message": f"图片上传并索引成功 (OCR+VLM, {len(doc_splits)} 个文档块)",
-                        "indexed": True,
-                        "doc_count": len(doc_splits),
-                    }
-            except Exception as idx_e:
-                print(f"⚠️ 图片索引失败: {idx_e}")
-                return {"filename": file.filename, "status": "success", "message": "图片上传成功，但索引失败", "indexed": False}
+        from upload_and_index import LOADERS, load_file, LatexAwareTextSplitter
+        from config import CHUNK_SIZE, CHUNK_OVERLAP
         
-        return {"filename": file.filename, "status": "success", "message": "文件上传成功，将在下次索引重建时生效"}
+        if ext not in LOADERS:
+            return {
+                "filename": file.filename,
+                "status": "success",
+                "message": f"文件已上传，但不支持 {ext} 格式的自动索引（支持: {', '.join(sorted(set(LOADERS.keys())))})",
+                "indexed": False,
+            }
+        
+        if not rag_system or not hasattr(rag_system, 'doc_processor'):
+            return {"filename": file.filename, "status": "success", "message": "文件已上传，RAG 系统未就绪，稍后将自动索引", "indexed": False}
+        
+        try:
+            # 解析文件（图片自动走 OCR+VLM 双通道，其他走对应加载器）
+            docs = load_file(file_path)
+            if not docs:
+                return {"filename": file.filename, "status": "success", "message": "文件已上传，但未提取到内容", "indexed": False}
+            
+            # 检测是否包含 LaTeX 公式，选择分块器
+            has_latex = any(
+                d.metadata.get("has_latex") or "$$" in d.page_content or (d.page_content.count("$") >= 2)
+                for d in docs
+            )
+            if has_latex:
+                splitter = LatexAwareTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+            else:
+                from langchain_text_splitters import RecursiveCharacterTextSplitter
+                splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+            
+            doc_splits = splitter.split_documents(docs)
+            rag_system.doc_processor.add_documents_to_vectorstore(doc_splits)
+            
+            # 生成友好提示
+            file_type_desc = "图片(OCR+VLM)" if docs[0].metadata.get("file_type") == "image" else ext.lstrip(".")
+            return {
+                "filename": file.filename,
+                "status": "success",
+                "message": f"文件上传并索引成功 ({file_type_desc}, {len(docs)} 段→{len(doc_splits)} 块)",
+                "indexed": True,
+                "doc_count": len(doc_splits),
+            }
+        except Exception as idx_e:
+            import traceback
+            traceback.print_exc()
+            return {"filename": file.filename, "status": "success", "message": f"文件上传成功，但索引失败: {str(idx_e)}", "indexed": False}
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
 
