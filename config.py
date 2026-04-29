@@ -50,59 +50,9 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
-# 知识库URL配置
-KNOWLEDGE_BASE_URLS = [
-    "https://learnprompting.org/docs/introduction",
-    "https://lilianweng.github.io/posts/2017-06-21-overview/",
-    "https://lilianweng.github.io/posts/2017-07-08-stock-rnn-part-1/",
-    "https://lilianweng.github.io/posts/2017-07-22-stock-rnn-part-2/",
-    "https://lilianweng.github.io/posts/2017-08-01-interpretation/",
-    "https://lilianweng.github.io/posts/2017-08-20-gan/",
-    "https://lilianweng.github.io/posts/2017-09-28-information-bottleneck/",
-    "https://lilianweng.github.io/posts/2017-10-15-word-embedding/",
-    "https://lilianweng.github.io/posts/2017-10-29-object-recognition-part-1/",
-    "https://lilianweng.github.io/posts/2017-12-15-object-recognition-part-2/",
-    "https://lilianweng.github.io/posts/2017-12-31-object-recognition-part-3/",
-    "https://lilianweng.github.io/posts/2018-01-23-multi-armed-bandit/",
-    "https://lilianweng.github.io/posts/2018-02-19-rl-overview/",
-    "https://lilianweng.github.io/posts/2018-04-08-policy-gradient/",
-    "https://lilianweng.github.io/posts/2018-05-05-drl-implementation/",
-    "https://lilianweng.github.io/posts/2018-06-24-attention/",
-    "https://lilianweng.github.io/posts/2018-08-12-vae/",
-    "https://lilianweng.github.io/posts/2018-10-13-flow-models/",
-    "https://lilianweng.github.io/posts/2018-11-30-meta-learning/",
-    "https://lilianweng.github.io/posts/2018-12-27-object-recognition-part-4/",
-    "https://lilianweng.github.io/posts/2019-01-31-lm/",
-    "https://lilianweng.github.io/posts/2019-03-14-overfit/",
-    "https://lilianweng.github.io/posts/2019-05-05-domain-randomization/",
-    "https://lilianweng.github.io/posts/2019-06-23-meta-rl/",
-    "https://lilianweng.github.io/posts/2019-09-05-evolution-strategies/",
-    "https://lilianweng.github.io/posts/2019-11-10-self-supervised/",
-    "https://lilianweng.github.io/posts/2020-01-29-curriculum-rl/",
-    "https://lilianweng.github.io/posts/2020-04-07-the-transformer-family/",
-    "https://lilianweng.github.io/posts/2020-06-07-exploration-drl/",
-    "https://lilianweng.github.io/posts/2020-08-06-nas/",
-    "https://lilianweng.github.io/posts/2020-10-29-odqa/",
-    "https://lilianweng.github.io/posts/2021-01-02-controllable-text-generation/",
-    "https://lilianweng.github.io/posts/2021-03-21-lm-toxicity/",
-    "https://lilianweng.github.io/posts/2021-05-31-contrastive/",
-    "https://lilianweng.github.io/posts/2021-07-11-diffusion-models/",
-    "https://lilianweng.github.io/posts/2021-09-25-train-large/",
-    "https://lilianweng.github.io/posts/2021-12-05-semi-supervised/",
-    "https://lilianweng.github.io/posts/2022-02-20-active-learning/",
-    "https://lilianweng.github.io/posts/2022-04-15-data-gen/",
-    "https://lilianweng.github.io/posts/2022-06-09-vlm/",
-    "https://lilianweng.github.io/posts/2022-09-08-ntk/",
-    "https://lilianweng.github.io/posts/2023-01-10-inference-optimization/",
-    "https://lilianweng.github.io/posts/2023-01-27-the-transformer-family-v2/",
-    "https://lilianweng.github.io/posts/2023-03-15-prompt-engineering/",
-    "https://lilianweng.github.io/posts/2023-06-23-agent/",
-    "https://lilianweng.github.io/posts/2023-10-25-adv-attack-llm/",
-    "https://lilianweng.github.io/posts/2024-04-13-diffusion-models-v2/",
-    "https://lilianweng.github.io/posts/2024-07-07-hallucination/",
-    "https://lilianweng.github.io/posts/2024-11-28-reward-hacking/",
-    "https://lilianweng.github.io/posts/2025-05-01-thinking/"
-]
+# 知识库URL配置（已索引到远程向量库，注释保留供参考）
+# 如需从 URL 加载文档，参考 upload_and_index.py 的 load_file 用法
+KNOWLEDGE_BASE_URLS = []
 
 # 文档分块配置
 CHUNK_SIZE = 1024  # 增加到 1024 以保留更多上下文，配合 BGE-M3 使用

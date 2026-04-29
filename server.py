@@ -11,7 +11,22 @@ FastAPI + React 18 单文件全栈应用
 python server.py
 """
 
+# ── 环境变量 —— 必须在所有 import 之前设置 ──
 import os
+
+# 1. 抑制 CUDA 插件重复注册警告 (cuFFT/cuDNN/cuBLAS)
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
+# 2. 抑制 absl 日志输出到 STDERR
+os.environ["ABSL_MIN_LOG_LEVEL"] = "3"
+
+# 3. 抑制 protobuf MessageFactory.GetPrototype 错误
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
+# 4. 抑制 HuggingFace tokenizers fork 死锁警告
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import sys
 import uvicorn
 import subprocess
@@ -241,6 +256,17 @@ async def upload_file(file: UploadFile = File(...)):
             return {"filename": file.filename, "status": "success", "message": "文件已上传，RAG 系统未就绪，稍后将自动索引", "indexed": False}
         
         try:
+            # 检查文件是否已索引过（去重）
+            existing = rag_system.doc_processor.check_existing_urls([file_path])
+            if file_path in existing:
+                return {
+                    "filename": file.filename,
+                    "status": "success",
+                    "message": "文件已存在，无需重复索引",
+                    "indexed": False,
+                    "duplicate": True,
+                }
+            
             # 解析文件（图片自动走 OCR+VLM 双通道，其他走对应加载器）
             docs = load_file(file_path)
             if not docs:

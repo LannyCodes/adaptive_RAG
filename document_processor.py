@@ -958,33 +958,22 @@ class DocumentProcessor:
             
         return docs
     
-    def setup_knowledge_base(self, urls=None, enable_graphrag=False):
-        """设置完整的知识库（加载、分割、向量化）
-        
+    def setup_knowledge_base(self, enable_graphrag=False):
+        """初始化知识库（连接向量库、混合检索）
+
         Args:
-            urls: 文档URL列表
             enable_graphrag: 是否启用GraphRAG索引
-            
+
         Returns:
             vectorstore, retriever, doc_splits
         """
-        if urls is None:
-            urls = KNOWLEDGE_BASE_URLS
-            
         # 1. 初始化向量库连接
         self.initialize_vectorstore()
         
-        # 2. 直接加载所有 URL 文档（不再做重复检查）
         doc_splits = []
-        if urls:
-            print(f"🔄 开始处理 {len(urls)} 个 URL...")
-            docs = self.load_documents(urls)
-            doc_splits = self.split_documents(docs)
-            self.add_documents_to_vectorstore(doc_splits)
-        else:
-            print("ℹ️ 无 URL 需要加载")
+        print("✅ 向量库就绪，可通过 upload_and_index.py 或 Web 界面上传文档")
             
-        # 3. 初始化混合检索 (Elasticsearch BM25)
+        # 2. 初始化混合检索 (Elasticsearch BM25)
         # 改进方案：使用 Elasticsearch 替代内存版 BM25，支持百万级数据
         if ENABLE_HYBRID_SEARCH:
             print("正在初始化混合检索 (BM25)...")

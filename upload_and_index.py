@@ -1831,11 +1831,29 @@ def main():
     if not doc_processor.vectorstore:
         doc_processor.initialize_vectorstore()
 
-    print(f"⏳ 正在向量化并写入 {len(doc_splits)} 个文档块到集合 '{collection_name}'...")
+    # 检查哪些文件已经索引过（去重）
+    existing_files = doc_processor.check_existing_urls(all_files)
+    new_files = [f for f in all_files if f not in existing_files]
+    skipped = len(all_files) - len(new_files)
+    if skipped:
+        print(f"⏭️ 跳过 {skipped} 个已存在的文件（重复）")
+    if not new_files:
+        print("✅ 所有文件已存在，无需重复索引")
+        return
+
+    # 只保留新文件的分块结果
+    new_sources = set(new_files)
+    new_doc_splits = [d for d in doc_splits if d.metadata.get("source") in new_sources]
+
+    if not new_doc_splits:
+        print("✅ 所有文件已存在，无需重复索引")
+        return
+
+    print(f"⏳ 正在向量化并写入 {len(new_doc_splits)} 个文档块到集合 '{collection_name}'...")
     t1 = time.time()
-    doc_processor.add_documents_to_vectorstore(doc_splits)
+    doc_processor.add_documents_to_vectorstore(new_doc_splits)
     elapsed = time.time() - t1
-    print(f"✅ 写入完成! ({elapsed:.1f}s, {len(doc_splits)/elapsed:.1f} docs/s)")
+    print(f"✅ 写入完成! ({elapsed:.1f}s, {len(new_doc_splits)/elapsed:.1f} docs/s)")
 
     # ── 5. 验证 ────────────────────────────
     print("\n" + "=" * 50)
@@ -1843,7 +1861,7 @@ def main():
     print("=" * 50)
     try:
         retriever = doc_processor.vectorstore.as_retriever(search_kwargs={"k": 2})
-        test_query = all_docs[0].page_content[:50]
+        test_query = new_doc_splits[0].page_content[:50]
         results = retriever.invoke(test_query)
         print(f"🔍 用测试查询检索到 {len(results)} 个结果")
         if results:
@@ -1851,7 +1869,7 @@ def main():
     except Exception as e:
         print(f"⚠️ 验证检索失败: {e}")
 
-    print(f"\n🏁 全部完成! 共处理 {len(all_files)} 个文件, 生成 {len(doc_splits)} 个文档块")
+    print(f"\n🏁 全部完成! 共处理 {len(new_files)} 个新文件, 生成 {len(new_doc_splits)} 个文档块")
 
 
 if __name__ == "__main__":
