@@ -215,6 +215,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 服务本地静态资源（前端 JS 库，构建时下载）
+from fastapi.staticfiles import StaticFiles
+import os
+static_dir = "/app/static"
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    print(f"  📦 静态资源目录已挂载: {static_dir}")
+else:
+    # 开发环境下使用本地相对路径
+    local_static = os.path.join(os.path.dirname(__file__), "static")
+    if not os.path.exists(local_static):
+        os.makedirs(local_static, exist_ok=True)
+    if os.listdir(local_static):
+        app.mount("/static", StaticFiles(directory=local_static), name="static")
+
 # --- 调试路由 (Added for ModelScope troubleshooting) ---
 
 @app.get("/debug/logs", response_class=PlainTextResponse)
@@ -622,26 +637,16 @@ HTML_CONTENT = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enterprise RAG System (React)</title>
     
-    <!-- 引入 React 和 ReactDOM（国内 cdn.staticfile.org） -->
-    <script crossorigin src="https://cdn.staticfile.org/react/18.2.0/umd/react.production.min.js"></script>
-    <script crossorigin src="https://cdn.staticfile.org/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-    
-    <!-- 引入 Babel 用于解析 JSX -->
-    <script src="https://cdn.staticfile.org/babel-standalone/7.23.0/babel.min.js"></script>
-    
-    <!-- 引入 Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- 引入 Markdown 渲染库 -->
-    <script src="https://cdn.staticfile.org/marked/9.1.0/marked.min.js"></script>
-    
-    <!-- 引入 KaTeX 公式渲染 -->
-    <link rel="stylesheet" href="https://cdn.staticfile.org/KaTeX/0.16.9/katex.min.css">
-    <script src="https://cdn.staticfile.org/KaTeX/0.16.9/katex.min.js"></script>
-    <script src="https://cdn.staticfile.org/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
-    
-    <!-- 引入 FontAwesome 图标 -->
-    <link rel="stylesheet" href="https://cdn.staticfile.org/font-awesome/6.4.0/css/all.min.css">
+    <!-- 前端依赖（本地静态资源，构建时下载） -->
+    <script crossorigin src="/static/react.production.min.js"></script>
+    <script crossorigin src="/static/react-dom.production.min.js"></script>
+    <script src="/static/babel.min.js"></script>
+    <script src="/static/tailwind.min.js"></script>
+    <script src="/static/marked.min.js"></script>
+    <link rel="stylesheet" href="/static/katex.min.css">
+    <script src="/static/katex.min.js"></script>
+    <script src="/static/auto-render.min.js"></script>
+    <link rel="stylesheet" href="/static/fontawesome.min.css">
     
     <style>
         .markdown-body p { margin-bottom: 0.5rem; }

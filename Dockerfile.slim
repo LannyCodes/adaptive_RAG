@@ -57,6 +57,29 @@ COPY . .
 # 数据目录
 RUN mkdir -p /app/data /app/data/uploads
 
+# 下载前端依赖（本地化，不依赖外部 CDN）
+RUN mkdir -p /app/static && \
+    echo "下载 React..." && \
+    curl -sL -o /app/static/react.production.min.js \
+         https://cdn.staticfile.org/react/18.2.0/umd/react.production.min.js && \
+    curl -sL -o /app/static/react-dom.production.min.js \
+         https://cdn.staticfile.org/react-dom/18.2.0/umd/react-dom.production.min.js && \
+    curl -sL -o /app/static/babel.min.js \
+         https://cdn.staticfile.org/babel-standalone/7.23.0/babel.min.js && \
+    curl -sL -o /app/static/marked.min.js \
+         https://cdn.staticfile.org/marked/9.1.0/marked.min.js && \
+    curl -sL -o /app/static/katex.min.css \
+         https://cdn.staticfile.org/KaTeX/0.16.9/katex.min.css && \
+    curl -sL -o /app/static/katex.min.js \
+         https://cdn.staticfile.org/KaTeX/0.16.9/katex.min.js && \
+    curl -sL -o /app/static/auto-render.min.js \
+         https://cdn.staticfile.org/KaTeX/0.16.9/contrib/auto-render.min.js && \
+    curl -sL -o /app/static/fontawesome.min.css \
+         https://cdn.staticfile.org/font-awesome/6.4.0/css/all.min.css && \
+    curl -sL -o /app/static/tailwind.min.js \
+         https://cdn.tailwindcss.com && \
+    echo "✅ 前端依赖下载完成"
+
 # 暴露端口（server.py 默认 8000）
 EXPOSE 8000
 
