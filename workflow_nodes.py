@@ -1,3 +1,4 @@
+from prompt_manager import get_prompt_manager
 """
 工作流节点模块
 包含所有工作流节点函数和状态管理
@@ -64,21 +65,7 @@ class WorkflowNodes:
         )
         
         # 设置RAG链 - 使用本地提示模板
-        rag_prompt_template = PromptTemplate(
-            template="""你是一个智能问答助手。使用以下检索到的上下文来回答问题。
-            
-            规则：
-            1. 如果你不知道答案，就说你不知道。
-            2. 如果用户请求特定格式（如Markdown、列表、代码块等），请严格遵守。
-            3. 如果没有特定格式要求，保持答案简洁。
-            
-            问题: {question}
-            
-            上下文: {context}
-            
-            答案:""",
-            input_variables=["question", "context"]
-        )
+        rag_prompt_template = get_prompt_manager().get_template("rag_generate")
         llm = create_chat_model(temperature=0.0)
         self.rag_chain = rag_prompt_template | llm | StrOutputParser()
         
@@ -467,26 +454,7 @@ class WorkflowNodes:
                 content = doc.page_content[:500]
                 docs_text += f"\n---文档{i+1}---\n{content}\n"
 
-            batch_prompt = PromptTemplate(
-                template="""你是一个评分员，评估检索到的文档是否与用户问题相关。
-
-评分标准（宽松）：
-1. 只要文档与问题有哪怕一点点关联，就给出'yes'
-2. 只有当文档完全不相关或主题完全相反时，才给出'no'
-3. **特别注意**：不要因为术语不熟悉就判为不相关！专业术语（如金融、法律、医学术语）只要在文档上下文中有所提及，就应该判定为相关
-4. 文档可能从不同角度讨论问题，部分相关也算相关
-
-{retry_hint}
-用户问题：{question}
-
-以下是{doc_count}个文档：
-{documents}
-
-请对每个文档给出相关性评分。返回一个JSON，包含'scores'键，值为一个列表，每个元素为'yes'或'no'。
-列表长度必须为{doc_count}，按文档编号顺序排列。
-只返回JSON，不要前言或解释。""",
-                input_variables=["question", "documents", "doc_count"],
-            )
+            batch_prompt = get_prompt_manager().get_template("grade_documents_batch")
 
             # 重试时增加更宽松的提示
             retry_count = state.get("retry_count", 0)

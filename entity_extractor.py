@@ -1,3 +1,4 @@
+from prompt_manager import get_prompt_manager
 """
 实体和关系提取模块
 使用LLM从文档中提取实体、关系和属性，构建知识图谱的基础
@@ -33,64 +34,10 @@ class EntityExtractor:
         self.timeout = timeout  # 保存超时设置供异步使用
         
         # 实体提取提示模板
-        self.entity_prompt = PromptTemplate(
-            template="""你是一个专业的实体识别专家。从以下文本中提取所有重要的实体。
-            
-实体类型包括:
-- PERSON: 人物、作者、研究者
-- ORGANIZATION: 组织、机构、公司
-- CONCEPT: 技术概念、算法、方法论
-- TECHNOLOGY: 具体技术、工具、框架
-- PAPER: 论文、出版物
-- EVENT: 事件、会议
-
-文本内容:
-{text}
-
-请以JSON格式返回，包含以下字段:
-{{
-    "entities": [
-        {{
-            "name": "实体名称",
-            "type": "实体类型",
-            "description": "简短描述"
-        }}
-    ]
-}}
-
-不要包含前言或解释，只返回JSON。
-""",
-            input_variables=["text"]
-        )
+        self.entity_prompt = get_prompt_manager().get_template("extract_entities")
         
         # 关系提取提示模板
-        self.relation_prompt = PromptTemplate(
-            template="""你是一个关系抽取专家。从文本中识别实体之间的关系。
-
-已识别的实体:
-{entities}
-
-文本内容:
-{text}
-
-请识别实体之间的关系，以JSON格式返回:
-{{
-    "relations": [
-        {{
-            "source": "源实体名称",
-            "target": "目标实体名称",
-            "relation_type": "关系类型",
-            "description": "关系描述"
-        }}
-    ]
-}}
-
-关系类型包括: AUTHOR_OF, USES, BASED_ON, RELATED_TO, PART_OF, APPLIES_TO, IMPROVES, CITES
-
-不要包含前言或解释，只返回JSON。
-""",
-            input_variables=["text", "entities"]
-        )
+        self.relation_prompt = get_prompt_manager().get_template("extract_relations")
         
         self.entity_chain = self.entity_prompt | self.llm | JsonOutputParser()
         self.relation_chain = self.relation_prompt | self.llm | JsonOutputParser()
@@ -327,29 +274,7 @@ class EntityDeduplicator:
     def __init__(self):
         self.llm = create_chat_model(format="json", temperature=0.0)
         
-        self.merge_prompt = PromptTemplate(
-            template="""判断以下两个实体是否指向同一个对象:
-
-实体1: {entity1_name} - {entity1_desc}
-实体2: {entity2_name} - {entity2_desc}
-
-如果是同一个对象，返回:
-{{
-    "is_same": true,
-    "canonical_name": "标准名称",
-    "reason": "原因"
-}}
-
-如果不是，返回:
-{{
-    "is_same": false,
-    "reason": "原因"
-}}
-
-只返回JSON，不要其他内容。
-""",
-            input_variables=["entity1_name", "entity1_desc", "entity2_name", "entity2_desc"]
-        )
+        self.merge_prompt = get_prompt_manager().get_template("merge_entities")
         
         self.merge_chain = self.merge_prompt | self.llm | JsonOutputParser()
     

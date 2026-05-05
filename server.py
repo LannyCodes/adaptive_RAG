@@ -147,6 +147,7 @@ class RateLimiter:
         self._total_processed = 0
         self._lock = threading.Lock()
         print(f"  ⏱️  速率限制器: 最大并发 {max_concurrent}, 队列上限 {max_queue}")
+        log.info("rate_limiter_init", "限流器已初始化", max_concurrent=max_concurrent, max_queue=max_queue)
 
     @property
     def active(self) -> int:
@@ -189,7 +190,11 @@ class RateLimiter:
 
 from cache_manager import CacheManager
 cache_manager = CacheManager(cache_dir="./data/cache")
-print("  💾 缓存管理器已就绪")
+
+# 结构化日志
+from logger import get_logger
+log = get_logger()
+log.info("cache_ready", "缓存管理器已就绪")
 
 # ============================================================
 # 1. FastAPI 后端定义
@@ -267,13 +272,13 @@ def get_rag_system():
     global rag_system
     if rag_system is None:
         try:
-            print("🔄 初始化 RAG 系统...")
+            log.info("rag_init_start", "初始化 RAG 系统...")
             ensure_ollama_service(LOCAL_LLM)
             from main import AdaptiveRAGSystem
             rag_system = AdaptiveRAGSystem()
-            print("✅ RAG 系统初始化完成")
+            log.info("rag_init_done", "RAG 系统初始化完成")
         except Exception as e:
-            print(f"❌ RAG 系统初始化失败: {e}")
+            log.error("rag_init_failed", "RAG 系统初始化失败", error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
     return rag_system
 
@@ -687,6 +692,8 @@ HTML_CONTENT = """
             const [uploadStatus, setUploadStatus] = useState(null);
             const [sessionId, setSessionId] = useState(null);
             const [sessions, setSessions] = useState([]);
+            const [documents, setDocuments] = useState([]);
+            const [loadingDocs, setLoadingDocs] = useState(false);
             
             const chatContainerRef = useRef(null);
             const fileInputRef = useRef(null);
@@ -738,6 +745,43 @@ HTML_CONTENT = """
                 } catch(e) {}
             };
 
+            // 加载文档列表
+            const loadDocuments = async () => {
+                setLoadingDocs(true);
+                try {
+                    const resp = await fetch('/api/documents');
+                    const data = await resp.json();
+                    setDocuments(data.documents || []);
+                } catch(e) {
+                    console.error("加载文档列表失败", e);
+                } finally {
+                    setLoadingDocs(false);
+                }
+            };
+
+            // 删除文档
+            const deleteDoc = async (source, e) => {
+                e.stopPropagation();
+                if (!confirm(`确定删除此文档的所有索引？\n${source}`)) return;
+                try {
+                    await fetch(`/api/documents/${encodeURIComponent(source)}`, { method: 'DELETE' });
+                    loadDocuments();
+                } catch(e) {
+                    console.error("删除文档失败", e);
+                }
+            };
+
+            // 获取文档图标
+            const getDocIcon = (doc) => {
+                const ft = (doc.file_type || '').toLowerCase();
+                if (['jpg','jpeg','png','gif','webp','bmp','tiff'].includes(ft)) return 'fa-image';
+                if (ft === 'pdf') return 'fa-file-pdf';
+                if (['doc','docx'].includes(ft)) return 'fa-file-word';
+                if (['ppt','pptx'].includes(ft)) return 'fa-file-powerpoint';
+                if (['xls','xlsx'].includes(ft)) return 'fa-file-excel';
+                return 'fa-file-lines';
+            };
+
             // 每次消息更新后渲染 LaTeX 公式
             useEffect(() => {
                 if (chatContainerRef.current && typeof renderMathInElement === 'function') {
@@ -753,13 +797,14 @@ HTML_CONTENT = """
                 }
             }, [messages]);
 
-            // 初始化检查健康状态 + 加载会话列表
+            // 初始化检查健康状态 + 加载会话列表 + 文档列表
             useEffect(() => {
                 fetch('/api/health')
                     .then(res => res.json())
                     .then(data => setMultimodalEnabled(data.multimodal))
                     .catch(err => console.error("无法连接到后端", err));
                 loadSessions();
+                loadDocuments();
             }, []);
 
             // 自动滚动到底部
@@ -883,6 +928,7 @@ HTML_CONTENT = """
                     
                     if (response.ok) {
                         setUploadStatus({ type: 'success', message: '上传成功！' });
+                        loadDocuments();  // 刷新文档列表
                     } else {
                         throw new Error('Upload failed');
                     }
@@ -981,6 +1027,34 @@ HTML_CONTENT = """
                                         {uploadStatus.message}
                                     </p>
                                 )}
+                                
+                                {/* 文档列表 */}
+                                <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
+                                    {loadingDocs && (
+                                        <p className="text-xs text-slate-500 text-center py-2">
+                                            <i className="fa-solid fa-spinner fa-spin mr-1"></i>加载中...
+                                        </p>
+                                    )}
+                                    {!loadingDocs && documents.length === 0 && (
+                                        <p className="text-xs text-slate-500 text-center py-2">暂无文档</p>
+                                    )}
+                                    {!loadingDocs && documents.map((doc, idx) => (
+                                        <div key={idx}
+                                            className="flex items-center justify-between px-2 py-1.5 rounded-lg text-xs hover:bg-slate-800 transition-colors group">
+                                            <div className="flex items-center space-x-2 truncate flex-1 min-w-0">
+                                                <i className={`fa-solid ${getDocIcon(doc)} text-slate-500 flex-shrink-0`}></i>
+                                                <span className="truncate text-slate-300" title={doc.source}>
+                                                    {doc.source.split('/').pop() || doc.source}
+                                                </span>
+                                                <span className="text-slate-600 flex-shrink-0 ml-1">({doc.chunk_count})</span>
+                                            </div>
+                                            <button onClick={(e) => deleteDoc(doc.source, e)}
+                                                className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 ml-1">
+                                                <i className="fa-solid fa-trash-can text-xs"></i>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                             
                             {/* 设置 */}
@@ -1201,12 +1275,14 @@ async def read_root():
     return HTMLResponse(content=HTML_CONTENT)
 
 if __name__ == "__main__":
-    print("="*60)
-    print("🚀 企业级 RAG 服务器启动中...")
-    print("   后端: FastAPI")
-    print("   前端: Vue 3 + Tailwind")
-    print("   地址: http://0.0.0.0:8000")
-    print("   文档: http://0.0.0.0:8000/docs")
-    print("="*60)
+    log.info("server_start", "企业级 RAG 服务器启动",
+             backend="FastAPI", frontend="React 18", port=8000)
+    print(f"{'='*60}")
+    print("  🚀 Adaptive RAG Server")
+    print(f"  {'='*60}")
+    print(f"  后端: FastAPI   前端: React 18")
+    print(f"  地址: http://0.0.0.0:8000")
+    print(f"  文档: http://0.0.0.0:8000/docs")
+    print(f"  {'='*60}")
     
     uvicorn.run(app, host="0.0.0.0", port=8000)
