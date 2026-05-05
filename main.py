@@ -30,6 +30,13 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
+# 4. 允许在已运行事件循环中嵌套调用 asyncio.run()（Kaggle/Notebook 兼容）
+try:
+    import nest_asyncio
+    nest_asyncio.apply()
+except ImportError:
+    pass
+
 import time
 from langgraph.graph import END, StateGraph, START
 from pprint import pprint

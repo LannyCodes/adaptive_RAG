@@ -94,5 +94,8 @@ fastapi==0.115.6
 uvicorn==0.34.0
 python-multipart==0.0.20
 
+# Kaggle/Notebook 兼容（支持嵌套事件循环）
+nest_asyncio>=1.5.0
+
 # LangSmith：langchain-core 0.3.72+ 要求 >=0.3.45；langchain-community 0.3.x 要求 <0.4
 langsmith>=0.3.45,<0.4
