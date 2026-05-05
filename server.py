@@ -860,7 +860,7 @@ HTML_CONTENT = """
                         if (done) break;
 
                         const text = decoder.decode(value, { stream: true });
-                        const lines = text.split('\n');
+                        const lines = text.split('\\n');
 
                         for (const line of lines) {
                             if (!line.startsWith('data: ')) continue;
