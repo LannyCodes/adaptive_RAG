@@ -13,6 +13,17 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+      - ./server.py:/app/server.py
+      - ./main.py:/app/main.py
+      - ./config.py:/app/config.py
+      - ./prompts.yaml:/app/prompts.yaml
+      - ./prompt_manager.py:/app/prompt_manager.py
+      - ./cache_manager.py:/app/cache_manager.py
+      - ./logger.py:/app/logger.py
+      - ./routers_and_graders.py:/app/routers_and_graders.py
+      - ./workflow_nodes.py:/app/workflow_nodes.py
+      - ./entity_extractor.py:/app/entity_extractor.py
+      - ./document_processor.py:/app/document_processor.py
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
