@@ -837,6 +837,125 @@ class DocumentProcessor:
                 )
 
         print("✅ 文档添加完成")
+
+    def list_documents(self) -> list:
+        """列出向量库中所有已索引的文档（按 source 去重）"""
+        if not self.vectorstore:
+            self.initialize_vectorstore()
+            if not self.vectorstore:
+                return []
+
+        seen = {}
+        try:
+            col = getattr(self.vectorstore, "col", None) or getattr(self.vectorstore, "collection", None)
+            if col:
+                pk_field = getattr(col.schema, "primary_field", None)
+                pk_name = pk_field.name if pk_field else "pk"
+                text_field = getattr(self.vectorstore, "_text_field", "text")
+
+                offset, batch_size = 0, 500
+                while offset < 16384:
+                    batch = col.query(
+                        expr=f"{pk_name} >= 0",
+                        output_fields=[text_field, "source", "data_type", "file_type"],
+                        limit=batch_size, offset=offset,
+                    )
+                    if not batch:
+                        break
+                    for item in batch:
+                        src = item.get("source", "unknown")
+                        if src not in seen:
+                            seen[src] = {
+                                "source": src, "chunk_count": 0,
+                                "data_type": item.get("data_type", "text"),
+                                "file_type": item.get("file_type", ""),
+                            }
+                        seen[src]["chunk_count"] += 1
+                    offset += len(batch)
+        except Exception as e:
+            print(f"⚠️ 列出文档失败: {e}")
+        return list(seen.values())
+
+    def delete_document(self, source: str) -> int:
+        """从向量库中删除指定源文档的所有块，返回删除的块数"""
+        if not self.vectorstore:
+            self.initialize_vectorstore()
+            if not self.vectorstore:
+                return 0
+
+        deleted = 0
+        try:
+            col = getattr(self.vectorstore, "col", None) or getattr(self.vectorstore, "collection", None)
+            if col:
+                pk_field = getattr(col.schema, "primary_field", None)
+                pk_name = pk_field.name if pk_field else "pk"
+                text_field = getattr(self.vectorstore, "_text_field", "text")
+
+                # 1. 先查出所有匹配的 pk
+                escaped_source = source.replace("\\", "\\\\").replace('"', '\\"')
+                expr = f'source == "{escaped_source}"'
+                to_delete = col.query(expr=expr, output_fields=[pk_name], limit=16384)
+                pks = [item[pk_name] for item in to_delete]
+
+                if pks:
+                    # 2. 分批量删除（Milvus 单次 delete 支持 IN 表达式）
+                    batch_size = 500
+                    for i in range(0, len(pks), batch_size):
+                        batch_pks = pks[i:i + batch_size]
+                        pk_list = ", ".join(str(pk) for pk in batch_pks)
+                        col.delete(f"{pk_name} in [{pk_list}]")
+                    deleted = len(pks)
+
+            # 3. 从 Elasticsearch 删除
+            if self.es_client:
+                try:
+                    self.es_client.delete_by_query(
+                        index=ES_INDEX_NAME,
+                        body={"query": {"term": {"metadata.source": source}}},
+                        refresh=True,
+                    )
+                except Exception:
+                    pass
+
+            # 4. 重建内存 BM25 索引（如果启用了混合搜索）
+            if not self.es_client and ENABLE_HYBRID_SEARCH:
+                remaining = self._get_all_texts_from_vectorstore()
+                if remaining:
+                    self._setup_inmemory_bm25(seed_docs=remaining)
+
+        except Exception as e:
+            print(f"⚠️ 删除文档失败: {e}")
+        return deleted
+
+    def _get_all_texts_from_vectorstore(self) -> list:
+        """从向量库中读取所有文本（用于重建 BM25）"""
+        docs = []
+        try:
+            col = getattr(self.vectorstore, "col", None) or getattr(self.vectorstore, "collection", None)
+            if col:
+                pk_field = getattr(col.schema, "primary_field", None)
+                pk_name = pk_field.name if pk_field else "pk"
+                text_field = getattr(self.vectorstore, "_text_field", "text")
+
+                offset, batch_size = 0, 500
+                while offset < 16384:
+                    batch = col.query(
+                        expr=f"{pk_name} >= 0",
+                        output_fields=[text_field, "source", "data_type"],
+                        limit=batch_size, offset=offset,
+                    )
+                    if not batch:
+                        break
+                    from langchain_core.documents import Document
+                    for item in batch:
+                        docs.append(Document(
+                            page_content=item.get(text_field, ""),
+                            metadata={"source": item.get("source", ""), "data_type": item.get("data_type", "text")}
+                        ))
+                    offset += len(batch)
+        except Exception:
+            pass
+        return docs
         
     def create_vectorstore(self, doc_splits, persist_directory=None):
         """(已弃用) 兼容旧接口，但使用新逻辑"""

@@ -137,18 +137,59 @@ class SessionManager:
 # ============================================================
 
 class RateLimiter:
-    """基于信号量的并发请求限流"""
-    def __init__(self, max_concurrent: int = 4):
+    """并发限流器（支持队列统计和超时）"""
+    def __init__(self, max_concurrent: int = 4, max_queue: int = 20):
         self.semaphore = asyncio.Semaphore(max_concurrent)
         self.max_concurrent = max_concurrent
-        print(f"  ⏱️  速率限制器: 最大并发 {max_concurrent}")
+        self.max_queue = max_queue
+        self._active = 0
+        self._pending = 0
+        self._total_processed = 0
+        self._lock = threading.Lock()
+        print(f"  ⏱️  速率限制器: 最大并发 {max_concurrent}, 队列上限 {max_queue}")
+
+    @property
+    def active(self) -> int:
+        return self._active
+
+    @property
+    def pending(self) -> int:
+        return self._pending
 
     async def __aenter__(self):
+        with self._lock:
+            if self._pending + self._active >= self.max_concurrent + self.max_queue:
+                raise HTTPException(status_code=429, detail="系统繁忙，请稍后重试")
+            self._pending += 1
         await self.semaphore.acquire()
+        with self._lock:
+            self._pending -= 1
+            self._active += 1
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        with self._lock:
+            self._active -= 1
+            self._total_processed += 1
         self.semaphore.release()
+
+    def stats(self) -> dict:
+        with self._lock:
+            return {
+                "max_concurrent": self.max_concurrent,
+                "max_queue": self.max_queue,
+                "active": self._active,
+                "pending": self._pending,
+                "total_processed": self._total_processed,
+            }
+
+# ============================================================
+# 缓存管理器
+# ============================================================
+
+from cache_manager import CacheManager
+cache_manager = CacheManager(cache_dir="./data/cache")
+print("  💾 缓存管理器已就绪")
 
 # ============================================================
 # 1. FastAPI 后端定义
@@ -353,25 +394,44 @@ async def serve_image(image_path: str):
 
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
-    """SSE 流式聊天接口"""
+    """SSE 流式聊天接口（带缓存）"""
     system = get_rag_system()
     session_id = request.session_id
+    question = request.message
 
     async def event_generator():
+        # 1. 检查缓存
+        cached = cache_manager.get_answer(question)
+        if cached is not None:
+            yield f"data: {json.dumps({'type': 'progress', 'content': '⚡ 命中缓存'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'answer'}, ensure_ascii=False)}\n\n"
+            chunk_size = 4
+            for i in range(0, len(cached), chunk_size):
+                yield f"data: {json.dumps({'type': 'token', 'content': cached[i:i+chunk_size]}, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0.002)
+            yield f"data: {json.dumps({'type': 'done', 'content': cached}, ensure_ascii=False)}\n\n"
+            if session_id:
+                session_manager.add_message(session_id, "user", question)
+                session_manager.add_message(session_id, "assistant", cached)
+            return
+
         try:
             async with rate_limiter:
-                # 记录用户消息
                 if session_id:
-                    session_manager.add_message(session_id, "user", request.message)
+                    session_manager.add_message(session_id, "user", question)
 
-                async for event in system.stream_query(request.message):
+                async for event in system.stream_query(question):
                     data = json.dumps(event, ensure_ascii=False)
                     yield f"data: {data}\n\n"
 
-                    # 记录最终答案
-                    if event.get("type") == "done" and session_id:
-                        session_manager.add_message(session_id, "assistant", event["content"])
+                    if event.get("type") == "done" and event.get("content"):
+                        # 写入缓存
+                        cache_manager.set_answer(question, event["content"])
+                        if session_id:
+                            session_manager.add_message(session_id, "assistant", event["content"])
 
+        except HTTPException:
+            raise
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
@@ -413,6 +473,64 @@ async def delete_session(session_id: str):
     session_manager.delete_session(session_id)
     return {"status": "ok"}
 
+
+# ============================================================
+# 文档管理 API
+# ============================================================
+
+@app.get("/api/documents")
+async def list_documents():
+    """列出已索引的文档"""
+    try:
+        dp = get_rag_system().doc_processor
+        docs = dp.list_documents()
+        return {"documents": docs, "count": len(docs)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/documents/{source:path}")
+async def delete_document(source: str):
+    """删除指定文档的所有索引块"""
+    try:
+        dp = get_rag_system().doc_processor
+        deleted = dp.delete_document(source)
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail="文档未找到")
+        # 清除相关缓存
+        cache_manager.clear_all()
+        return {"deleted": deleted, "source": source}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# 系统状态 API
+# ============================================================
+
+@app.get("/api/stats")
+async def system_stats():
+    """系统运行状态统计"""
+    stats = {
+        "rate_limiter": rate_limiter.stats(),
+        "cache": cache_manager.stats(),
+        "sessions": len(session_manager.list_sessions()),
+        "uvicorn": {
+            "host": "0.0.0.0",
+            "port": 8000,
+        }
+    }
+    # 尝试获取文档数
+    try:
+        dp = get_rag_system().doc_processor
+        stats["documents"] = len(dp.list_documents())
+    except Exception:
+        stats["documents"] = -1
+    return stats
+
+
 # ============================================================
 # 更新现有聊天接口以支持会话记录
 # ============================================================
@@ -423,16 +541,31 @@ async def delete_session(session_id: str):
 
 @app.post("/api/chat")
 async def chat_endpoint_with_session(request: ChatRequest):
-    """聊天接口（支持会话记录）"""
+    """聊天接口（支持缓存和会话记录）"""
     system = get_rag_system()
     session_id = request.session_id
+    question = request.message
+
+    # 1. 检查缓存
+    cached = cache_manager.get_answer(question)
+    if cached is not None:
+        if session_id:
+            session_manager.add_message(session_id, "user", question)
+            session_manager.add_message(session_id, "assistant", cached)
+        return ChatResponse(answer=cached, sources=["⚡ 命中缓存"])
 
     if session_id:
-        session_manager.add_message(session_id, "user", request.message)
+        session_manager.add_message(session_id, "user", question)
 
     try:
         async with rate_limiter:
-            result = await system.query(request.message)
+            result = await system.query(question)
+
+        answer = result.get("answer", "无法生成回答")
+
+        # 写入缓存
+        if answer:
+            cache_manager.set_answer(question, answer)
 
         answer = result.get("answer", "无法生成回答")
         source_documents = result.get("source_documents", [])
