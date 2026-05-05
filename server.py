@@ -334,26 +334,26 @@ HTML_CONTENT = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enterprise RAG System (React)</title>
     
-    <!-- 引入 React 和 ReactDOM -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- 引入 React 和 ReactDOM（国内 cdn.staticfile.org） -->
+    <script crossorigin src="https://cdn.staticfile.org/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdn.staticfile.org/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     
     <!-- 引入 Babel 用于解析 JSX -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.staticfile.org/babel-standalone/7.23.0/babel.min.js"></script>
     
     <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- 引入 Markdown 渲染库 -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.staticfile.org/marked/9.1.0/marked.min.js"></script>
     
     <!-- 引入 KaTeX 公式渲染 -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.staticfile.org/KaTeX/0.16.9/katex.min.css">
+    <script src="https://cdn.staticfile.org/KaTeX/0.16.9/katex.min.js"></script>
+    <script src="https://cdn.staticfile.org/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
     
     <!-- 引入 FontAwesome 图标 -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.staticfile.org/font-awesome/6.4.0/css/all.min.css">
     
     <style>
         .markdown-body p { margin-bottom: 0.5rem; }
@@ -654,7 +654,7 @@ HTML_CONTENT = """
                                                             return '%%LATEX_BLOCK_' + (latexBlocks.length - 1) + '%%';
                                                         });
                                                         // 保护 $...$ (行内公式)
-                                                        text = text.replace(/\$([^\$\n]+?)\$/g, (m, p1) => {
+                                                        text = text.replace(/\$([^\$\\n]+?)\$/g, (m, p1) => {
                                                             latexBlocks.push('<span class="katex-inline">' + katex.renderToString(p1.trim(), {displayMode: false, throwOnError: false}) + '</span>');
                                                             return '%%LATEX_BLOCK_' + (latexBlocks.length - 1) + '%%';
                                                         });
