@@ -854,12 +854,33 @@ class DocumentProcessor:
                 text_field = getattr(self.vectorstore, "_text_field", "text")
 
                 offset, batch_size = 0, 500
+                output_fields = [text_field, "source", "data_type"]
+                # 兼容旧集合（可能没有 file_type 字段）
+                try:
+                    has_file_type = "file_type" in [f.name for f in col.schema.fields]
+                except Exception:
+                    has_file_type = False
+                if has_file_type:
+                    output_fields.append("file_type")
+
                 while offset < 16384:
-                    batch = col.query(
-                        expr=f"{pk_name} >= 0",
-                        output_fields=[text_field, "source", "data_type", "file_type"],
-                        limit=batch_size, offset=offset,
-                    )
+                    try:
+                        batch = col.query(
+                            expr=f"{pk_name} >= 0",
+                            output_fields=output_fields,
+                            limit=batch_size, offset=offset,
+                        )
+                    except Exception as query_err:
+                        # 如果查询失败（如字段不存在），降级为只查 text 和 source
+                        if "not exist" in str(query_err):
+                            output_fields = [text_field, "source"]
+                            batch = col.query(
+                                expr=f"{pk_name} >= 0",
+                                output_fields=output_fields,
+                                limit=batch_size, offset=offset,
+                            )
+                        else:
+                            raise
                     if not batch:
                         break
                     for item in batch:
@@ -870,6 +891,10 @@ class DocumentProcessor:
                                 "data_type": item.get("data_type", "text"),
                                 "file_type": item.get("file_type", ""),
                             }
+                        # 通过 source 扩展名推断 file_type（如果查询未返回）
+                        if src in seen and not seen[src]["file_type"]:
+                            ext = src.rsplit(".", 1)[-1].lower() if "." in src else ""
+                            seen[src]["file_type"] = ext
                         seen[src]["chunk_count"] += 1
                     offset += len(batch)
         except Exception as e:
