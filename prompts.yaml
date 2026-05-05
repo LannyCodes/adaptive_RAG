@@ -31,7 +31,7 @@ grade_document:
 
     检索到的文档：
 
-{document}
+    {document}
 
     用户问题：{question}
   input_vars: [question, document]
@@ -80,8 +80,7 @@ grade_hallucination:
     
     检索到的文档：
 
-{documents} 
-
+    {documents} 
     LLM生成：{generation}
   input_vars: [generation, documents]
 
