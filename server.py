@@ -33,8 +33,11 @@ import subprocess
 import time
 import threading
 import requests
+import uuid
+import json
+import asyncio
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -78,6 +81,74 @@ def ensure_ollama_service(model_name: str):
         except Exception as e:
             print(f"⚠️ 下载模型失败: {e}")
     threading.Thread(target=pull_model, daemon=True).start()
+
+# ============================================================
+# 会话管理器
+# ============================================================
+
+class SessionManager:
+    """管理对话历史"""
+    def __init__(self):
+        self._sessions = {}
+
+    def create_session(self) -> str:
+        session_id = str(uuid.uuid4())
+        self._sessions[session_id] = {
+            "history": [],
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "title": "新对话"
+        }
+        return session_id
+
+    def get_history(self, session_id: str) -> list:
+        session = self._sessions.get(session_id)
+        return session["history"] if session else []
+
+    def add_message(self, session_id: str, role: str, content: str):
+        if session_id not in self._sessions:
+            self._sessions[session_id] = {
+                "history": [], "created_at": time.strftime("%Y-%m-%d %H:%M:%S"), "title": "新对话"
+            }
+        self._sessions[session_id]["history"].append({
+            "role": role, "content": content,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        })
+        if role == "user" and self._sessions[session_id]["title"] == "新对话":
+            title = content[:30]
+            self._sessions[session_id]["title"] = title + ("..." if len(content) > 30 else "")
+
+    def list_sessions(self) -> list:
+        return [
+            {"id": sid, "title": s["title"], "created_at": s["created_at"],
+             "msg_count": len(s["history"]) // 2}
+            for sid, s in sorted(self._sessions.items(),
+                                 key=lambda x: x[1]["created_at"], reverse=True)
+        ]
+
+    def delete_session(self, session_id: str):
+        self._sessions.pop(session_id, None)
+
+    def get_session(self, session_id: str) -> dict:
+        return self._sessions.get(session_id)
+
+
+# ============================================================
+# 并发限流器
+# ============================================================
+
+class RateLimiter:
+    """基于信号量的并发请求限流"""
+    def __init__(self, max_concurrent: int = 4):
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+        self.max_concurrent = max_concurrent
+        print(f"  ⏱️  速率限制器: 最大并发 {max_concurrent}")
+
+    async def __aenter__(self):
+        await self.semaphore.acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.semaphore.release()
 
 # ============================================================
 # 1. FastAPI 后端定义
@@ -147,6 +218,10 @@ async def list_files():
 # 全局 RAG 系统实例
 rag_system = None
 
+# 会话管理器和限流器
+session_manager = SessionManager()
+rate_limiter = RateLimiter(max_concurrent=4)
+
 def get_rag_system():
     global rag_system
     if rag_system is None:
@@ -166,6 +241,7 @@ def get_rag_system():
 class ChatRequest(BaseModel):
     message: str
     history: List[dict] = Field(default_factory=list)
+    session_id: Optional[str] = Field(default=None)
 
 class ChatResponse(BaseModel):
     answer: str
@@ -174,57 +250,6 @@ class ChatResponse(BaseModel):
     images: List[str] = Field(default_factory=list)
 
 # --- API 路由 ---
-
-@app.get("/api/health")
-async def health_check():
-    """健康检查接口"""
-    return {"status": "ok", "service": "Adaptive RAG", "multimodal": ENABLE_MULTIMODAL}
-
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
-    """聊天接口"""
-    system = get_rag_system()
-    
-    try:
-        # 调用 RAG 系统的主查询方法
-        # 注意：这里假设 main.py 中的 AdaptiveRAGSystem 有 query 方法
-        # 如果是 main_graphrag.py，可能需要调整调用逻辑
-        result = await system.query(request.message)
-        
-        # 解析结果
-        answer = result.get("answer", "无法生成回答")
-        source_documents = result.get("source_documents", [])
-        sources = [doc.page_content[:200] + "..." for doc in source_documents]
-        metrics = result.get("retrieval_metrics", {})
-        
-        # 提取图片路径（从 source_documents 的 metadata 中）
-        images = []
-        if ENABLE_MULTIMODAL:
-            for doc in source_documents:
-                stored_path = doc.metadata.get("stored_image_path", "")
-                if stored_path:
-                    images.append(f"/api/images/{os.path.basename(stored_path)}")
-                elif doc.metadata.get("data_type") == "image" or doc.metadata.get("file_type") == "image":
-                    source = doc.metadata.get("source", "")
-                    if source:
-                        images.append(f"/api/images/{os.path.basename(source)}")
-            # 也从 workflow state 的 image_paths 提取
-            for img_path in result.get("image_paths", []):
-                img_url = f"/api/images/{os.path.basename(img_path)}"
-                if img_url not in images:
-                    images.append(img_url)
-
-        return ChatResponse(
-            answer=answer,
-            sources=sources,
-            metrics=metrics,
-            images=images
-        )
-            
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"处理请求时出错: {str(e)}")
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -323,8 +348,133 @@ async def serve_image(image_path: str):
     raise HTTPException(status_code=404, detail=f"图片未找到: {image_path}")
 
 # ============================================================
-# 2. 前端 React 应用 (嵌入在 Python 字符串中)
+# SSE 流式聊天接口
 # ============================================================
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """SSE 流式聊天接口"""
+    system = get_rag_system()
+    session_id = request.session_id
+
+    async def event_generator():
+        try:
+            async with rate_limiter:
+                # 记录用户消息
+                if session_id:
+                    session_manager.add_message(session_id, "user", request.message)
+
+                async for event in system.stream_query(request.message):
+                    data = json.dumps(event, ensure_ascii=False)
+                    yield f"data: {data}\n\n"
+
+                    # 记录最终答案
+                    if event.get("type") == "done" and session_id:
+                        session_manager.add_message(session_id, "assistant", event["content"])
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no",
+                                      "Connection": "keep-alive"})
+
+
+# ============================================================
+# 会话管理 API
+# ============================================================
+
+@app.post("/api/session/create")
+async def create_session():
+    """创建新会话"""
+    session_id = session_manager.create_session()
+    return {"session_id": session_id}
+
+
+@app.get("/api/session/list")
+async def list_sessions():
+    """获取会话列表"""
+    return {"sessions": session_manager.list_sessions()}
+
+
+@app.get("/api/session/{session_id}")
+async def get_session(session_id: str):
+    """获取会话详情"""
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"session": session}
+
+
+@app.delete("/api/session/{session_id}")
+async def delete_session(session_id: str):
+    """删除会话"""
+    session_manager.delete_session(session_id)
+    return {"status": "ok"}
+
+# ============================================================
+# 更新现有聊天接口以支持会话记录
+# ============================================================
+
+# 修改 /api/chat 端点，在返回前记录会话
+# 通过 monkey-patch 原路由处理函数来添加会话记录
+# 由于 FastAPI 路由已定义，我们直接修改响应处理
+
+@app.post("/api/chat")
+async def chat_endpoint_with_session(request: ChatRequest):
+    """聊天接口（支持会话记录）"""
+    system = get_rag_system()
+    session_id = request.session_id
+
+    if session_id:
+        session_manager.add_message(session_id, "user", request.message)
+
+    try:
+        async with rate_limiter:
+            result = await system.query(request.message)
+
+        answer = result.get("answer", "无法生成回答")
+        source_documents = result.get("source_documents", [])
+        sources = [doc.page_content[:200] + "..." for doc in source_documents]
+        metrics = result.get("retrieval_metrics", {})
+
+        images = []
+        if ENABLE_MULTIMODAL:
+            for doc in source_documents:
+                stored_path = doc.metadata.get("stored_image_path", "")
+                if stored_path:
+                    images.append(f"/api/images/{os.path.basename(stored_path)}")
+                elif doc.metadata.get("data_type") == "image" or doc.metadata.get("file_type") == "image":
+                    source = doc.metadata.get("source", "")
+                    if source:
+                        images.append(f"/api/images/{os.path.basename(source)}")
+            for img_path in result.get("image_paths", []):
+                img_url = f"/api/images/{os.path.basename(img_path)}"
+                if img_url not in images:
+                    images.append(img_url)
+
+        if session_id:
+            session_manager.add_message(session_id, "assistant", answer)
+
+        return ChatResponse(answer=answer, sources=sources, metrics=metrics, images=images)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"处理请求时出错: {str(e)}")
+
+
+@app.get("/api/health")
+async def health_check():
+    """健康检查接口"""
+    return {"status": "ok", "service": "Adaptive RAG", "multimodal": ENABLE_MULTIMODAL}
+
+
+@app.get("/favicon.ico", response_class=HTMLResponse)
+async def favicon():
+    """返回空 favicon 避免 404"""
+    return HTMLResponse(content="")
 
 HTML_CONTENT = """
 <!DOCTYPE html>
@@ -402,9 +552,58 @@ HTML_CONTENT = """
             const [showMetrics, setShowMetrics] = useState(false);
             const [multimodalEnabled, setMultimodalEnabled] = useState(false);
             const [uploadStatus, setUploadStatus] = useState(null);
+            const [sessionId, setSessionId] = useState(null);
+            const [sessions, setSessions] = useState([]);
             
             const chatContainerRef = useRef(null);
             const fileInputRef = useRef(null);
+
+            // 加载会话列表
+            const loadSessions = async () => {
+                try {
+                    const resp = await fetch('/api/session/list');
+                    const data = await resp.json();
+                    setSessions(data.sessions || []);
+                } catch(e) {}
+            };
+
+            // 切换会话
+            const switchSession = async (sid) => {
+                setSessionId(sid);
+                try {
+                    const resp = await fetch(`/api/session/${sid}`);
+                    const data = await resp.json();
+                    const history = data.session?.history || [];
+                    setMessages(history.map(h => ({role: h.role, content: h.content})));
+                } catch(e) {
+                    setMessages([]);
+                }
+                setSidebarOpen(false);
+            };
+
+            // 创建新会话
+            const newSession = async () => {
+                try {
+                    const resp = await fetch('/api/session/create', { method: 'POST' });
+                    const data = await resp.json();
+                    setSessionId(data.session_id);
+                    setMessages([]);
+                    loadSessions();
+                } catch(e) {}
+            };
+
+            // 删除会话
+            const deleteSession = async (sid, e) => {
+                e.stopPropagation();
+                try {
+                    await fetch(`/api/session/${sid}`, { method: 'DELETE' });
+                    if (sessionId === sid) {
+                        setSessionId(null);
+                        setMessages([]);
+                    }
+                    loadSessions();
+                } catch(e) {}
+            };
 
             // 每次消息更新后渲染 LaTeX 公式
             useEffect(() => {
@@ -421,12 +620,13 @@ HTML_CONTENT = """
                 }
             }, [messages]);
 
-            // 初始化检查健康状态
+            // 初始化检查健康状态 + 加载会话列表
             useEffect(() => {
                 fetch('/api/health')
                     .then(res => res.json())
                     .then(data => setMultimodalEnabled(data.multimodal))
                     .catch(err => console.error("无法连接到后端", err));
+                loadSessions();
             }, []);
 
             // 自动滚动到底部
@@ -440,34 +640,93 @@ HTML_CONTENT = """
                 if (!inputMessage.trim() || loading) return;
 
                 const userMsg = inputMessage.trim();
+                
+                // 自动创建会话
+                let sid = sessionId;
+                if (!sid) {
+                    try {
+                        const resp = await fetch('/api/session/create', { method: 'POST' });
+                        const data = await resp.json();
+                        sid = data.session_id;
+                        setSessionId(sid);
+                    } catch(e) {}
+                }
+
                 setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
                 setInputMessage('');
                 setLoading(true);
 
+                // 为流式回答准备占位
+                setMessages(prev => [...prev, { role: 'assistant', content: '', isStreaming: true }]);
+
                 try {
-                    const response = await fetch('/api/chat', {
+                    const response = await fetch('/api/chat/stream', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: userMsg })
+                        body: JSON.stringify({ message: userMsg, session_id: sid })
                     });
 
-                    if (!response.ok) throw new Error('API request failed');
+                    if (!response.ok) throw new Error('Stream request failed');
 
-                    const data = await response.json();
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let accumulated = '';
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        const text = decoder.decode(value, { stream: true });
+                        const lines = text.split('\n');
+
+                        for (const line of lines) {
+                            if (!line.startsWith('data: ')) continue;
+                            try {
+                                const event = JSON.parse(line.slice(6));
+                                if (event.type === 'token') {
+                                    accumulated += event.content;
+                                    setMessages(prev => {
+                                        const newMsgs = [...prev];
+                                        if (newMsgs.length > 0) {
+                                            newMsgs[newMsgs.length - 1] = { 
+                                                ...newMsgs[newMsgs.length - 1], 
+                                                content: accumulated 
+                                            };
+                                        }
+                                        return newMsgs;
+                                    });
+                                } else if (event.type === 'done' && event.content) {
+                                    // 最终完成，替换为完整内容
+                                    setMessages(prev => {
+                                        const newMsgs = [...prev];
+                                        if (newMsgs.length > 0) {
+                                            newMsgs[newMsgs.length - 1] = {
+                                                role: 'assistant',
+                                                content: event.content,
+                                                isStreaming: false
+                                            };
+                                        }
+                                        return newMsgs;
+                                    });
+                                }
+                            } catch(e) {}
+                        }
+                    }
                     
-                    setMessages(prev => [...prev, {
-                        role: 'assistant',
-                        content: data.answer,
-                        sources: data.sources,
-                        metrics: data.metrics,
-                        images: data.images
-                    }]);
+                    loadSessions();
 
                 } catch (error) {
-                    setMessages(prev => [...prev, {
-                        role: 'assistant',
-                        content: '⚠️ 系统遇到错误，请稍后重试。'
-                    }]);
+                    setMessages(prev => {
+                        const newMsgs = [...prev];
+                        if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].isStreaming) {
+                            newMsgs[newMsgs.length - 1] = {
+                                role: 'assistant',
+                                content: '⚠️ 系统遇到错误，请稍后重试。',
+                                isStreaming: false
+                            };
+                        }
+                        return newMsgs;
+                    });
                     console.error(error);
                 } finally {
                     setLoading(false);
@@ -534,6 +793,40 @@ HTML_CONTENT = """
                                 </div>
                             </div>
                             
+                            {/* 会话管理 */}
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">会话</h3>
+                                    <button onClick={newSession}
+                                        className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                                        <i className="fa-solid fa-plus mr-1"></i>新建
+                                    </button>
+                                </div>
+                                <div className="space-y-1 max-h-40 overflow-y-auto">
+                                    {sessions.length === 0 && (
+                                        <p className="text-xs text-slate-500 text-center py-2">暂无会话</p>
+                                    )}
+                                    {sessions.map(s => (
+                                        <div key={s.id}
+                                            className={`flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-xs transition-colors ${
+                                                sessionId === s.id 
+                                                    ? 'bg-blue-600 text-white' 
+                                                    : 'hover:bg-slate-800 text-slate-300'
+                                            }`}
+                                            onClick={() => switchSession(s.id)}>
+                                            <div className="flex items-center space-x-2 truncate flex-1">
+                                                <i className="fa-solid fa-comment text-slate-500 flex-shrink-0"></i>
+                                                <span className="truncate">{s.title}</span>
+                                            </div>
+                                            <button onClick={(e) => deleteSession(s.id, e)}
+                                                className="text-slate-500 hover:text-red-400 ml-1 flex-shrink-0">
+                                                <i className="fa-solid fa-xmark"></i>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            
                             {/* 知识库管理 */}
                             <div>
                                 <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">知识库管理</h3>
@@ -595,7 +888,16 @@ HTML_CONTENT = """
                                 <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-slate-500 hover:text-slate-700 focus:outline-none mr-4">
                                     <i className="fa-solid fa-bars text-xl"></i>
                                 </button>
-                                <h1 className="text-lg font-semibold text-slate-700">智能知识库助手 (React版)</h1>
+                                <h1 className="text-lg font-semibold text-slate-700">智能知识库助手</h1>
+                                <button onClick={newSession}
+                                    className="ml-3 px-3 py-1 text-xs text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors">
+                                    <i className="fa-solid fa-plus mr-1"></i>新会话
+                                </button>
+                                {loading && (
+                                    <span className="ml-3 text-xs text-slate-400">
+                                        <i className="fa-solid fa-spinner fa-spin mr-1"></i>处理中...
+                                    </span>
+                                )}
                             </div>
                             <div className="flex items-center space-x-4">
                                 <a href="/docs" target="_blank" className="text-sm text-blue-600 hover:text-blue-800 font-medium">

@@ -405,6 +405,52 @@ class AdaptiveRAGSystem:
             "retrieval_metrics": retrieval_metrics
         }
     
+    async def stream_query(self, question: str):
+        """
+        流式查询处理，通过 SSE 逐 token 流式返回
+        
+        Args:
+            question (str): 用户问题
+            
+        Yields:
+            dict: 包含 type 和 content 的事件
+        """
+        inputs = {"question": question, "retry_count": 0}
+        config = {"recursion_limit": 25, **self.langsmith_manager.get_callback_config()}
+        
+        final_generation = None
+        
+        yield {"type": "start"}
+        
+        async for output in self.app.astream(inputs, config=config):
+            for node_name, value in output.items():
+                if node_name == "retrieve":
+                    yield {"type": "progress", "content": "📚 检索知识库中..."}
+                elif node_name == "web_search":
+                    yield {"type": "progress", "content": "🌐 网络搜索中..."}
+                elif node_name == "grade_documents":
+                    yield {"type": "progress", "content": "📝 文档相关性评分中..."}
+                elif node_name == "generate":
+                    yield {"type": "progress", "content": "🤖 生成回答中..."}
+                elif node_name == "transform_query":
+                    yield {"type": "progress", "content": "🔄 查询优化中..."}
+                elif node_name == "route_and_decompose":
+                    yield {"type": "progress", "content": "🔀 路由决策中..."}
+                elif node_name == "prepare_next_query":
+                    yield {"type": "progress", "content": "🔄 准备子查询..."}
+                
+                final_generation = value.get("generation", final_generation)
+        
+        if final_generation:
+            yield {"type": "answer"}
+            chunk_size = 4
+            for i in range(0, len(final_generation), chunk_size):
+                yield {"type": "token", "content": final_generation[i:i+chunk_size]}
+                await asyncio.sleep(0.003)
+            yield {"type": "done", "content": final_generation}
+        else:
+            yield {"type": "error", "content": "未生成回答"}
+    
     def interactive_mode(self):
         """交互模式，自动检测运行环境并选择合适的输入方式"""
         if self._is_notebook_env():
