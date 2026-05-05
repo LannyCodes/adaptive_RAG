@@ -221,6 +221,10 @@ import os
 static_dir = "/app/static"
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    # 字体文件目录
+    webfonts_dir = "/app/webfonts"
+    if os.path.exists(webfonts_dir):
+        app.mount("/webfonts", StaticFiles(directory=webfonts_dir), name="webfonts")
     print(f"  📦 静态资源目录已挂载: {static_dir}")
 else:
     # 开发环境下使用本地相对路径

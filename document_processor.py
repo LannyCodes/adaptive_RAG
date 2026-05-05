@@ -864,11 +864,14 @@ class DocumentProcessor:
                     output_fields.append("file_type")
 
                 while offset < 16384:
+                    actual_limit = min(batch_size, 16384 - offset)
+                    if actual_limit <= 0:
+                        break
                     try:
                         batch = col.query(
                             expr=f"{pk_name} >= 0",
                             output_fields=output_fields,
-                            limit=batch_size, offset=offset,
+                            limit=actual_limit, offset=offset,
                         )
                     except Exception as query_err:
                         # 如果查询失败（如字段不存在），降级为只查 text 和 source
@@ -964,10 +967,13 @@ class DocumentProcessor:
 
                 offset, batch_size = 0, 500
                 while offset < 16384:
+                    actual_limit = min(batch_size, 16384 - offset)
+                    if actual_limit <= 0:
+                        break
                     batch = col.query(
                         expr=f"{pk_name} >= 0",
                         output_fields=[text_field, "source", "data_type"],
-                        limit=batch_size, offset=offset,
+                        limit=actual_limit, offset=offset,
                     )
                     if not batch:
                         break
