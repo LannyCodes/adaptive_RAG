@@ -733,10 +733,21 @@ class AdaptiveRAGSystem:
                     answer = result.get("answer", "无回答")
                     print(f"\n💡 回答:\n{answer}")
 
+                    # 全流程耗时
+                    total_time = result.get("total_time")
+                    node_times = result.get("node_times", {})
+                    if total_time:
+                        print(f"\n{'─'*40}")
+                        print(f"⏱️  全流程耗时: {total_time:.2f}s")
+                        for node_name, elapsed in node_times.items():
+                            bar = '█' * max(1, int(elapsed / total_time * 20))
+                            print(f"   {node_name:<22s} {elapsed:6.2f}s  {bar}")
+                        print(f"{'─'*40}")
+
                     if result.get("retrieval_metrics"):
                         metrics = result["retrieval_metrics"]
                         print(f"\n📊 检索评估摘要:")
-                        print(f"   - 检索耗时: {metrics.get('latency', 0):.4f}秒")
+                        print(f"   - 向量检索耗时: {metrics.get('latency', 0):.4f}秒")
                         print(f"   - 检索文档数: {metrics.get('retrieved_docs_count', 0)}")
                         print(f"   - Precision@3: {metrics.get('precision_at_3', 0):.4f}")
                         print(f"   - Recall@3: {metrics.get('recall_at_3', 0):.4f}")
