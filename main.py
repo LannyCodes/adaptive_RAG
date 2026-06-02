@@ -332,6 +332,12 @@ class AdaptiveRAGSystem:
         Returns:
             dict: 包含最终答案和评估指标的字典
         """
+        import time as _t
+        _total_start = _t.time()
+        _node_times = {}  # {node_name: elapsed_seconds}
+        _current_node = None
+        _current_node_start = None
+        
         print(f"\n🔍 处理问题: {question}")
         print("=" * 50)
         
@@ -349,10 +355,15 @@ class AdaptiveRAGSystem:
         print("\n🤖 思考过程:")
         async for output in self.app.astream(inputs, config=config):
             for key, value in output.items():
+                # 节点计时：上一个节点结束 → 新节点开始
+                if _current_node and _current_node != key:
+                    _node_times[_current_node] = _node_times.get(_current_node, 0) + (_t.time() - _current_node_start)
+                if key != _current_node:
+                    _current_node = key
+                    _current_node_start = _t.time()
+                
                 if verbose:
-                    # 使用 ANSI 转义序列清行并打印，避免 \r 覆盖残留
                     print(f"\033[2K\033[G  ↳ 执行节点: {key}...")
-                    # 异步暂停
                     await asyncio.sleep(0.1)
                     
                 # 记录路由决策
@@ -411,10 +422,27 @@ class AdaptiveRAGSystem:
                 metrics=retrieval_metrics
             )
         
+        # 记录最后一个节点的耗时
+        if _current_node and _current_node_start:
+            _node_times[_current_node] = _node_times.get(_current_node, 0) + (_t.time() - _current_node_start)
+        
+        # 打印各阶段耗时
+        _total_elapsed = _t.time() - _total_start
+        print(f"\n{'─'*40}")
+        print(f"⏱️  全流程耗时: {_total_elapsed:.2f}s")
+        for node_name, elapsed in _node_times.items():
+            bar = '█' * max(1, int(elapsed / _total_elapsed * 20))
+            print(f"   {node_name:<22s} {elapsed:6.2f}s  {bar}")
+        if retrieval_metrics:
+            print(f"   {'└ 其中向量检索':<22s} {retrieval_metrics.get('latency', 0):6.2f}s")
+        print(f"{'─'*40}")
+        
         # 返回包含答案和评估指标的字典
         return {
             "answer": final_generation,
-            "retrieval_metrics": retrieval_metrics
+            "retrieval_metrics": retrieval_metrics,
+            "total_time": _total_elapsed,
+            "node_times": _node_times,
         }
     
     async def stream_query(self, question: str):
