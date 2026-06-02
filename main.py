@@ -694,7 +694,7 @@ class AdaptiveRAGSystem:
 
                 if loop and loop.is_running():
                     # 在已有事件循环中（如 Jupyter），使用 nest_asyncio 或创建新线程
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                    with ThreadPoolExecutor() as executor:
                         future = executor.submit(asyncio.run, self.query(question))
                         result = future.result(timeout=300)
                 else:
