@@ -3,6 +3,7 @@
 
 # 核心框架
 langchain==0.3.27
+langchain-core>=0.3.50,<0.4
 langgraph==0.3.34
 langchain-community==0.3.15
 langchain-text-splitters==0.3.11
@@ -28,7 +29,6 @@ docx2txt==0.8  # Word (.docx) 简单文本提取（回退方案）
 lxml==5.3.0  # XML解析，用于OMML数学公式转LaTeX
 openpyxl==3.1.5  # Excel (.xlsx) 文件解析
 ebooklib==0.18  # EPUB 电子书解析
-tiktoken==0.7.0
 beautifulsoup4==4.12.2
 requests==2.32.3
 Pillow==10.4.0  # 图像处理，支持多模态功能
@@ -61,31 +61,18 @@ typing-extensions==4.12.2
 # GraphRAG相关
 networkx==3.2.1  # 图结构处理
 python-louvain==0.16  # 社区检测
-neo4j==5.14.0  # 图数据库
-py2neo==2021.2.4  # Neo4j Python客户端
-graspologic==3.3.0  # 层次化社区检测
-leidenalg==0.10.0  # 更好的社区检测算法
-spacy==3.7.0  # 实体识别增强
-
-# 图可视化（可选）
-pyvis==0.3.2
-plotly==5.18.0
 
 # 缓存和性能优化
 diskcache==5.6.0
-joblib==1.3.0
 redis[hiredis]==5.2.1  # 会话持久化存储（hiredis 加速序列化）
 
 # 异步HTTP请求（用于并发处理）
 aiohttp==3.11.14
 
 # 系统监控
-gputil==1.4.0
 psutil==5.9.0
 
-# 开发工具（可选）
-# jupyter>=1.0.0
-# ipykernel>=6.0.0
+# 可视化（可选，retrieval_evaluation 绘图用）
 contourpy==1.1.1  # matplotlib 的依赖，明确版本避免解析慢
 matplotlib==3.8.0
 seaborn==0.13.0
@@ -95,7 +82,7 @@ fastapi==0.115.6
 uvicorn==0.34.0
 python-multipart==0.0.20
 
-# PyYAML（9. Prompt 配置化）
+# PyYAML（Prompt 配置化）
 PyYAML>=6.0.1
 
 # Kaggle/Notebook 兼容（支持嵌套事件循环）
