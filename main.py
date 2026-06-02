@@ -687,6 +687,9 @@ class AdaptiveRAGSystem:
 
         display(ui_container)
 
+        # 会话历史（跨查询保持，用于对话上下文）
+        _chat_history = []
+
         def _process_question(question_text):
             """处理单个问题"""
             question = question_text.strip()
@@ -716,6 +719,9 @@ class AdaptiveRAGSystem:
             submit_btn.disabled = True
 
             try:
+                # 获取最近 10 条对话历史（5 轮对话）
+                recent_history = _chat_history[-10:] if len(_chat_history) > 10 else list(_chat_history)
+
                 # 获取或创建事件循环
                 try:
                     loop = asyncio.get_running_loop()
@@ -725,15 +731,20 @@ class AdaptiveRAGSystem:
                 if loop and loop.is_running():
                     # 在已有事件循环中（如 Jupyter），使用 nest_asyncio 或创建新线程
                     with ThreadPoolExecutor() as executor:
-                        future = executor.submit(asyncio.run, self.query(question))
+                        future = executor.submit(asyncio.run, self.query(question, chat_history=recent_history))
                         result = future.result(timeout=300)
                 else:
-                    result = asyncio.run(self.query(question))
+                    result = asyncio.run(self.query(question, chat_history=recent_history))
 
                 # 显示回答
                 with output_area:
                     answer = result.get("answer", "无回答")
                     print(f"\n💡 回答:\n{answer}")
+
+                    # 保存对话历史（用于下次查询的上下文）
+                    import time as _t
+                    _chat_history.append({"role": "user", "content": question, "timestamp": _t.strftime("%Y-%m-%d %H:%M:%S")})
+                    _chat_history.append({"role": "assistant", "content": answer, "timestamp": _t.strftime("%Y-%m-%d %H:%M:%S")})
 
                     # 全流程耗时
                     total_time = result.get("total_time")
@@ -776,8 +787,9 @@ class AdaptiveRAGSystem:
             _process_question(text_widget.value)
 
         def on_clear(btn):
-            """清空输出"""
+            """清空输出并重置对话历史"""
             output_area.clear_output()
+            _chat_history.clear()
 
         # 绑定事件
         submit_btn.on_click(on_submit)
