@@ -552,7 +552,9 @@ class WorkflowNodes:
                     HumanMessage(content=human_content)
                 ]
                 
-                result = await self._react_agent.ainvoke({"messages": messages})
+                # 限制 ReAct Agent 迭代次数，防止多轮工具调用耗时过长
+                agent_config = {"recursion_limit": 6}  # 最多 2 轮工具调用（每轮 = agent + tool = 2步）
+                result = await self._react_agent.ainvoke({"messages": messages}, config=agent_config)
                 
                 # 从 agent 输出中提取最终答案
                 output_msgs = result.get("messages", [])
@@ -637,10 +639,10 @@ class WorkflowNodes:
 
             # 如果返回的scores数量不匹配，回退到逐个评分
             if len(scores) != len(documents):
-                print(f"⚠️ 批量评分返回数量不匹配({len(scores)} vs {len(documents)})，回退逐个评分")
+                print(f"⚠️ 批量评分返回数量不匹配({len(scores)} vs {len(documents)})，保留全部文档")
                 scores = None
         except Exception as e:
-            print(f"⚠️ 批量评分失败: {e}，回退逐个评分")
+            print(f"⚠️ 批量评分失败: {e}，保留全部文档")
             scores = None
 
         # 如果批量评分成功
@@ -663,29 +665,11 @@ class WorkflowNodes:
 
             return {"documents": filtered_docs, "question": question}
 
-        # 回退：逐个评分（原始逻辑）
-        def grade_single(doc):
-            score = self.graders["document_grader"].grade(question, doc.page_content)
-            return (doc, score == "yes")
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            results = list(executor.map(grade_single, documents))
-
-        filtered_docs = []
-        for doc, is_relevant in results:
-            if is_relevant:
-                print("---评分：文档相关---")
-                filtered_docs.append(doc)
-            else:
-                print("---评分：文档不相关---")
-
-        # 兜底逻辑：如果所有文档都被过滤掉，保留原始文档
-        if not filtered_docs and documents:
-            print(f"⚠️ 所有文档都被过滤，保留原始 {len(documents)} 个文档（评分可能过于严格）")
-            filtered_docs = list(documents)
-
-        return {"documents": filtered_docs, "question": question}
-    
+        # 如果批量评分失败，直接保留所有文档（避免回退到逐个评分浪费 30-60s）
+        if scores is None:
+            print(f"⚠️ 批量评分失败，直接保留全部 {len(documents)} 个文档（跳过逐个评分以节省时间）")
+            return {"documents": documents, "question": question}
+            
     def transform_query(self, state):
         """
         转换查询以产生更好的问题
@@ -1114,7 +1098,8 @@ class WorkflowNodes:
         
         if not filtered_documents:
             # 检查是否超过最大重试次数
-            if retry_count >= 2:
+            MAX_GRADE_RETRIES = 1  # 最多重试 1 次（原为 2 次，减少循环耗时）
+            if retry_count >= MAX_GRADE_RETRIES:
                 print(f"⚠️ 已达到最大重试次数 ({retry_count}) 且无相关文档，回退到网络搜索")
                 return "web_search"
                 
@@ -1174,7 +1159,7 @@ class WorkflowNodes:
         retry_count = state.get("retry_count", 0)
         
         # 检查是否超过最大重试次数（总重试上限，防止无限循环）
-        MAX_TOTAL_RETRIES = 3
+        MAX_TOTAL_RETRIES = 2  # 总重试上限 2 次（原为 3 次，减少循环耗时）
         if retry_count >= MAX_TOTAL_RETRIES:
             print(f"⚠️ 已达到总重试上限 ({MAX_TOTAL_RETRIES})，返回当前生成结果（可能不完全准确）")
             return "useful"
