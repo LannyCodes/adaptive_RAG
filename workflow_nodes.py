@@ -42,6 +42,7 @@ class GraphState(TypedDict):
         original_question: 原始问题，用于早期终止检查
         kg_context: 知识图谱扩展上下文（实体邻域、关系路径、社区摘要）
         image_paths: 检索结果中包含的图片路径列表
+        chat_history: 对话历史（最近几轮问答）
     """
     question: str
     generation: str
@@ -53,10 +54,45 @@ class GraphState(TypedDict):
     original_question: str # 原始问题，用于早期终止检查
     kg_context: List[str]  # 知识图谱扩展上下文
     image_paths: List[str]  # 检索结果中的图片路径
+    chat_history: List[dict]  # 对话历史: [{role, content, timestamp}]
 
 
 class WorkflowNodes:
     """工作流节点类，包含所有节点函数"""
+    
+    @staticmethod
+    def _format_chat_history(chat_history: list, max_turns: int = 5) -> str:
+        """
+        格式化对话历史为文本字符串
+        
+        Args:
+            chat_history: [{role: str, content: str, timestamp: ...}]
+            max_turns: 最多保留的对话轮数（一问一答 = 1轮）
+        
+        Returns:
+            格式化后的历史文本，无历史时返回空字符串
+        """
+        if not chat_history:
+            return ""
+        
+        # 取最近 max_turns*2 条消息（每轮 = 1 user + 1 assistant）
+        recent = chat_history[-(max_turns * 2):]
+        
+        lines = []
+        for msg in recent:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            if not content:
+                continue
+            # 截断过长的内容，避免 prompt 过长
+            if len(content) > 300:
+                content = content[:300] + "..."
+            if role == "user":
+                lines.append(f"用户: {content}")
+            elif role == "assistant":
+                lines.append(f"助手: {content}")
+        
+        return "\n".join(lines) if lines else ""
     
     def __init__(self, doc_processor, graders, retriever=None, graph_retriever=None):
         self.doc_processor = doc_processor  # 接收DocumentProcessor实例
@@ -446,7 +482,7 @@ class WorkflowNodes:
     
     async def generate(self, state):
         """
-        生成答案（异步版本，支持 ReAct Agent 增强生成）
+        生成答案（异步版本，支持 ReAct Agent 增强生成 + 对话上下文）
 
         当 ReAct Agent 可用时，Agent 会：
         1. 评估已检索的上下文是否充分
@@ -466,6 +502,10 @@ class WorkflowNodes:
         original_question = state.get("original_question", question)
         documents = state["documents"]
         kg_context = state.get("kg_context", [])
+        chat_history = state.get("chat_history", [])
+
+        # 格式化对话历史
+        history_text = self._format_chat_history(chat_history)
 
         # 提取图片路径（用于前端展示）
         image_paths = []
@@ -499,12 +539,17 @@ class WorkflowNodes:
                     d.page_content for d in context_docs if hasattr(d, 'page_content')
                 ) or "无检索上下文"
                 
+                # 构建包含对话历史的 HumanMessage
+                human_content = ""
+                if history_text:
+                    human_content += f"对话历史：\n{history_text}\n\n"
+                    print(f"   💬 包含 {len(chat_history)} 条对话历史")
+                human_content += f"以下是检索到的相关上下文：\n\n{context_text}\n\n"
+                human_content += f"用户问题：{original_question}"
+                
                 messages = [
                     SystemMessage(content=self._react_system_prompt),
-                    HumanMessage(content=(
-                        f"以下是检索到的相关上下文：\n\n{context_text}\n\n"
-                        f"用户问题：{original_question}"
-                    ))
+                    HumanMessage(content=human_content)
                 ]
                 
                 result = await self._react_agent.ainvoke({"messages": messages})
@@ -527,8 +572,12 @@ class WorkflowNodes:
         
         # ── 回退：普通 RAG 链 ──
         try:
+            # 将历史拼入 question，让 RAG 链也能感知上下文
+            augmented_question = original_question
+            if history_text:
+                augmented_question = f"对话历史：\n{history_text}\n\n当前问题：{original_question}"
             generation = await self.rag_chain.ainvoke(
-                {"context": context_docs, "question": original_question}
+                {"context": context_docs, "question": augmented_question}
             )
         except Exception as e:
             print(f"⚠️ RAG 链生成失败: {e}")

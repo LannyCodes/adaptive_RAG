@@ -675,7 +675,16 @@ async def chat_stream(request: ChatRequest):
     question = request.message
 
     async def event_generator():
-        # 1. 检查缓存
+        # 0. 获取对话历史（最近 10 条消息，即 5 轮对话）
+        chat_history = []
+        if session_id:
+            try:
+                full_history = session_manager.get_history(session_id)
+                chat_history = full_history[-10:] if len(full_history) > 10 else full_history
+            except Exception:
+                chat_history = []
+        
+        # 1. 检查缓存（精确匹配，不考虑上下文）
         cached = cache_manager.get_answer(question)
         if cached is not None:
             yield f"data: {json.dumps({'type': 'progress', 'content': '⚡ 命中缓存'}, ensure_ascii=False)}\n\n"
@@ -695,7 +704,7 @@ async def chat_stream(request: ChatRequest):
                 if session_id:
                     session_manager.add_message(session_id, "user", question)
 
-                async for event in system.stream_query(question):
+                async for event in system.stream_query(question, chat_history=chat_history):
                     data = json.dumps(event, ensure_ascii=False)
                     yield f"data: {data}\n\n"
 
@@ -821,6 +830,15 @@ async def chat_endpoint_with_session(request: ChatRequest):
     session_id = request.session_id
     question = request.message
 
+    # 0. 获取对话历史
+    chat_history = []
+    if session_id:
+        try:
+            full_history = session_manager.get_history(session_id)
+            chat_history = full_history[-10:] if len(full_history) > 10 else full_history
+        except Exception:
+            chat_history = []
+
     # 1. 检查缓存
     cached = cache_manager.get_answer(question)
     if cached is not None:
@@ -834,7 +852,7 @@ async def chat_endpoint_with_session(request: ChatRequest):
 
     try:
         async with rate_limiter:
-            result = await system.query(question)
+            result = await system.query(question, chat_history=chat_history)
 
         answer = result.get("answer", "无法生成回答")
 

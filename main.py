@@ -321,13 +321,14 @@ class AdaptiveRAGSystem:
             debug=False,
         )
     
-    async def query(self, question: str, verbose: bool = True):
+    async def query(self, question: str, verbose: bool = True, chat_history: list = None):
         """
         处理查询 (异步版本)
         
         Args:
             question (str): 用户问题
             verbose (bool): 是否显示详细输出
+            chat_history (list): 对话历史，格式 [{role, content, timestamp}]
             
         Returns:
             dict: 包含最终答案和评估指标的字典
@@ -344,7 +345,7 @@ class AdaptiveRAGSystem:
         # 记录查询开始时间
         query_start_time = datetime.now()
         
-        inputs = {"question": question, "retry_count": 0}  # 初始化重试计数器
+        inputs = {"question": question, "retry_count": 0, "chat_history": chat_history or []}  # 初始化重试计数器和对话历史
         final_generation = None
         retrieval_metrics = None
         routing_decision = "unknown"
@@ -445,7 +446,7 @@ class AdaptiveRAGSystem:
             "node_times": _node_times,
         }
     
-    async def stream_query(self, question: str):
+    async def stream_query(self, question: str, chat_history: list = None):
         """
         流式查询处理，通过 SSE 逐 token 流式返回
         
@@ -458,11 +459,12 @@ class AdaptiveRAGSystem:
         
         Args:
             question (str): 用户问题
+            chat_history (list): 对话历史，格式 [{role, content, timestamp}]
             
         Yields:
             dict: 包含 type 和 content 的事件
         """
-        inputs = {"question": question, "retry_count": 0}
+        inputs = {"question": question, "retry_count": 0, "chat_history": chat_history or []}
         config = {"recursion_limit": 25, **self.langsmith_manager.get_callback_config()}
         
         yield {"type": "start"}
