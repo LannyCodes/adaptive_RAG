@@ -62,16 +62,45 @@ class MemoryCache:
 
 
 class SemanticCache:
-    """语义缓存：存储 query embedding 和答案，检索时按相似度匹配"""
+    """语义缓存：存储 query embedding 和答案，检索时按相似度匹配
+    
+    优化：使用 numpy 矩阵批量计算余弦相似度，避免逐条遍历磁盘。
+    嵌入矩阵在缓存变更时懒重建。
+    """
+    
+    _EMBEDDING_INDEX_KEY = "__embedding_index__"  # 索引 key，存储 key→embedding 映射
     
     def __init__(self, similarity_threshold: float = 0.92, cache_dir: str = "./data/cache/semantic"):
         self._threshold = similarity_threshold
         os.makedirs(cache_dir, exist_ok=True)
         self._store = DiskCache(os.path.join(cache_dir, "semantic_store"))
         self._lock = threading.RLock()
+        # 嵌入矩阵缓存（懒加载）
+        self._emb_matrix: Optional[np.ndarray] = None  # (N, dim)
+        self._emb_keys: list = []  # 与 matrix 行对应的 cache key
+        self._dirty = True  # 标记是否需要重建矩阵
     
     def _make_key(self, question: str) -> str:
         return hashlib.md5(question.encode()).hexdigest()
+    
+    def _rebuild_index(self):
+        """重建嵌入矩阵索引（仅在 dirty 时调用）"""
+        keys = []
+        vecs = []
+        for stored_key in self._store.iterkeys():
+            if stored_key == self._EMBEDDING_INDEX_KEY:
+                continue
+            entry = self._store.get(stored_key)
+            if entry and "embedding" in entry:
+                keys.append(stored_key)
+                vecs.append(np.array(entry["embedding"], dtype=np.float32))
+        
+        self._emb_keys = keys
+        if vecs:
+            self._emb_matrix = np.stack(vecs)  # (N, dim)
+        else:
+            self._emb_matrix = None
+        self._dirty = False
     
     def get(self, question: str, query_embedding_fn: Optional[Callable] = None) -> Optional[str]:
         """查找语义相似的缓存结果"""
@@ -82,25 +111,34 @@ class SemanticCache:
             return exact.get("answer")
         
         # 2. 语义近似匹配（需提供 embedding 函数）
-        if query_embedding_fn is not None and self._store.get("embeddings"):
+        if query_embedding_fn is None:
+            return None
+        
+        with self._lock:
+            if self._dirty:
+                self._rebuild_index()
+            
+            if self._emb_matrix is None or not self._emb_keys:
+                return None
+            
             try:
-                query_vec = np.array(query_embedding_fn(question))
+                query_vec = np.array(query_embedding_fn(question), dtype=np.float32)
                 if query_vec.ndim == 2:
                     query_vec = query_vec[0]
-                    
-                for stored_key in self._store.iterkeys():
-                    if stored_key == "embeddings":
-                        continue
-                    entry = self._store.get(stored_key)
-                    if not entry or "embedding" not in entry:
-                        continue
-                    stored_vec = np.array(entry["embedding"])
-                    # 余弦相似度
-                    norm = np.linalg.norm(query_vec) * np.linalg.norm(stored_vec)
-                    if norm == 0:
-                        continue
-                    similarity = float(np.dot(query_vec, stored_vec) / norm)
-                    if similarity >= self._threshold:
+                
+                # 批量余弦相似度: (N, dim) @ (dim,) → (N,)
+                norms = np.linalg.norm(self._emb_matrix, axis=1) * np.linalg.norm(query_vec)
+                valid = norms > 0
+                if not valid.any():
+                    return None
+                
+                sims = np.zeros(len(self._emb_keys))
+                sims[valid] = self._emb_matrix[valid] @ query_vec / norms[valid]
+                
+                best_idx = int(np.argmax(sims))
+                if sims[best_idx] >= self._threshold:
+                    entry = self._store.get(self._emb_keys[best_idx])
+                    if entry:
                         return entry.get("answer")
             except Exception:
                 pass  # 语义匹配失败，降级返回 None
@@ -114,9 +152,13 @@ class SemanticCache:
         if embedding is not None:
             entry["embedding"] = embedding
         self._store.set(key, entry, expire=ttl)
+        self._dirty = True  # 标记需要重建索引
     
     def clear(self):
         self._store.clear()
+        self._emb_matrix = None
+        self._emb_keys = []
+        self._dirty = False
 
 
 class CacheManager:

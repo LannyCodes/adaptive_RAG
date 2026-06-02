@@ -339,7 +339,11 @@ class HybridReranker(DocumentReranker):
 
 
 class DiversityReranker(DocumentReranker):
-    """多样性重排器，避免结果重复"""
+    """多样性重排器，避免结果重复
+    
+    优化：MMR 算法中所有嵌入只计算一次，后续通过索引复用，
+    将 O(N²) 次 embed_documents 调用降为 O(1) 次批量调用。
+    """
     
     def __init__(self, embeddings_model, diversity_lambda: float = 0.5):
         super().__init__()
@@ -347,66 +351,68 @@ class DiversityReranker(DocumentReranker):
         self.embeddings_model = embeddings_model
         self.diversity_lambda = diversity_lambda
     
-    def _calculate_diversity_penalty(self, candidate_doc: str, selected_docs: List[str]) -> float:
-        """计算多样性惩罚"""
-        if not selected_docs:
-            return 0.0
-        
-        candidate_emb = self.embeddings_model.embed_documents([candidate_doc])[0]
-        selected_embs = self.embeddings_model.embed_documents(selected_docs)
-        
-        max_similarity = 0.0
-        for selected_emb in selected_embs:
-            sim = cosine_similarity([candidate_emb], [selected_emb])[0][0]
-            max_similarity = max(max_similarity, sim)
-        
-        return max_similarity
-    
     def rerank(self, query: str, documents: List[dict], top_k: int = 5) -> List[Tuple[dict, float]]:
-        """使用多样性策略重新排序文档"""
+        """使用多样性策略重新排序文档（MMR + 批量嵌入）"""
         if not documents:
             return []
         
-        # 首先使用语义相似度获取初始排序
-        semantic_results = SemanticReranker(self.embeddings_model).rerank(
-            query, documents, len(documents)
-        )
+        n_docs = len(documents)
+        doc_texts = [doc.page_content if hasattr(doc, 'page_content') else str(doc) for doc in documents]
         
-        # MMR (Maximal Marginal Relevance) 算法
-        selected_docs = []
-        selected_texts = []
-        remaining_docs = [doc for doc, _ in semantic_results]
-        relevance_scores = {id(doc): score for doc, score in semantic_results}
+        # ── 一次性批量计算所有嵌入 ──
+        try:
+            query_emb = np.array(self.embeddings_model.embed_query(query), dtype=np.float32)
+            doc_embs = np.array(self.embeddings_model.embed_documents(doc_texts), dtype=np.float32)
+        except Exception as e:
+            print(f"⚠️ DiversityReranker 嵌入计算失败: {e}")
+            return [(doc, 0.5) for doc in documents[:top_k]]
         
-        while len(selected_docs) < top_k and remaining_docs:
-            best_score = -1
-            best_doc = None
+        # ── 计算相关性分数（余弦相似度）──
+        q_norm = np.linalg.norm(query_emb)
+        d_norms = np.linalg.norm(doc_embs, axis=1)
+        valid = (d_norms > 0) & (q_norm > 0)
+        relevance = np.zeros(n_docs)
+        if valid.any():
+            relevance[valid] = (doc_embs[valid] @ query_emb) / (d_norms[valid] * q_norm)
+        
+        # ── MMR 算法（索引操作，不再调用 embed）──
+        selected_indices: List[int] = []
+        remaining = set(range(n_docs))
+        
+        while len(selected_indices) < top_k and remaining:
+            best_score = -np.inf
             best_idx = -1
             
-            for i, doc in enumerate(remaining_docs):
-                doc_text = doc.page_content if hasattr(doc, 'page_content') else str(doc)
-                relevance = relevance_scores[id(doc)]
-                diversity_penalty = self._calculate_diversity_penalty(doc_text, selected_texts)
+            for i in remaining:
+                # 多样性惩罚 = 与已选文档的最大余弦相似度
+                if selected_indices:
+                    sel_embs = doc_embs[selected_indices]  # (k, dim)
+                    i_emb = doc_embs[i]  # (dim,)
+                    i_norm = d_norms[i]
+                    sel_norms = d_norms[selected_indices]
+                    norms = i_norm * sel_norms
+                    if i_norm > 0 and (sel_norms > 0).all():
+                        sims = (sel_embs @ i_emb) / norms
+                        diversity_penalty = float(np.max(sims))
+                    else:
+                        diversity_penalty = 0.0
+                else:
+                    diversity_penalty = 0.0
                 
-                # MMR分数 = λ * 相关性 - (1-λ) * 多样性惩罚
                 mmr_score = (
-                    self.diversity_lambda * relevance - 
+                    self.diversity_lambda * relevance[i] -
                     (1 - self.diversity_lambda) * diversity_penalty
                 )
                 
                 if mmr_score > best_score:
                     best_score = mmr_score
-                    best_doc = doc
                     best_idx = i
             
-            if best_doc is not None:
-                selected_docs.append((best_doc, best_score))
-                selected_texts.append(
-                    best_doc.page_content if hasattr(best_doc, 'page_content') else str(best_doc)
-                )
-                remaining_docs.pop(best_idx)
+            if best_idx >= 0:
+                selected_indices.append(best_idx)
+                remaining.discard(best_idx)
         
-        return selected_docs
+        return [(documents[i], float(relevance[i])) for i in selected_indices]
 
 
 class ContextAwareReranker(DocumentReranker):

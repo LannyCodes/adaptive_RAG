@@ -110,6 +110,12 @@ GRAPH_COMMUNITY_DETECTION = os.environ.get("GRAPH_COMMUNITY_DETECTION", "true").
 GRAPH_VISUALIZATION = os.environ.get("GRAPH_VISUALIZATION", "true").lower() == "true"
 GRAPH_LAYOUT = os.environ.get("GRAPH_LAYOUT", "spring")
 
+# Redis 配置（会话持久化存储）
+# Kaggle 环境可连接 Redis Cloud 免费版: https://redis.com/try-free/
+# 本地开发可启动 Redis: docker run -d -p 6379:6379 redis:alpine
+REDIS_URL = os.environ.get("REDIS_URL", "")  # 例如: redis://default:password@host:port/0
+REDIS_SESSION_TTL = int(os.environ.get("REDIS_SESSION_TTL", "604800"))  # 会话过期时间（秒），默认 7 天
+
 # 混合检索策略配置
 ENABLE_HYBRID_SEARCH = os.environ.get("ENABLE_HYBRID_SEARCH", "true").lower() == "true"  # 默认开启
 HYBRID_SEARCH_WEIGHTS = {"vector": 0.5, "keyword": 0.5}  # 向量检索和关键词检索的权重
@@ -119,7 +125,7 @@ BM25_B = float(os.environ.get("BM25_B", "0.75"))  # BM25算法的b参数
 
 # 查询扩展优化配置
 ENABLE_QUERY_EXPANSION = os.environ.get("ENABLE_QUERY_EXPANSION", "true").lower() == "true"  # 默认开启
-QUERY_EXPANSION_MODEL = LOCAL_LLM  # 复用 LOCAL_LLM (Qwen2.5-7B)，避免额外下载 Mistral
+QUERY_EXPANSION_MODEL = LOCAL_LLM  # 复用 LOCAL_LLM (Qwen2.5-7B)
 QUERY_EXPANSION_PROMPT = """请为以下查询生成3-5个相关的扩展查询，这些查询应该从不同角度探索原始查询的主题。
 原始查询: {query}
 扩展查询: """  # 查询扩展提示模板

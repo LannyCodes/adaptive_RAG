@@ -28,16 +28,19 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import sys
+import signal
 import uvicorn
 import subprocess
 import time
 import threading
+import traceback
 import requests
 import uuid
 import json
 import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -86,50 +89,240 @@ def ensure_ollama_service(model_name: str):
 # 会话管理器
 # ============================================================
 
-class SessionManager:
-    """管理对话历史"""
-    def __init__(self):
-        self._sessions = {}
+import json as _json
 
-    def create_session(self) -> str:
-        session_id = str(uuid.uuid4())
-        self._sessions[session_id] = {
+class SessionManager:
+    """
+    对话历史管理器
+    
+    存储后端优先级:
+    1. Redis（持久化，重启后保留）—— 需在 .env 中设置 REDIS_URL
+    2. 内存（降级回退，重启后丢失）
+    
+    Kaggle 使用示例:
+        # .env 文件中添加:
+        REDIS_URL=redis://default:your_password@redis-12345.c1.us-east-1.ec2.cloud.redislabs.com:12345/0
+    """
+    
+    # Redis key 前缀和索引
+    _KEY_PREFIX = "session:"
+    _INDEX_KEY = "session:__index__"  # Sorted Set: score=timestamp, member=session_id
+    
+    def __init__(self):
+        self._redis = None
+        self._sessions_fallback = {}  # 内存降级存储
+        self._backend = "memory"
+        self._ttl = 0
+        
+        # 尝试连接 Redis
+        self._init_redis()
+    
+    def _init_redis(self):
+        """尝试初始化 Redis 连接，失败则静默降级到内存"""
+        try:
+            from config import REDIS_URL, REDIS_SESSION_TTL
+            if not REDIS_URL:
+                print("  💬 会话存储: 内存模式 (未设置 REDIS_URL)")
+                return
+            
+            import redis
+            self._redis = redis.Redis.from_url(
+                REDIS_URL,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=True,
+            )
+            # 验证连接
+            self._redis.ping()
+            self._ttl = REDIS_SESSION_TTL
+            self._backend = "redis"
+            print(f"  💬 会话存储: Redis 模式 (TTL={self._ttl}s)")
+        except ImportError:
+            print("  💬 会话存储: 内存模式 (redis 库未安装)")
+        except Exception as e:
+            print(f"  ⚠️ Redis 连接失败，降级到内存模式: {e}")
+            self._redis = None
+    
+    # ── 内部工具方法 ──
+    
+    def _key(self, session_id: str) -> str:
+        """生成 Redis key"""
+        return f"{self._KEY_PREFIX}{session_id}"
+    
+    def _now(self) -> str:
+        return time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    def _now_ts(self) -> float:
+        """当前时间戳，用于 Sorted Set 排序"""
+        return time.time()
+    
+    def _new_session_data(self) -> dict:
+        return {
             "history": [],
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "created_at": self._now(),
             "title": "新对话"
         }
+    
+    # ── Redis 实现 ──
+    
+    def _redis_create_session(self) -> str:
+        session_id = str(uuid.uuid4())
+        data = self._new_session_data()
+        pipe = self._redis.pipeline()
+        pipe.set(self._key(session_id), _json.dumps(data, ensure_ascii=False), ex=self._ttl)
+        pipe.zadd(self._INDEX_KEY, {session_id: self._now_ts()})
+        pipe.execute()
         return session_id
-
-    def get_history(self, session_id: str) -> list:
-        session = self._sessions.get(session_id)
-        return session["history"] if session else []
-
-    def add_message(self, session_id: str, role: str, content: str):
-        if session_id not in self._sessions:
-            self._sessions[session_id] = {
-                "history": [], "created_at": time.strftime("%Y-%m-%d %H:%M:%S"), "title": "新对话"
-            }
-        self._sessions[session_id]["history"].append({
-            "role": role, "content": content,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    def _redis_get_session(self, session_id: str) -> dict | None:
+        raw = self._redis.get(self._key(session_id))
+        if raw is None:
+            return None
+        try:
+            return _json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    
+    def _redis_get_history(self, session_id: str) -> list:
+        data = self._redis_get_session(session_id)
+        return data["history"] if data else []
+    
+    def _redis_add_message(self, session_id: str, role: str, content: str):
+        # 读取 -> 修改 -> 写回（原子性由 pipeline + WATCH 保证）
+        key = self._key(session_id)
+        with self._redis.pipeline() as pipe:
+            while True:
+                try:
+                    pipe.watch(key)
+                    raw = pipe.get(key)
+                    if raw is None:
+                        data = self._new_session_data()
+                    else:
+                        data = _json.loads(raw)
+                    
+                    data["history"].append({
+                        "role": role,
+                        "content": content,
+                        "timestamp": self._now()
+                    })
+                    if role == "user" and data.get("title") == "新对话":
+                        data["title"] = content[:30] + ("..." if len(content) > 30 else "")
+                    
+                    pipe.multi()
+                    pipe.set(key, _json.dumps(data, ensure_ascii=False), ex=self._ttl)
+                    # 确保索引中存在此 session
+                    pipe.zadd(self._INDEX_KEY, {session_id: self._now_ts()})
+                    pipe.execute()
+                    break
+                except Exception:
+                    # WATCH 触发或连接异常，重试一次
+                    continue
+    
+    def _redis_list_sessions(self) -> list:
+        # 从 Sorted Set 按时间倒序获取所有 session_id
+        session_ids = self._redis.zrevrange(self._INDEX_KEY, 0, -1)
+        result = []
+        if not session_ids:
+            return result
+        
+        # 批量获取 session 数据（减少网络往返）
+        pipe = self._redis.pipeline()
+        for sid in session_ids:
+            pipe.get(self._key(sid))
+        raw_list = pipe.execute()
+        
+        for sid, raw in zip(session_ids, raw_list):
+            if raw is None:
+                # 已过期，清理索引
+                self._redis.zrem(self._INDEX_KEY, sid)
+                continue
+            try:
+                data = _json.loads(raw)
+                result.append({
+                    "id": sid,
+                    "title": data.get("title", "新对话"),
+                    "created_at": data.get("created_at", ""),
+                    "msg_count": len(data.get("history", [])) // 2
+                })
+            except (ValueError, TypeError):
+                continue
+        return result
+    
+    def _redis_delete_session(self, session_id: str):
+        pipe = self._redis.pipeline()
+        pipe.delete(self._key(session_id))
+        pipe.zrem(self._INDEX_KEY, session_id)
+        pipe.execute()
+    
+    # ── 内存降级实现 ──
+    
+    def _mem_create_session(self) -> str:
+        session_id = str(uuid.uuid4())
+        self._sessions_fallback[session_id] = self._new_session_data()
+        return session_id
+    
+    def _mem_get_session(self, session_id: str) -> dict | None:
+        return self._sessions_fallback.get(session_id)
+    
+    def _mem_get_history(self, session_id: str) -> list:
+        s = self._sessions_fallback.get(session_id)
+        return s["history"] if s else []
+    
+    def _mem_add_message(self, session_id: str, role: str, content: str):
+        if session_id not in self._sessions_fallback:
+            self._sessions_fallback[session_id] = self._new_session_data()
+        self._sessions_fallback[session_id]["history"].append({
+            "role": role, "content": content, "timestamp": self._now()
         })
-        if role == "user" and self._sessions[session_id]["title"] == "新对话":
+        if role == "user" and self._sessions_fallback[session_id]["title"] == "新对话":
             title = content[:30]
-            self._sessions[session_id]["title"] = title + ("..." if len(content) > 30 else "")
-
-    def list_sessions(self) -> list:
+            self._sessions_fallback[session_id]["title"] = title + ("..." if len(content) > 30 else "")
+    
+    def _mem_list_sessions(self) -> list:
         return [
             {"id": sid, "title": s["title"], "created_at": s["created_at"],
              "msg_count": len(s["history"]) // 2}
-            for sid, s in sorted(self._sessions.items(),
+            for sid, s in sorted(self._sessions_fallback.items(),
                                  key=lambda x: x[1]["created_at"], reverse=True)
         ]
+    
+    def _mem_delete_session(self, session_id: str):
+        self._sessions_fallback.pop(session_id, None)
+    
+    # ── 公共接口（自动分发到对应后端） ──
+    
+    def create_session(self) -> str:
+        if self._backend == "redis":
+            return self._redis_create_session()
+        return self._mem_create_session()
+
+    def get_history(self, session_id: str) -> list:
+        if self._backend == "redis":
+            return self._redis_get_history(session_id)
+        return self._mem_get_history(session_id)
+
+    def add_message(self, session_id: str, role: str, content: str):
+        if self._backend == "redis":
+            self._redis_add_message(session_id, role, content)
+        else:
+            self._mem_add_message(session_id, role, content)
+
+    def list_sessions(self) -> list:
+        if self._backend == "redis":
+            return self._redis_list_sessions()
+        return self._mem_list_sessions()
 
     def delete_session(self, session_id: str):
-        self._sessions.pop(session_id, None)
+        if self._backend == "redis":
+            self._redis_delete_session(session_id)
+        else:
+            self._mem_delete_session(session_id)
 
-    def get_session(self, session_id: str) -> dict:
-        return self._sessions.get(session_id)
+    def get_session(self, session_id: str) -> dict | None:
+        if self._backend == "redis":
+            return self._redis_get_session(session_id)
+        return self._mem_get_session(session_id)
 
 
 # ============================================================
@@ -205,6 +398,67 @@ app = FastAPI(
     description="基于 FastAPI 和 React 构建的企业级 RAG 系统演示",
     version="1.0.0"
 )
+
+
+# ============================================================
+# 优雅关闭与资源清理
+# ============================================================
+
+_shutdown_called = False
+
+
+async def _shutdown_resources():
+    """优雅关闭：释放 Redis 连接、刷缓存、清理 RAG 系统资源"""
+    global _shutdown_called
+    if _shutdown_called:
+        return
+    _shutdown_called = True
+    print("\n🔄 正在优雅关闭，释放资源...")
+    
+    # 1. 关闭 Redis 连接
+    try:
+        if hasattr(session_manager, '_redis') and session_manager._redis:
+            session_manager._redis.close()
+            print("  ✅ Redis 连接已关闭")
+    except Exception as e:
+        print(f"  ⚠️ 关闭 Redis 失败: {e}")
+    
+    # 2. 刷缓存到磁盘
+    try:
+        if cache_manager:
+            stats = cache_manager.stats()
+            print(f"  💾 缓存统计: {stats}")
+    except Exception:
+        pass
+    
+    # 3. 清理 RAG 系统资源
+    try:
+        if rag_system is not None:
+            if hasattr(rag_system, 'doc_processor'):
+                dp = rag_system.doc_processor
+                if hasattr(dp, 'vector_store') and hasattr(dp.vector_store, 'disconnect'):
+                    dp.vector_store.disconnect()
+                    print("  ✅ 向量数据库连接已断开")
+            print("  ✅ RAG 系统资源已释放")
+    except Exception as e:
+        print(f"  ⚠️ RAG 系统清理失败: {e}")
+    
+    print("👋 资源释放完成，服务已停止")
+
+
+def _signal_handler(signum, frame):
+    """SIGTERM/SIGINT 信号处理器（仅当直接运行 server.py 时生效，
+    uvicorn 自带信号处理会先触发 FastAPI shutdown 事件）"""
+    sig_name = signal.Signals(signum).name
+    print(f"\n⚠️ 收到信号 {sig_name}，准备优雅关闭...")
+    # uvicorn 会自行处理 SIGTERM/SIGINT，触发 FastAPI shutdown 事件
+    # 此处仅做日志记录，不干预 uvicorn 的关闭流程
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """FastAPI 关闭事件钩子"""
+    await _shutdown_resources()
 
 # 允许跨域 (虽然单体部署不需要，但为了开发规范加上)
 app.add_middleware(
@@ -386,7 +640,6 @@ async def upload_file(file: UploadFile = File(...)):
                 "doc_count": len(doc_splits),
             }
         except Exception as idx_e:
-            import traceback
             traceback.print_exc()
             return {"filename": file.filename, "status": "success", "message": f"文件上传成功，但索引失败: {str(idx_e)}", "indexed": False}
         
@@ -397,8 +650,6 @@ async def upload_file(file: UploadFile = File(...)):
 @app.get("/api/images/{image_path:path}")
 async def serve_image(image_path: str):
     """提供图片文件访问"""
-    from fastapi.responses import FileResponse
-    
     # 尝试多个可能的位置
     search_paths = [
         os.path.join("./data/images", image_path),
@@ -617,7 +868,6 @@ async def chat_endpoint_with_session(request: ChatRequest):
         return ChatResponse(answer=answer, sources=sources, metrics=metrics, images=images)
 
     except Exception as e:
-        import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"处理请求时出错: {str(e)}")
 
@@ -870,7 +1120,20 @@ HTML_CONTENT = """
                             if (!line.startsWith('data: ')) continue;
                             try {
                                 const event = JSON.parse(line.slice(6));
-                                if (event.type === 'token') {
+                                if (event.type === 'progress' || event.type === 'thought') {
+                                    // 进度/思考状态：显示在流式输出上方
+                                    setMessages(prev => {
+                                        const newMsgs = [...prev];
+                                        if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].isStreaming) {
+                                            const status = event.type === 'thought' ? event.content : event.content;
+                                            newMsgs[newMsgs.length - 1] = {
+                                                ...newMsgs[newMsgs.length - 1],
+                                                status: (newMsgs[newMsgs.length - 1].status || '') + status + '\n'
+                                            };
+                                        }
+                                        return newMsgs;
+                                    });
+                                } else if (event.type === 'token') {
                                     accumulated += event.content;
                                     setMessages(prev => {
                                         const newMsgs = [...prev];
@@ -1160,6 +1423,12 @@ HTML_CONTENT = """
                                                 <i className="fa-solid fa-robot"></i>
                                             </div>
                                             <div className="flex flex-col space-y-2 w-full">
+                                                {/* Agent 思考过程 / 进度状态 */}
+                                                {msg.status && (
+                                                    <div className="text-xs text-slate-400 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 whitespace-pre-line">
+                                                        {msg.status}
+                                                    </div>
+                                                )}
                                                 <div 
                                                     className="bg-white border border-slate-200 px-6 py-4 rounded-2xl rounded-tl-none shadow-sm w-full markdown-body"
                                                     dangerouslySetInnerHTML={{ __html: (function() {

@@ -176,13 +176,40 @@ rag_generate:
     答案:
   input_vars: [question, context]
 
+# ---- ReAct Agent 系统提示 ----
+react_agent:
+  system_prompt: |
+    你是一个智能问答助手，能够使用工具来回答用户问题。
+
+    工作流程：
+    1. 仔细阅读已提供的检索上下文
+    2. 评估上下文是否包含回答问题所需的全部信息
+    3. 如果信息不足，可以调用 search_web 工具获取补充信息
+    4. 综合所有信息，生成完整准确的答案
+
+    重要规则：
+    - 优先使用已提供的检索上下文，这些信息已经过相关性筛选
+    - 仅在检索上下文明显不足以回答问题时，才调用 search_web
+    - 回答必须基于可靠信息，不要编造事实
+    - 如果不确定答案，请明确说明，不要猜测
+    - 如果用户请求特定格式（如Markdown、列表、代码块等），请严格遵守
+    - 答案语言与问题语言保持一致
+
 # ---- 查询扩展 ----
 query_expansion:
   template: |
-    请为以下查询生成3-5个相关的扩展查询，这些查询应该从不同角度探索原始查询的主题。
+    你是一个查询优化专家。请为原始查询生成 {num_queries} 个不同的变体，每个变体从不同角度表达同一个问题。
+
+    要求：
+    1. 每个查询变体用一行输出
+    2. 不要加编号、不要加前缀符号
+    3. 变体之间要有明显差异（不同关键词、不同角度）
+    4. 保持与原始查询相同的语言
+
     原始查询: {query}
-    扩展查询: 
-  input_vars: [query]
+
+    查询变体:
+  input_vars: [query, num_queries]
 
 # ---- 实体提取 ----
 extract_entities:
@@ -265,3 +292,53 @@ merge_entities:
 
     只返回JSON，不要其他内容。
   input_vars: [entity1_name, entity1_desc, entity2_name, entity2_desc]
+
+# ---- GraphRAG 实体识别 ----
+recognize_entities:
+  template: |
+    从以下问题中识别关键实体和概念:
+
+    问题: {question}
+
+    已知实体示例: {sample_entities}
+
+    请识别问题中提到的实体，返回JSON格式:
+    {{
+        "entities": ["实体1", "实体2", ...]
+    }}
+
+    只返回JSON，不要其他内容。
+  input_vars: [question, sample_entities]
+
+# ---- GraphRAG 全局查询 ----
+global_query:
+  template: |
+    你是一个知识图谱分析专家。基于以下社区摘要，回答用户问题。
+
+    用户问题: {question}
+
+    相关社区摘要:
+    {community_summaries}
+
+    请基于这些摘要提供一个综合性的答案。如果摘要中没有相关信息，请说明。
+
+    答案:
+  input_vars: [question, community_summaries]
+
+# ---- GraphRAG 本地查询 ----
+local_query:
+  template: |
+    基于以下实体及其关系信息，回答用户问题。
+
+    用户问题: {question}
+
+    相关实体信息:
+    {entity_info}
+
+    实体间的关系:
+    {relations}
+
+    请基于这些信息提供答案。
+
+    答案:
+  input_vars: [question, entity_info, relations]

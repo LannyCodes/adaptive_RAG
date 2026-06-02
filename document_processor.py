@@ -595,25 +595,12 @@ class DocumentProcessor:
             # 使用 create_chat_model 确保使用正确的 LLM 后端 (tongyi/deepseek/ollama)
             from routers_and_graders import create_chat_model
             from langchain_core.output_parsers import StrOutputParser
-            from langchain_core.prompts import PromptTemplate
+            from prompt_manager import get_prompt_manager
 
             self.query_expansion_model = create_chat_model(temperature=0.3)
 
-            # 查询扩展提示 - 生成多个相关查询
-            expansion_prompt = PromptTemplate(
-                template="""你是一个查询优化专家。请为原始查询生成 {num_queries} 个不同的变体，每个变体从不同角度表达同一个问题。
-
-要求：
-1. 每个查询变体用一行输出
-2. 不要加编号、不要加前缀符号
-3. 变体之间要有明显差异（不同关键词、不同角度）
-4. 保持与原始查询相同的语言
-
-原始查询: {query}
-
-查询变体:""",
-                input_variables=["query"],
-            )
+            # 查询扩展提示 - 从 prompts.yaml 加载
+            expansion_prompt = get_prompt_manager().get_template("query_expansion")
             # 动态传入 num_queries
             self.query_expansion_prompt = expansion_prompt.partial(
                 num_queries=str(MAX_EXPANDED_QUERIES)

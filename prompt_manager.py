@@ -57,6 +57,20 @@ class PromptManager:
         """获取 LangChain PromptTemplate 对象"""
         return self._templates.get(key)
 
+    def get_config(self, key: str, field: str, default: str = "") -> str:
+        """
+        获取 YAML 配置中的任意字段值（不要求是标准 template 格式）
+        
+        用法: pm.get_config("react_agent", "system_prompt")
+        对应 YAML:
+            react_agent:
+              system_prompt: "..."
+        """
+        config = self._prompts.get(key, {})
+        if isinstance(config, dict):
+            return config.get(field, default)
+        return default
+
     def list_keys(self) -> list:
         """列出所有可用 Prompt 键"""
         return list(self._templates.keys())

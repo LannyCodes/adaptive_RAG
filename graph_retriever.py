@@ -7,12 +7,12 @@ from typing import List, Dict, Set, Tuple
 import time
 import networkx as nx
 from langchain_core.documents import Document
-from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 
 from knowledge_graph import KnowledgeGraph
 from retrieval_evaluation import RetrievalEvaluator, RetrievalResult
 from routers_and_graders import HallucinationGrader, create_chat_model
+from prompt_manager import get_prompt_manager
 
 
 class GraphRetriever:
@@ -24,57 +24,13 @@ class GraphRetriever:
         self.hallucination_grader = HallucinationGrader()
         
         # 实体识别提示
-        self.entity_recognition_prompt = PromptTemplate(
-            template="""从以下问题中识别关键实体和概念:
-
-问题: {question}
-
-已知实体示例: {sample_entities}
-
-请识别问题中提到的实体，返回JSON格式:
-{{
-    "entities": ["实体1", "实体2", ...]
-}}
-
-只返回JSON，不要其他内容。
-""",
-            input_variables=["question", "sample_entities"]
-        )
+        self.entity_recognition_prompt = get_prompt_manager().get_template("recognize_entities")
         
         # 全局查询生成提示
-        self.global_query_prompt = PromptTemplate(
-            template="""你是一个知识图谱分析专家。基于以下社区摘要，回答用户问题。
-
-用户问题: {question}
-
-相关社区摘要:
-{community_summaries}
-
-请基于这些摘要提供一个综合性的答案。如果摘要中没有相关信息，请说明。
-
-答案:
-""",
-            input_variables=["question", "community_summaries"]
-        )
+        self.global_query_prompt = get_prompt_manager().get_template("global_query")
         
         # 本地查询生成提示
-        self.local_query_prompt = PromptTemplate(
-            template="""基于以下实体及其关系信息，回答用户问题。
-
-用户问题: {question}
-
-相关实体信息:
-{entity_info}
-
-实体间的关系:
-{relations}
-
-请基于这些信息提供答案。
-
-答案:
-""",
-            input_variables=["question", "entity_info", "relations"]
-        )
+        self.local_query_prompt = get_prompt_manager().get_template("local_query")
         
         self.entity_recognition_chain = self.entity_recognition_prompt | self.llm | JsonOutputParser()
         self.global_query_chain = self.global_query_prompt | self.llm | StrOutputParser()

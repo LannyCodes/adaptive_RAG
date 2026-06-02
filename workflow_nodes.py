@@ -4,19 +4,26 @@ from prompt_manager import get_prompt_manager
 包含所有工作流节点函数和状态管理
 """
 
+import asyncio
+import concurrent.futures
+import inspect
+import os
 import time
 from typing import List
+
 from typing_extensions import TypedDict
 from langchain_core.documents import Document
-from langchain_core.output_parsers import StrOutputParser
-from langchain_tavily import TavilySearch
+from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-import inspect
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import tool as tool_decorator, Tool
+from langchain_tavily import TavilySearch
+from langgraph.prebuilt import create_react_agent
+from pprint import pprint
 
 from config import LOCAL_LLM, WEB_SEARCH_RESULTS_COUNT, ENABLE_HYBRID_SEARCH, ENABLE_QUERY_EXPANSION, ENABLE_MULTIMODAL, EMBEDDING_MODEL, ENABLE_GRAPHRAG
 from document_processor import DocumentProcessor
 from retrieval_evaluation import RetrievalEvaluator, RetrievalResult
-from pprint import pprint
 from routers_and_graders import create_chat_model
 
 
@@ -69,8 +76,91 @@ class WorkflowNodes:
         llm = create_chat_model(temperature=0.0)
         self.rag_chain = rag_prompt_template | llm | StrOutputParser()
         
+        # 预创建批量评分链（复用 LLM 实例，避免每次 grade_documents 重建）
+        try:
+            grade_prompt = get_prompt_manager().get_template("grade_documents_batch")
+            grade_llm = create_chat_model(format="json", temperature=0.0)
+            self._batch_grade_chain = grade_prompt | grade_llm | JsonOutputParser()
+        except Exception as e:
+            print(f"⚠️ 批量评分链初始化失败: {e}，将使用逐个评分回退")
+            self._batch_grade_chain = None
+        
         # 设置网络搜索
         self.web_search_tool = TavilySearch(k=WEB_SEARCH_RESULTS_COUNT)
+        
+        # 初始化 ReAct Agent（工具定义 + 智能体创建）
+        try:
+            self._react_agent = self._init_react_agent(llm)
+        except Exception as e:
+            print(f"⚠️ ReAct Agent 初始化失败: {e}，将回退到普通 RAG 链")
+            self._react_agent = None
+    
+    def _init_react_agent(self, llm):
+        """
+        创建 ReAct Agent：定义工具并构建智能体
+        
+        Agent 拥有两个工具：
+        - search_web: 网络搜索（补充信息）
+        - search_knowledge_base: 向量库检索（补充检索）
+        
+        在生成节点中，Agent 先评估已有上下文是否足够，
+        不足时才调用工具，实现自适应的答案生成。
+        """
+        doc_processor = self.doc_processor
+        web_search_tool = self.web_search_tool
+        
+        @tool_decorator
+        def search_web(query: str) -> str:
+            """搜索互联网获取实时信息或补充知识。适用于检索上下文中缺少最新信息或特定事实时使用。"""
+            try:
+                results = web_search_tool.invoke({"query": query})
+                if isinstance(results, list):
+                    if results and isinstance(results[0], dict):
+                        return "\n".join(r.get("content", str(r)) for r in results)
+                    return "\n".join(str(r) for r in results)
+                return str(results)
+            except Exception as e:
+                return f"网络搜索失败: {e}"
+        
+        @tool_decorator
+        def search_knowledge_base(query: str) -> str:
+            """从知识库中检索相关文档。当已有上下文不足以回答问题时使用。"""
+            try:
+                docs = doc_processor.async_enhanced_retrieve(
+                    query, top_k=3, rerank_candidates=5,
+                    use_query_expansion=False
+                )
+                if not docs:
+                    return "未找到相关文档"
+                return "\n\n".join(d.page_content for d in docs)
+            except Exception as e:
+                return f"知识库检索失败: {e}"
+        
+        # 工具列表
+        self._react_tools = [search_web, search_knowledge_base]
+        
+        # 系统提示（从 YAML 加载，支持热更新）
+        try:
+            self._react_system_prompt = (
+                get_prompt_manager().get_config("react_agent", "system_prompt")
+            )
+            if not self._react_system_prompt:
+                raise ValueError("YAML 中 react_agent.system_prompt 为空")
+        except Exception:
+            # YAML 加载失败时使用硬编码默认提示
+            self._react_system_prompt = (
+                "你是一个智能问答助手，能够使用工具来回答用户问题。"
+                "优先使用已提供的检索上下文，仅在不足时才调用 search_web。"
+            )
+        
+        # 创建 ReAct Agent
+        agent = create_react_agent(
+            llm,
+            self._react_tools,
+            prompt=self._react_system_prompt,
+        )
+        print("  🤖 ReAct Agent 已初始化 (工具: search_web, search_knowledge_base)")
+        return agent
     
     def decompose_query(self, state):
         """
@@ -118,26 +208,18 @@ class WorkflowNodes:
         retry_count = state.get("retry_count", 0)
         retrieval_start_time = time.time()
         
-        # 读取 route_and_decompose 暂存的分解结果
-        sub_queries = getattr(self, '_pending_sub_queries', None)
-        original_question = getattr(self, '_pending_original_question', question)
+        # 读取 route_and_decompose 通过 state 传递的分解结果
+        sub_queries = state.get("sub_queries", None)
+        original_question = state.get("original_question", question)
         if sub_queries:
-            print(f"   使用并行分解结果: {len(sub_queries)} 个子查询")
-            # 清空暂存，避免后续 retrieve 误用
-            self._pending_sub_queries = None
-            self._pending_original_question = None
+            print(f"   使用分解结果: {len(sub_queries)} 个子查询")
         else:
-            sub_queries = state.get("sub_queries", None)
-            original_question = state.get("original_question", question)
-        
-        if not sub_queries:
             sub_queries = [question]
         
         # ── 并行检索所有子查询 ──
         # 如果有多个子查询，并行检索后合并，避免串行逐个走完整循环
         if len(sub_queries) > 1 and retry_count == 0:
             print(f"   ⚡ 并行检索 {len(sub_queries)} 个子查询...")
-            import asyncio
             all_documents = []
             seen_contents = set()
             
@@ -362,9 +444,16 @@ class WorkflowNodes:
             "kg_context": kg_context,
         }
     
-    def generate(self, state):
+    async def generate(self, state):
         """
-        生成答案
+        生成答案（异步版本，支持 ReAct Agent 增强生成）
+
+        当 ReAct Agent 可用时，Agent 会：
+        1. 评估已检索的上下文是否充分
+        2. 必要时自主调用 search_web 补充信息
+        3. 综合所有信息生成答案
+
+        当 Agent 不可用时，回退到普通 RAG 链。
 
         Args:
             state (dict): 当前图状态
@@ -374,7 +463,7 @@ class WorkflowNodes:
         """
         print("---生成---")
         question = state["question"]
-        original_question = state.get("original_question", question) # 优先使用原始问题
+        original_question = state.get("original_question", question)
         documents = state["documents"]
         kg_context = state.get("kg_context", [])
 
@@ -393,36 +482,62 @@ class WorkflowNodes:
             print(f"   🖼️ 检索结果包含 {len(image_paths)} 张图片")
 
         # 构建上下文：普通文档 + 知识图谱扩展上下文
-        context = documents
+        context_docs = list(documents)
         if kg_context:
             print(f"   🔗 融合 {len(kg_context)} 条知识图谱扩展上下文")
-            # 将 KG 上下文转为 Document 对象加入 context
             for kc in kg_context:
                 if isinstance(kc, str):
-                    context.append(Document(page_content=kc, metadata={"data_type": "kg_expanded"}))
+                    context_docs.append(Document(page_content=kc, metadata={"data_type": "kg_expanded"}))
                 elif isinstance(kc, Document):
-                    context.append(kc)
+                    context_docs.append(kc)
 
-        # RAG生成 - 使用原始问题以确保回答用户的初始意图
-        # 如果用户有特定的格式要求（如Markdown），通常包含在original_question中
-        # 使用线程池执行同步调用，避免阻塞事件循环
-        import asyncio
-        import concurrent.futures
+        # ── ReAct Agent 生成（优先）──
+        if self._react_agent is not None:
+            try:
+                # 将检索上下文格式化为文本
+                context_text = "\n\n".join(
+                    d.page_content for d in context_docs if hasattr(d, 'page_content')
+                ) or "无检索上下文"
+                
+                messages = [
+                    SystemMessage(content=self._react_system_prompt),
+                    HumanMessage(content=(
+                        f"以下是检索到的相关上下文：\n\n{context_text}\n\n"
+                        f"用户问题：{original_question}"
+                    ))
+                ]
+                
+                result = await self._react_agent.ainvoke({"messages": messages})
+                
+                # 从 agent 输出中提取最终答案
+                output_msgs = result.get("messages", [])
+                if output_msgs:
+                    generation = output_msgs[-1].content
+                else:
+                    generation = "生成答案时出错"
+                
+                print(f"   🤖 ReAct Agent 生成完成")
+                return {
+                    "documents": documents, "question": question,
+                    "generation": generation, "kg_context": kg_context,
+                    "image_paths": image_paths,
+                }
+            except Exception as e:
+                print(f"⚠️ ReAct Agent 生成失败，回退到普通 RAG 链: {e}")
+        
+        # ── 回退：普通 RAG 链 ──
         try:
-            loop = asyncio.get_running_loop()
-            # 在已有事件循环运行的线程中，使用线程池执行同步调用
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                generation = executor.submit(
-                    self.rag_chain.invoke,
-                    {"context": context, "question": original_question}
-                ).result()
-        except RuntimeError:
-            # 没有运行中的事件循环，直接执行
-            generation = self.rag_chain.invoke({"context": context, "question": original_question})
+            generation = await self.rag_chain.ainvoke(
+                {"context": context_docs, "question": original_question}
+            )
         except Exception as e:
-            print(f"⚠️ 生成失败: {e}")
+            print(f"⚠️ RAG 链生成失败: {e}")
             generation = "生成答案时出错"
-        return {"documents": documents, "question": question, "generation": generation, "kg_context": kg_context, "image_paths": image_paths}
+        return {
+            "documents": documents, "question": question,
+            "generation": generation, "kg_context": kg_context,
+            "image_paths": image_paths,
+        }
     
     def grade_documents(self, state):
         """
@@ -443,10 +558,6 @@ class WorkflowNodes:
 
         # 批量评分：一次LLM调用评估所有文档，替代逐个调用
         try:
-            from langchain_core.prompts import PromptTemplate
-            from langchain_core.output_parsers import JsonOutputParser
-            from routers_and_graders import create_chat_model
-
             # 构建批量评分提示
             docs_text = ""
             for i, doc in enumerate(documents):
@@ -462,10 +573,11 @@ class WorkflowNodes:
             if retry_count > 0:
                 retry_hint = "**这是重试评分，请更加宽松**：上一轮评分过于严格导致所有文档被过滤，请降低标准，只要文档可能包含有用信息就给'yes'。\n\n"
 
-            batch_llm = create_chat_model(format="json", temperature=0.0)
-            batch_chain = batch_prompt | batch_llm | JsonOutputParser()
+            # 复用预创建的评分链，避免每次重建 LLM 实例
+            if self._batch_grade_chain is None:
+                raise RuntimeError("批量评分链未初始化")
 
-            result = batch_chain.invoke({
+            result = self._batch_grade_chain.invoke({
                 "question": question,
                 "documents": docs_text,
                 "doc_count": len(documents),
@@ -503,8 +615,6 @@ class WorkflowNodes:
             return {"documents": filtered_docs, "question": question}
 
         # 回退：逐个评分（原始逻辑）
-        import concurrent.futures
-
         def grade_single(doc):
             score = self.graders["document_grader"].grade(question, doc.page_content)
             return (doc, score == "yes")
@@ -614,8 +724,6 @@ class WorkflowNodes:
     
     async def _safe_async_invoke(self, doc_processor, query):
         """统一的异步调用方法，避免 SearchResult await 问题"""
-        import inspect
-        
         try:
             # 首先尝试使用异步增强检索方法
             if hasattr(doc_processor, 'async_enhanced_retrieve'):
@@ -656,9 +764,6 @@ class WorkflowNodes:
 
     async def _safe_invoke_callable(self, callable_obj, *args, **kwargs):
         """安全调用可调用对象，处理异步和同步两种情况"""
-        import inspect
-        import asyncio
-        
         try:
             out = callable_obj(*args, **kwargs)
             
@@ -726,8 +831,6 @@ class WorkflowNodes:
 
     async def _safe_invoke_retriever(self, retriever, query):
         """安全调用检索器"""
-        import inspect
-        
         try:
             if hasattr(retriever, 'ainvoke'):
                 return await self._safe_invoke_callable(retriever.ainvoke, query)
@@ -744,9 +847,6 @@ class WorkflowNodes:
 
     async def _safe_async_query_expansion_chain(self, query_expansion_chain, question):
         """安全的异步查询扩展链调用"""
-        import inspect
-        import asyncio
-        
         try:
             if query_expansion_chain is None:
                 return ""
@@ -837,11 +937,11 @@ class WorkflowNodes:
         """
         路由+查询分解并行执行（优化：省~3s串行等待）
         将路由决策和查询分解合并为一个节点，两者用线程池并行执行。
-        如果路由结果是 vectorstore，分解结果会直接注入state。
-        如果路由结果是 web_search，跳过分解。
-        """
-        import concurrent.futures
         
+        与旧版本不同，现在直接通过 state 传递分解结果，不再使用实例变量暂存。
+        - vectorstore 路由：sub_queries = 分解后的子查询列表
+        - web_search 路由：sub_queries = []（空列表，表示无需分解）
+        """
         question = state["question"]
         print("---路由+分解（并行）---")
         
@@ -862,7 +962,8 @@ class WorkflowNodes:
                 print("---路由决策：网络搜索（跳过分解）---")
                 # 取消分解任务
                 decompose_future.cancel()
-                return "web_search"
+                # 通过空 sub_queries 告知 conditional_edge 路由到 web_search
+                return {"sub_queries": [], "original_question": question, "question": question}
             
             # 路由到 vectorstore，获取分解结果
             print("---路由决策：向量检索---")
@@ -880,16 +981,26 @@ class WorkflowNodes:
         for i, sq in enumerate(sub_queries):
             print(f"   子查询{i+1}: {sq}")
         
-        # 返回更新后的state + 路由结果
-        # 注意：conditional_edges 的返回值是下一个节点名称
-        # 但我们需要同时更新 state，所以通过返回 "vectorstore" 指向 retrieve
-        # state 的更新通过这种方式：在 LangGraph 中，conditional_edges 函数
-        # 只能返回节点名称，不能更新 state。所以需要另一个方案。
-        # 方案：把分解结果存入实例变量，让 retrieve 节点读取
-        self._pending_sub_queries = sub_queries
-        self._pending_original_question = question
-        
-        return "vectorstore"
+        # 直接通过 state 传递分解结果，不再使用实例变量
+        return {
+            "sub_queries": sub_queries,
+            "current_query_index": 0,
+            "question": sub_queries[0],
+            "original_question": question,
+            "documents": [],
+            "retry_count": 0,
+        }
+    
+    @staticmethod
+    def _route_after_decompose(state):
+        """
+        路由+分解节点之后的条件边：根据 state 中的 sub_queries 决定下一步
+        - sub_queries 非空 → vectorstore（检索）
+        - sub_queries 为空 → web_search
+        """
+        if state.get("sub_queries"):
+            return "vectorstore"
+        return "web_search"
     
     def prepare_next_query(self, state):
         """

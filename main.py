@@ -38,16 +38,28 @@ except ImportError:
     pass
 
 import time
+import sys
+import asyncio
+import traceback
+import requests
+from datetime import datetime
+from typing import Optional
+from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
+
 from langgraph.graph import END, StateGraph, START
 from pprint import pprint
 
 # 强制设置 collection 名称（避免 Kaggle Secrets 覆盖旧值）
 os.environ["COLLECTION_NAME"] = "adaptive_rag"
 
-from config import setup_environment, validate_api_keys, ENABLE_GRAPHRAG, \
-                     ENABLE_ADVANCED_RERANKER, ADVANCED_RERANKER_TYPE, \
-                     CONTEXT_AWARE_WEIGHT, CONTEXT_AWARE_MODEL, CONTEXT_AWARE_MAX_LENGTH, \
-                     MULTI_TASK_WEIGHTS, MULTI_TASK_DIVERSITY_LAMBDA
+from config import (
+    setup_environment, validate_api_keys, ENABLE_GRAPHRAG,
+    ENABLE_ADVANCED_RERANKER, ADVANCED_RERANKER_TYPE,
+    CONTEXT_AWARE_WEIGHT, CONTEXT_AWARE_MODEL, CONTEXT_AWARE_MAX_LENGTH,
+    MULTI_TASK_WEIGHTS, MULTI_TASK_DIVERSITY_LAMBDA,
+    LLM_BACKEND, VECTOR_STORE_TYPE, MILVUS_URI, MILVUS_HOST, MILVUS_PORT,
+)
 from document_processor import initialize_document_processor
 from routers_and_graders import initialize_graders_and_router
 from workflow_nodes import WorkflowNodes, GraphState
@@ -58,11 +70,6 @@ from langsmith_integration import (
     AlertLevel,
     AlertRule
 )
-from typing import Optional
-from dataclasses import dataclass, field
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
 
 try:
@@ -99,7 +106,6 @@ class AdaptiveRAGSystem:
             print(f"❌ {e}")
             raise
         
-        from config import LLM_BACKEND
         if LLM_BACKEND == "ollama":
             print("🔍 检查 Ollama 服务状态...")
             if not self._check_ollama_service():
@@ -243,7 +249,6 @@ class AdaptiveRAGSystem:
     
     def _check_ollama_service(self) -> bool:
         """检查 Ollama 服务是否运行"""
-        import requests
         try:
             # 尝试连接 Ollama API
             response = requests.get('http://localhost:11434/api/tags', timeout=2)
@@ -273,12 +278,15 @@ class AdaptiveRAGSystem:
         workflow.add_node("prepare_next_query", self.workflow_nodes.prepare_next_query)
         
         # 构建图: START → route_and_decompose (路由+分解并行) → retrieve/web_search
+        # route_and_decompose 现在是普通节点（返回 state 更新），
+        # _route_after_decompose 是纯条件边（只返回节点名称）
+        workflow.add_edge(START, "route_and_decompose")
         workflow.add_conditional_edges(
-            START,
-            self.workflow_nodes.route_and_decompose,
+            "route_and_decompose",
+            self.workflow_nodes._route_after_decompose,
             {
                 "web_search": "web_search",
-                "vectorstore": "retrieve",  # 分解已在 route_and_decompose 中完成，直接检索
+                "vectorstore": "retrieve",
             },
         )
         workflow.add_edge("web_search", "generate")
@@ -324,9 +332,6 @@ class AdaptiveRAGSystem:
         Returns:
             dict: 包含最终答案和评估指标的字典
         """
-        import asyncio
-        from datetime import datetime
-        
         print(f"\n🔍 处理问题: {question}")
         print("=" * 50)
         
@@ -416,6 +421,13 @@ class AdaptiveRAGSystem:
         """
         流式查询处理，通过 SSE 逐 token 流式返回
         
+        使用 LangGraph astream_events 捕获 LLM 生成的真实 token，
+        实现真正的流式输出，而非事后分块伪流式。
+        
+        同时支持 ReAct Agent 的思考过程展示：
+        - thought 事件: Agent 正在推理或调用工具
+        - token 事件: 最终答案的真实 token 流
+        
         Args:
             question (str): 用户问题
             
@@ -425,35 +437,91 @@ class AdaptiveRAGSystem:
         inputs = {"question": question, "retry_count": 0}
         config = {"recursion_limit": 25, **self.langsmith_manager.get_callback_config()}
         
-        final_generation = None
-        
         yield {"type": "start"}
         
-        async for output in self.app.astream(inputs, config=config):
-            for node_name, value in output.items():
-                if node_name == "retrieve":
-                    yield {"type": "progress", "content": "📚 检索知识库中..."}
-                elif node_name == "web_search":
-                    yield {"type": "progress", "content": "🌐 网络搜索中..."}
-                elif node_name == "grade_documents":
-                    yield {"type": "progress", "content": "📝 文档相关性评分中..."}
-                elif node_name == "generate":
-                    yield {"type": "progress", "content": "🤖 生成回答中..."}
-                elif node_name == "transform_query":
-                    yield {"type": "progress", "content": "🔄 查询优化中..."}
-                elif node_name == "route_and_decompose":
-                    yield {"type": "progress", "content": "🔀 路由决策中..."}
-                elif node_name == "prepare_next_query":
-                    yield {"type": "progress", "content": "🔄 准备子查询..."}
-                
-                final_generation = value.get("generation", final_generation)
+        # 节点进度提示映射
+        _NODE_PROGRESS = {
+            "route_and_decompose": "🔀 路由决策中...",
+            "retrieve": "📚 检索知识库中...",
+            "web_search": "🌐 网络搜索中...",
+            "grade_documents": "📝 文档相关性评分中...",
+            "transform_query": "🔄 查询优化中...",
+            "prepare_next_query": "🔄 准备子查询...",
+        }
         
+        final_generation = None
+        seen_progress = set()
+        got_real_tokens = False
+        in_agent_phase = False
+        
+        try:
+            # 使用 astream_events 捕获真实 LLM token 流
+            async for event in self.app.astream_events(
+                inputs, version="v2", config=config
+            ):
+                kind = event.get("event")
+                name = event.get("name", "")
+                
+                # 工作流节点开始 → 发送进度提示
+                if kind == "on_chain_start":
+                    if name in _NODE_PROGRESS and name not in seen_progress:
+                        seen_progress.add(name)
+                        yield {"type": "progress", "content": _NODE_PROGRESS[name]}
+                    
+                    # ReAct Agent 内部工具调用 → 发送思考过程
+                    if in_agent_phase and name in ("search_web", "search_knowledge_base"):
+                        action_desc = "搜索互联网" if name == "search_web" else "检索知识库"
+                        yield {"type": "thought", "content": f"🤔 Agent 正在{action_desc}补充信息..."}
+                
+                # LLM 流式输出 token
+                elif kind == "on_chat_model_stream":
+                    chunk = event.get("data", {}).get("chunk")
+                    if chunk and hasattr(chunk, "content") and chunk.content:
+                        if name == "agent":
+                            # generate 节点内的 ReAct Agent 输出
+                            in_agent_phase = True
+                            if not got_real_tokens:
+                                yield {"type": "answer"}
+                                got_real_tokens = True
+                            yield {"type": "token", "content": chunk.content}
+                            final_generation = (final_generation or "") + chunk.content
+                        elif not in_agent_phase:
+                            # 非 Agent 路径的 LLM 输出（回退模式）
+                            if not got_real_tokens:
+                                yield {"type": "answer"}
+                                got_real_tokens = True
+                            yield {"type": "token", "content": chunk.content}
+                            final_generation = (final_generation or "") + chunk.content
+                
+                # Agent 阶段结束（generate 节点完成）
+                elif kind == "on_chain_end" and name == "generate":
+                    in_agent_phase = False
+                
+                # 节点完成 → 捕获 generation 结果（备用）
+                elif kind == "on_chain_end" and not final_generation:
+                    data = event.get("data", {})
+                    output = data.get("output")
+                    if isinstance(output, dict):
+                        gen = output.get("generation")
+                        if gen:
+                            final_generation = gen
+        
+        except Exception as e:
+            print(f"⚠️ astream_events 失败，回退到同步查询: {e}")
+            # 回退：使用 astream 获取完整结果
+            async for output in self.app.astream(inputs, config=config):
+                for node_name, value in output.items():
+                    if node_name in _NODE_PROGRESS and node_name not in seen_progress:
+                        seen_progress.add(node_name)
+                        yield {"type": "progress", "content": _NODE_PROGRESS[node_name]}
+                    final_generation = value.get("generation", final_generation)
+        
+        # 输出最终结果
         if final_generation:
-            yield {"type": "answer"}
-            chunk_size = 4
-            for i in range(0, len(final_generation), chunk_size):
-                yield {"type": "token", "content": final_generation[i:i+chunk_size]}
-                await asyncio.sleep(0.003)
+            # 如果未发送过真实 token，则回退发送完整答案
+            if not got_real_tokens:
+                yield {"type": "answer"}
+                yield {"type": "token", "content": final_generation}
             yield {"type": "done", "content": final_generation}
         else:
             yield {"type": "error", "content": "未生成回答"}
@@ -482,13 +550,11 @@ class AdaptiveRAGSystem:
             pass
 
         # 检测 Kaggle 特征
-        import os
         if os.environ.get('KAGGLE_KERNEL_RUN_TYPE') or os.path.exists('/kaggle'):
             return True
 
         # 尝试检测 stdin 是否可用（不可用则视为 notebook）
         try:
-            import sys
             if not sys.stdin.isatty() and 'ipykernel' in sys.modules:
                 return True
         except Exception:
@@ -498,7 +564,6 @@ class AdaptiveRAGSystem:
 
     def _interactive_mode_cli(self):
         """命令行交互模式（标准 stdin）"""
-        import asyncio
         print("\n🤖 欢迎使用自适应RAG系统!")
         print("💡 输入问题开始对话，输入 'quit' 或 'exit' 退出")
         print("-" * 50)
@@ -533,13 +598,11 @@ class AdaptiveRAGSystem:
                 break
             except Exception as e:
                 print(f"❌ 发生错误: {e}")
-                import traceback
                 traceback.print_exc()
                 print("请重试或输入 'quit' 退出")
 
     def _interactive_mode_notebook(self):
         """Jupyter/Kaggle Notebook 交互模式（ipywidgets）"""
-        import asyncio
         try:
             import ipywidgets as widgets
             from IPython.display import display, HTML, clear_output
@@ -631,7 +694,6 @@ class AdaptiveRAGSystem:
 
                 if loop and loop.is_running():
                     # 在已有事件循环中（如 Jupyter），使用 nest_asyncio 或创建新线程
-                    import concurrent.futures
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         future = executor.submit(asyncio.run, self.query(question))
                         result = future.result(timeout=300)
@@ -657,7 +719,6 @@ class AdaptiveRAGSystem:
             except Exception as e:
                 with output_area:
                     print(f"❌ 发生错误: {e}")
-                    import traceback
                     traceback.print_exc()
                 status_label.value = '<span style="color: red;">❌ 查询出错</span>'
             finally:
@@ -685,7 +746,6 @@ class AdaptiveRAGSystem:
 
 def main():
     """主函数"""
-    import asyncio
     try:
         # 初始化系统
         rag_system: AdaptiveRAGSystem = AdaptiveRAGSystem()
@@ -736,7 +796,6 @@ def main():
         # 检查向量数据库配置
         print("\n📊 向量数据库配置:")
         try:
-            from config import VECTOR_STORE_TYPE, MILVUS_URI, MILVUS_HOST, MILVUS_PORT
             print(f"向量数据库类型: {VECTOR_STORE_TYPE}")
             
             if VECTOR_STORE_TYPE == "milvus":
@@ -771,7 +830,6 @@ def main():
         print(f"测试问题数量: {len(test_questions)}")
         print("=" * 60)
         
-        import time
         start_time = time.time()
         
         # 使用 asyncio.gather 实现真正的并发执行
@@ -902,7 +960,6 @@ def main():
         
     except Exception as e:
         print(f"❌ 系统初始化失败: {e}")
-        import traceback
         traceback.print_exc()
         print("请检查配置和依赖是否正确安装")
 
