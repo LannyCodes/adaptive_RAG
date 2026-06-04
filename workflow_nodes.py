@@ -1089,6 +1089,8 @@ class WorkflowNodes:
         Returns:
             str: 要调用的下一个节点的决策
         """
+        import time as _t
+        _start = _t.time()
         print("---评估已评分的文档---")
         filtered_documents = state["documents"]
         current_query_index = state.get("current_query_index", 0)
@@ -1101,17 +1103,20 @@ class WorkflowNodes:
             MAX_GRADE_RETRIES = 1  # 最多重试 1 次（原为 2 次，减少循环耗时）
             if retry_count >= MAX_GRADE_RETRIES:
                 print(f"⚠️ 已达到最大重试次数 ({retry_count}) 且无相关文档，回退到网络搜索")
+                print(f"   ⏱️ decide_to_generate 耗时: {_t.time() - _start:.2f}s")
                 return "web_search"
                 
             # 所有文档都被过滤掉了
             # 我们将重新生成一个新查询
             print("---决策：所有文档都与问题不相关，转换查询---")
+            print(f"   ⏱️ decide_to_generate 耗时: {_t.time() - _start:.2f}s")
             return "transform_query"
         else:
             # 我们有相关文档
             # 如果所有子查询已经完成（并行检索时 current_query_index 已设为末尾），直接生成
             if current_query_index >= len(sub_queries) - 1:
                 print("---决策：子查询已全部完成（并行检索），生成---")
+                print(f"   ⏱️ decide_to_generate 耗时: {_t.time() - _start:.2f}s")
                 return "generate"
             
             # 检查是否有更多子查询需要串行处理
@@ -1131,15 +1136,18 @@ class WorkflowNodes:
                     
                     if score == "yes":
                         print(f"---决策：当前信息已足够回答原始问题，跳过剩余 {len(sub_queries) - 1 - current_query_index} 个子查询---")
+                        print(f"   ⏱️ decide_to_generate 耗时: {_t.time() - _start:.2f}s")
                         return "generate"
                     else:
                         print("---决策：信息尚不完整，继续下一个子查询---")
                 
                 print(f"---决策：当前子查询 ({current_query_index + 1}/{len(sub_queries)}) 完成，准备下一个---")
+                print(f"   ⏱️ decide_to_generate 耗时: {_t.time() - _start:.2f}s")
                 return "prepare_next_query"
             else:
                 # 所有子查询都完成（或没有子查询），生成答案
                 print("---决策：所有子查询完成，生成---")
+                print(f"   ⏱️ decide_to_generate 耗时: {_t.time() - _start:.2f}s")
                 return "generate"
     
     def grade_generation_v_documents_and_question(self, state):
@@ -1152,6 +1160,8 @@ class WorkflowNodes:
         Returns:
             str: 要调用的下一个节点的决策
         """
+        import time as _t
+        _start = _t.time()
         print("---检查幻觉---")
         question = state["question"]
         documents = state["documents"]
@@ -1166,6 +1176,8 @@ class WorkflowNodes:
         
         score = self.graders["hallucination_grader"].grade(generation, documents)
         grade = score
+        _hallucination_elapsed = _t.time() - _start
+        print(f"   ⏱️ 幻觉检测耗时: {_hallucination_elapsed:.2f}s")
         
         # 检查幻觉
         if grade == "yes":
@@ -1174,14 +1186,19 @@ class WorkflowNodes:
             print("---评分生成 vs 问题---")
             score = self.graders["answer_grader"].grade(question, generation)
             grade = score
+            _answer_elapsed = _t.time() - _start - _hallucination_elapsed
+            print(f"   ⏱️ 答案评分耗时: {_answer_elapsed:.2f}s")
             if grade == "yes":
                 print("---决策：生成解决了问题---")
+                print(f"   ⏱️ grade_generation 总耗时: {_t.time() - _start:.2f}s")
                 return "useful"
             else:
                 print("---决策：生成没有解决问题---")
+                print(f"   ⏱️ grade_generation 总耗时: {_t.time() - _start:.2f}s")
                 return "not useful"
         else:
             print("---决策：生成不基于文档，重新转换查询---")
+            print(f"   ⏱️ grade_generation 总耗时: {_t.time() - _start:.2f}s")
             return "not supported"
     
     def _expand_with_knowledge_graph(self, question: str, kg_hits: list, existing_context: list) -> list:
