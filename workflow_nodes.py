@@ -1181,21 +1181,10 @@ class WorkflowNodes:
         
         # 检查幻觉
         if grade == "yes":
-            print("---决策：生成基于文档---")
-            # 检查问题回答
-            print("---评分生成 vs 问题---")
-            score = self.graders["answer_grader"].grade(question, generation)
-            grade = score
-            _answer_elapsed = _t.time() - _start - _hallucination_elapsed
-            print(f"   ⏱️ 答案评分耗时: {_answer_elapsed:.2f}s")
-            if grade == "yes":
-                print("---决策：生成解决了问题---")
-                print(f"   ⏱️ grade_generation 总耗时: {_t.time() - _start:.2f}s")
-                return "useful"
-            else:
-                print("---决策：生成没有解决问题---")
-                print(f"   ⏱️ grade_generation 总耗时: {_t.time() - _start:.2f}s")
-                return "not useful"
+            # 无幻觉 = 答案基于文档 → 直接认为有用（跳过答案评分，避免小模型误判触发无意义重试）
+            print("---决策：生成基于文档，直接接受---")
+            print(f"   ⏱️ grade_generation 总耗时: {_t.time() - _start:.2f}s")
+            return "useful"
         else:
             print("---决策：生成不基于文档，重新转换查询---")
             print(f"   ⏱️ grade_generation 总耗时: {_t.time() - _start:.2f}s")
