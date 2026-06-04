@@ -351,7 +351,7 @@ class AdaptiveRAGSystem:
         routing_decision = "unknown"
         
         # 设置配置，增加递归限制
-        config = {"recursion_limit": 12, **self.langsmith_manager.get_callback_config()}
+        config = {"recursion_limit": 20, **self.langsmith_manager.get_callback_config()}
         
         print("\n🤖 思考过程:")
         async for output in self.app.astream(inputs, config=config):
@@ -465,7 +465,7 @@ class AdaptiveRAGSystem:
             dict: 包含 type 和 content 的事件
         """
         inputs = {"question": question, "retry_count": 0, "chat_history": chat_history or []}
-        config = {"recursion_limit": 12, **self.langsmith_manager.get_callback_config()}
+        config = {"recursion_limit": 20, **self.langsmith_manager.get_callback_config()}
         
         yield {"type": "start"}
         
