@@ -9,6 +9,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from config import (
     LOCAL_LLM,
+    LIGHT_LLM,
     LLM_BACKEND,
     TONGYI_API_KEY,
     TONGYI_BASE_URL,
@@ -20,7 +21,17 @@ from config import (
 from prompt_manager import get_prompt_manager
 
 
-def create_chat_model(format: str | None = None, temperature: float = 0.0, timeout: int | None = None):
+def create_chat_model(format: str | None = None, temperature: float = 0.0, timeout: int | None = None, light: bool = False):
+    """
+    创建 LLM 实例。
+    
+    Args:
+        format: 输出格式（如 "json"）
+        temperature: 温度参数
+        timeout: 超时时间
+        light: 是否使用轻量模型（适用于路由、评分等简单任务，速度更快）
+    """
+    model_name = LIGHT_LLM if light else LOCAL_LLM
     if LLM_BACKEND == "ollama":
         from langchain_ollama import ChatOllama
         kwargs = {}
@@ -28,14 +39,16 @@ def create_chat_model(format: str | None = None, temperature: float = 0.0, timeo
             kwargs["format"] = format
         if timeout is not None:
             kwargs["timeout"] = timeout
-        return ChatOllama(model=LOCAL_LLM, temperature=temperature, **kwargs)
+        return ChatOllama(model=model_name, temperature=temperature, **kwargs)
     if LLM_BACKEND == "tongyi":
         try:
             from langchain_openai import ChatOpenAI
         except ImportError:
             raise ImportError("langchain-openai not installed, cannot use tongyi backend")
+        # 通义千问 API 模型已经很快，light 模式用更便宜的 turbo 版本
+        tongyi_model = "qwen-turbo" if light else TONGYI_MODEL
         client = ChatOpenAI(
-            model=TONGYI_MODEL,
+            model=tongyi_model,
             api_key=TONGYI_API_KEY or None,
             base_url=TONGYI_BASE_URL or None,
             temperature=temperature,
@@ -60,7 +73,7 @@ class QueryRouter:
     """查询路由器，决定使用向量存储还是网络搜索"""
     
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
         self.prompt = get_prompt_manager().get_template("route_question")
         self.router = self.prompt | self.llm | JsonOutputParser()
     
@@ -74,7 +87,7 @@ class DocumentGrader:
     """文档相关性评分器"""
 
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
         self.prompt = get_prompt_manager().get_template("grade_document")
         self.grader = self.prompt | self.llm | JsonOutputParser()
 
@@ -88,7 +101,7 @@ class AnswerGrader:
     """答案质量评分器"""
     
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
         self.prompt = get_prompt_manager().get_template("grade_answer")
         self.grader = self.prompt | self.llm | JsonOutputParser()    
     def grade(self, question: str, generation: str) -> str:
@@ -122,7 +135,7 @@ class HallucinationGrader:
         except Exception as e:
             print(f"⚠️ 专业检测器加载失败，回退到 LLM 方法: {e}")
             self.use_professional_detector = False
-            self.llm = create_chat_model(format="json", temperature=0.0)
+            self.llm = create_chat_model(format="json", temperature=0.0, light=True)
             self.prompt = get_prompt_manager().get_template("grade_hallucination")
             self.grader = self.prompt | self.llm | JsonOutputParser()
     
@@ -150,7 +163,7 @@ class QueryDecomposer:
     """查询分解器，将复杂的多跳问题分解为子问题序列"""
 
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
         self.prompt = get_prompt_manager().get_template("decompose_query")
         self.decomposer = self.prompt | self.llm | JsonOutputParser()    
     def decompose(self, question: str) -> List[str]:
@@ -173,7 +186,7 @@ class AnswerabilityGrader:
     """答案可回答性评分器，用于判断当前检索到的文档是否足够回答原始问题"""
     
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
         self.prompt = get_prompt_manager().get_template("grade_answerability")
         self.grader = self.prompt | self.llm | JsonOutputParser()    
     def grade(self, question: str, documents: str) -> str:
@@ -186,7 +199,7 @@ class QueryRewriter:
     """查询重写器，优化查询以获得更好的检索结果"""
 
     def __init__(self):
-        self.llm = create_chat_model(temperature=0.0)
+        self.llm = create_chat_model(temperature=0.0, light=True)
         self.prompt = get_prompt_manager().get_template("rewrite_query")
         self.rewriter = self.prompt | self.llm | StrOutputParser()
     def rewrite(self, question: str, context: str = "") -> str:
