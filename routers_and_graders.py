@@ -17,8 +17,46 @@ from config import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
+    OLLAMA_BASE_URL,
 )
 from prompt_manager import get_prompt_manager
+
+
+_models_preloaded = False
+
+
+def preload_ollama_models():
+    """
+    预热双模型，让 7b 和 1.5b 同时驻留 GPU 显存。
+    
+    Ollama 默认加载新模型时卸载旧模型。
+    通过先向两个模型各发一次请求，强制两者都加载到显存中。
+    需要 OLLAMA_NUM_PARALLEL >= 2。
+    """
+    global _models_preloaded
+    if _models_preloaded or LLM_BACKEND != "ollama":
+        return
+    
+    import requests
+    print(f"🔄 预热双模型: {LOCAL_LLM} + {LIGHT_LLM} ...")
+    
+    base_url = OLLAMA_BASE_URL.replace("/v1", "")  # 去除 /v1 后缀，用原生 API
+    
+    for model_name in [LOCAL_LLM, LIGHT_LLM]:
+        try:
+            resp = requests.post(
+                f"{base_url}/api/generate",
+                json={"model": model_name, "prompt": "hi", "stream": False},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                print(f"   ✅ {model_name} 已加载")
+            else:
+                print(f"   ⚠️ {model_name} 预热失败: HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"   ⚠️ {model_name} 预热失败: {e}")
+    
+    _models_preloaded = True
 
 
 def create_chat_model(format: str | None = None, temperature: float = 0.0, timeout: int | None = None, light: bool = False):
@@ -215,6 +253,8 @@ class QueryRewriter:
 
 def initialize_graders_and_router():
     """初始化所有评分器和路由器"""
+    # 预热双模型，让 7b 和 1.5b 同时驻留 GPU 显存
+    preload_ollama_models()
     # Load detection method from config
     try:
         from hallucination_config import HALLUCINATION_DETECTION_METHOD

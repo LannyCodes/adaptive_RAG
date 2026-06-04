@@ -42,6 +42,7 @@ def setup_environment():
 LLM_BACKEND = os.environ.get("LLM_BACKEND", "tongyi")  # 原来是使用Ollama
 LOCAL_LLM = os.environ.get("LOCAL_LLM", "qwen2:1.5b")
 LIGHT_LLM = os.environ.get("LIGHT_LLM", "qwen2.5:1.5b")  # 轻量模型，用于路由/评分等简单任务
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
 TONGYI_API_KEY = os.environ.get("TONGYI_API_KEY") or os.environ.get("DASHSCOPE_API_KEY", "")
 TONGYI_BASE_URL = os.environ.get("TONGYI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
