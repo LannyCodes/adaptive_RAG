@@ -115,7 +115,7 @@ class WorkflowNodes:
         # 预创建批量评分链（复用 LLM 实例，避免每次 grade_documents 重建）
         try:
             grade_prompt = get_prompt_manager().get_template("grade_documents_batch")
-            grade_llm = create_chat_model(format="json", temperature=0.0, light=True)
+            grade_llm = create_chat_model(format="json", temperature=0.0, light=False)
             self._batch_grade_chain = grade_prompt | grade_llm | JsonOutputParser()
         except Exception as e:
             print(f"⚠️ 批量评分链初始化失败: {e}，将使用逐个评分回退")

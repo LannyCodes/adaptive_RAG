@@ -353,28 +353,28 @@ class DocumentProcessor:
             separators=["\n\n", "$$", "\n", "。", "！", "？", "；", "，", "$", " ", ""]
         )
         
-        # Try to initialize embeddings with error handling
-        try:
-            import torch
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            print(f"✅ 检测到设备: {device}")
-            if device == 'cuda':
-                print(f"   GPU型号: {torch.cuda.get_device_name(0)}")
-                print(f"   GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
-            
-            self.embeddings = HuggingFaceEmbeddings(
-                model_name=EMBEDDING_MODEL,  # 轻量级嵌入模型
-                model_kwargs={'device': device},  # 自动选择GPU或CPU
-                encode_kwargs={'normalize_embeddings': True}  # 标准化嵌入向量
-            )
-            print(f"✅ HuggingFace嵌入模型初始化成功 (设备: {device})")
-        except Exception as e:
-            print(f"⚠️ HuggingFace嵌入初始化失败: {e}")
-            print("正在尝试备用嵌入方案...")
-            # Fallback to OpenAI embeddings or other alternatives
-            from langchain_community.embeddings import FakeEmbeddings
-            self.embeddings = FakeEmbeddings(size=384)  # For testing purposes
-            print("✅ 使用测试嵌入模型")
+        # 初始化嵌入模型：优先 GPU，OOM 时回退 CPU（把显存让给 Ollama）
+        import torch
+        devices = ['cuda', 'cpu'] if torch.cuda.is_available() else ['cpu']
+        self.embeddings = None
+        for device in devices:
+            try:
+                print(f"尝试在 {device} 上加载嵌入模型 {EMBEDDING_MODEL}...")
+                if device == 'cuda':
+                    print(f"   GPU型号: {torch.cuda.get_device_name(0)}")
+                    print(f"   GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
+                self.embeddings = HuggingFaceEmbeddings(
+                    model_name=EMBEDDING_MODEL,
+                    model_kwargs={'device': device},
+                    encode_kwargs={'normalize_embeddings': True}
+                )
+                print(f"✅ HuggingFace嵌入模型初始化成功 (设备: {device})")
+                break
+            except Exception as e:
+                print(f"⚠️ {device} 加载失败: {e}")
+                if device == 'cpu':
+                    raise RuntimeError(f"嵌入模型在 CPU 上也加载失败: {e}")
+                print("正在回退到 CPU...")
             
         self.vectorstore = None
         self.retriever = None

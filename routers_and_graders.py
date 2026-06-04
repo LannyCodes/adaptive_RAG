@@ -111,7 +111,7 @@ class QueryRouter:
     """查询路由器，决定使用向量存储还是网络搜索"""
     
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=False)
         self.prompt = get_prompt_manager().get_template("route_question")
         self.router = self.prompt | self.llm | JsonOutputParser()
     
@@ -125,7 +125,7 @@ class DocumentGrader:
     """文档相关性评分器"""
 
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=False)
         self.prompt = get_prompt_manager().get_template("grade_document")
         self.grader = self.prompt | self.llm | JsonOutputParser()
 
@@ -139,7 +139,7 @@ class AnswerGrader:
     """答案质量评分器"""
     
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=False)
         self.prompt = get_prompt_manager().get_template("grade_answer")
         self.grader = self.prompt | self.llm | JsonOutputParser()    
     def grade(self, question: str, generation: str) -> str:
@@ -173,7 +173,7 @@ class HallucinationGrader:
         except Exception as e:
             print(f"⚠️ 专业检测器加载失败，回退到 LLM 方法: {e}")
             self.use_professional_detector = False
-            self.llm = create_chat_model(format="json", temperature=0.0, light=True)
+            self.llm = create_chat_model(format="json", temperature=0.0, light=False)
             self.prompt = get_prompt_manager().get_template("grade_hallucination")
             self.grader = self.prompt | self.llm | JsonOutputParser()
     
@@ -201,7 +201,7 @@ class QueryDecomposer:
     """查询分解器，将复杂的多跳问题分解为子问题序列"""
 
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=False)
         self.prompt = get_prompt_manager().get_template("decompose_query")
         self.decomposer = self.prompt | self.llm | JsonOutputParser()    
     def decompose(self, question: str) -> List[str]:
@@ -224,7 +224,7 @@ class AnswerabilityGrader:
     """答案可回答性评分器，用于判断当前检索到的文档是否足够回答原始问题"""
     
     def __init__(self):
-        self.llm = create_chat_model(format="json", temperature=0.0, light=True)
+        self.llm = create_chat_model(format="json", temperature=0.0, light=False)
         self.prompt = get_prompt_manager().get_template("grade_answerability")
         self.grader = self.prompt | self.llm | JsonOutputParser()    
     def grade(self, question: str, documents: str) -> str:
@@ -237,7 +237,7 @@ class QueryRewriter:
     """查询重写器，优化查询以获得更好的检索结果"""
 
     def __init__(self):
-        self.llm = create_chat_model(temperature=0.0, light=True)
+        self.llm = create_chat_model(temperature=0.0, light=False)
         self.prompt = get_prompt_manager().get_template("rewrite_query")
         self.rewriter = self.prompt | self.llm | StrOutputParser()
     def rewrite(self, question: str, context: str = "") -> str:
@@ -253,8 +253,6 @@ class QueryRewriter:
 
 def initialize_graders_and_router():
     """初始化所有评分器和路由器"""
-    # 预热双模型，让 7b 和 1.5b 同时驻留 GPU 显存
-    preload_ollama_models()
     # Load detection method from config
     try:
         from hallucination_config import HALLUCINATION_DETECTION_METHOD
