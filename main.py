@@ -63,6 +63,7 @@ from config import (
 from document_processor import initialize_document_processor
 from routers_and_graders import initialize_graders_and_router
 from workflow_nodes import WorkflowNodes, GraphState
+from cache_manager import CacheManager
 
 # 添加 LangSmith 集成
 from langsmith_integration import setup_langsmith
@@ -153,6 +154,9 @@ class AdaptiveRAGSystem:
         # 初始化评分器和路由器
         print("初始化评分器和路由器...")
         self.graders = initialize_graders_and_router()
+        
+        # 初始化查询缓存（L1内存 + L2磁盘 + L3语义）
+        self.cache_manager = CacheManager()
         
         # 初始化知识图谱 (如果启用)
         self.graph_retriever = None
@@ -342,6 +346,25 @@ class AdaptiveRAGSystem:
         print(f"\n🔍 处理问题: {question}")
         print("=" * 50)
         
+        # ─── 查询缓存检查（跳过对话历史场景，因为同样问题在不同上下文中答案不同）───
+        if not chat_history and self.cache_manager:
+            cached_answer = self.cache_manager.get_answer(question)
+            if cached_answer is not None:
+                _cache_elapsed = _t.time() - _total_start
+                print(f"\n✅ 命中缓存！耗时: {_cache_elapsed:.3f}s")
+                print(f"{'─'*40}")
+                print(f"🎯 最终答案:")
+                print("-" * 30)
+                print(cached_answer)
+                print("=" * 50)
+                return {
+                    "answer": cached_answer,
+                    "retrieval_metrics": None,
+                    "total_time": _cache_elapsed,
+                    "node_times": {},
+                    "cached": True,
+                }
+        
         # 记录查询开始时间
         query_start_time = datetime.now()
         
@@ -437,6 +460,10 @@ class AdaptiveRAGSystem:
         if retrieval_metrics:
             print(f"   {'└ 其中向量检索':<22s} {retrieval_metrics.get('latency', 0):6.2f}s")
         print(f"{'─'*40}")
+        
+        # ─── 存入查询缓存（无对话历史且答案非空时）───
+        if not chat_history and final_generation and self.cache_manager:
+            self.cache_manager.set_answer(question, final_generation)
         
         # 返回包含答案和评估指标的字典
         return {
