@@ -1,5 +1,8 @@
 # 精简版 Dockerfile — 云端 LLM API 部署（无需 Ollama/GPU）
 # 适用：2核8G 阿里云 ECS，使用通义千问/DeepSeek 等云端 API
+# 注意：为控制镜像体积不安装 Playwright 浏览器，Agent 的 browse_webpage
+#       工具自动降级为不可用（其余 MCP 工具不受影响）；需要浏览器抓取请用
+#       Dockerfile（full 版）构建。
 FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -54,8 +57,8 @@ RUN apt-get purge -y --auto-remove gcc g++ make \
 # 复制项目文件
 COPY . .
 
-# 数据目录
-RUN mkdir -p /app/data /app/data/uploads
+# 数据目录 + Agent 行动工具工作目录（read_file/write_file/run_python_code）
+RUN mkdir -p /app/data /app/data/uploads /app/workspace
 
 # 下载前端依赖（本地化，不依赖外部 CDN）
 RUN mkdir -p /app/static && \

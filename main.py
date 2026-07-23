@@ -57,7 +57,7 @@ from config import (
     setup_environment, validate_api_keys, ENABLE_GRAPHRAG,
     ENABLE_ADVANCED_RERANKER, ADVANCED_RERANKER_TYPE,
     CONTEXT_AWARE_WEIGHT, CONTEXT_AWARE_MODEL, CONTEXT_AWARE_MAX_LENGTH,
-    MULTI_TASK_WEIGHTS, MULTI_TASK_DIVERSITY_LAMBDA,
+    MULTI_TASK_WEIGHTS, MULTI_TASK_DIVERSITY_LAMBDA, ENABLE_AGENT_MODE,
     LLM_BACKEND, VECTOR_STORE_TYPE, MILVUS_URI, MILVUS_HOST, MILVUS_PORT,
 )
 from document_processor import initialize_document_processor
@@ -233,10 +233,24 @@ class AdaptiveRAGSystem:
         print("设置工作流节点...")
         # WorkflowNodes 将在 _build_workflow 中初始化
         
-        # 构建工作流
-        print("构建工作流图...")
-        self.app = self._build_workflow()
-        
+        # 构建运行模式（双轨，可回退）:
+        #   "agent"    → LangGraph 原生 Agent 运行时（create_react_agent + Checkpointer）
+        #   "workflow" → 固定 DAG 工作流（降级回退路径）
+        if ENABLE_AGENT_MODE == "agent":
+            print("构建 LangGraph Agent 运行时...")
+            from agents.runtime import AgentRuntime
+            self.agent_runtime = AgentRuntime(
+                doc_processor=self.doc_processor,
+                vectorstore=self.vectorstore,
+                retriever=self.retriever,
+                graph_retriever=self.graph_retriever,
+            )
+            self.app = None  # agent 模式不构建固定 DAG
+        else:
+            print("构建工作流图...")
+            self.agent_runtime = None
+            self.app = self._build_workflow()
+
         print("✅ 自适应RAG系统初始化完成！")
     
     def _setup_alert_callbacks(self):
@@ -365,9 +379,27 @@ class AdaptiveRAGSystem:
                     "cached": True,
                 }
         
+        # ─── Agent 模式分流 ───
+        # 对话历史由 Checkpointer 按 thread_id 管理（同会话自动接续），
+        # 不再经 inputs 传递 chat_history。
+        if self.agent_runtime is not None:
+            loop = asyncio.get_event_loop()
+            agent_result = await loop.run_in_executor(
+                None,
+                lambda: self.agent_runtime.query(
+                    question, thread_id="main", verbose=verbose
+                ),
+            )
+            return {
+                "answer": agent_result["answer"],
+                "retrieval_metrics": None,
+                "total_time": agent_result["elapsed"],
+                "node_times": {},
+            }
+
         # 记录查询开始时间
         query_start_time = datetime.now()
-        
+
         inputs = {"question": question, "retry_count": 0, "chat_history": chat_history or []}  # 初始化重试计数器和对话历史
         final_generation = None
         retrieval_metrics = None

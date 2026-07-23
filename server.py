@@ -51,11 +51,12 @@ import shutil
 sys.path.append(os.getcwd())
 
 try:
-    from config import ENABLE_MULTIMODAL, LOCAL_LLM, LLM_BACKEND
+    from config import ENABLE_MULTIMODAL, LOCAL_LLM, LLM_BACKEND, ENABLE_AGENT_MODE
 except Exception:
     ENABLE_MULTIMODAL = False
     LOCAL_LLM = "qwen2:1.5b"
     LLM_BACKEND = "ollama"
+    ENABLE_AGENT_MODE = "workflow"
 
 
 def ensure_ollama_service(model_name: str):
@@ -487,6 +488,10 @@ else:
         os.makedirs(local_static, exist_ok=True)
     if os.listdir(local_static):
         app.mount("/static", StaticFiles(directory=local_static), name="static")
+    # 字体文件目录（fontawesome webfonts，CSS 通过 ../webfonts/ 相对引用）
+    local_webfonts = os.path.join(os.path.dirname(__file__), "webfonts")
+    if os.path.exists(local_webfonts) and os.listdir(local_webfonts):
+        app.mount("/webfonts", StaticFiles(directory=local_webfonts), name="webfonts")
 
 # --- 调试路由 (Added for ModelScope troubleshooting) ---
 
@@ -555,6 +560,25 @@ def get_rag_system():
             raise HTTPException(status_code=500, detail=str(e))
     return rag_system
 
+
+# 全局 Supervisor 多智能体实例（agent 模式懒初始化）
+supervisor_agent = None
+
+
+def get_supervisor_agent():
+    """懒初始化 Supervisor 多智能体系统（仅 agent 模式使用）。
+
+    子 Agent 的 MCP 工具在首次请求时异步加载（SupervisorAgent.initialize），
+    此处只做同步构建，不阻塞服务启动。
+    """
+    global supervisor_agent
+    if supervisor_agent is None:
+        log.info("supervisor_init_start", "创建 Supervisor 多智能体系统...")
+        from agents.supervisor import SupervisorAgent
+        supervisor_agent = SupervisorAgent()
+        log.info("supervisor_init_done", "Supervisor 已创建（子 Agent 首次请求时加载）")
+    return supervisor_agent
+
 # --- 数据模型 ---
 
 class ChatRequest(BaseModel):
@@ -567,6 +591,11 @@ class ChatResponse(BaseModel):
     sources: List[str] = Field(default_factory=list)
     metrics: Optional[dict] = Field(default=None)
     images: List[str] = Field(default_factory=list)
+
+class ApprovalRequest(BaseModel):
+    """HITL 审批请求（agent 模式）"""
+    session_id: Optional[str] = Field(default=None)
+    decision: str = Field(default="reject")  # "approve" 批准 / 其他值视为拒绝
 
 # --- API 路由 ---
 
@@ -669,10 +698,16 @@ async def serve_image(image_path: str):
 
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
-    """SSE 流式聊天接口（带缓存）"""
-    system = get_rag_system()
+    """SSE 流式聊天接口（双轨：agent 模式走 Supervisor，workflow 模式走 DAG）"""
     session_id = request.session_id
     question = request.message
+
+    # ── Agent 模式：Supervisor 多智能体编排 ──
+    if ENABLE_AGENT_MODE == "agent":
+        return await _chat_stream_agent(session_id, question)
+
+    # ── Workflow 模式：固定 DAG 工作流（回退路径，原逻辑不变）──
+    system = get_rag_system()
 
     async def event_generator():
         # 0. 获取对话历史（最近 10 条消息，即 5 轮对话）
@@ -723,6 +758,124 @@ async def chat_stream(request: ChatRequest):
                              headers={"Cache-Control": "no-cache",
                                       "X-Accel-Buffering": "no",
                                       "Connection": "keep-alive"})
+
+
+# ============================================================
+# Agent 模式：Supervisor 多智能体 SSE + HITL 审批
+# ============================================================
+
+async def _chat_stream_agent(session_id: Optional[str], question: str):
+    """Agent 模式 SSE 流：Supervisor 多智能体编排事件。
+
+    session_id 与 checkpointer thread_id 一一映射（会话恢复即加载 checkpoint）。
+    事件类型（映射到前端通用事件）:
+      thinking/agent_result/verification → progress（思考过程，可折叠展示）
+      answer → token 分块流 + done（最终答案）
+      approval_required → 审批卡片（HITL 中断，由 /api/chat/approve 恢复）
+      blocked → 安全护栏拦截（作为答案返回）
+    多智能体任务有状态（审批/上下文），不经过缓存层。
+    """
+    agent = get_supervisor_agent()
+    thread_id = session_id or "default"
+
+    def _sse(payload: dict) -> str:
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    async def event_generator():
+        try:
+            async with rate_limiter:
+                if session_id:
+                    session_manager.add_message(session_id, "user", question)
+
+                final_answer = ""
+                async for event in agent.astream(question, thread_id=thread_id):
+                    etype = event.get("type")
+
+                    if etype == "thinking":
+                        nxt = event.get("content", "")
+                        text = f"🧠 Supervisor 决策: 分派 [{nxt}]" if nxt else "🧠 Supervisor 思考中..."
+                        yield _sse({"type": "progress", "content": text})
+
+                    elif etype == "agent_result":
+                        node = event.get("node", "")
+                        icon = "📚" if node == "research" else "🛠️"
+                        yield _sse({"type": "progress", "content": f"{icon} [{node}] 子任务完成"})
+
+                    elif etype == "verification":
+                        yield _sse({"type": "progress",
+                                    "content": f"🔍 答案验证: {event.get('content', '')}"})
+
+                    elif etype == "blocked":
+                        final_answer = event.get("content", "输入被安全护栏拦截")
+                        yield _sse({"type": "answer"})
+                        yield _sse({"type": "token", "content": final_answer})
+                        yield _sse({"type": "done", "content": final_answer})
+
+                    elif etype == "approval_required":
+                        # HITL 中断：图状态已存 checkpoint，推送审批事件后结束本流
+                        yield _sse({"type": "approval_required",
+                                    "content": event.get("content", {})})
+                        return
+
+                    elif etype == "answer":
+                        final_answer = event.get("content", "")
+                        # 分块模拟 token 流，复用前端逐字渲染
+                        yield _sse({"type": "answer"})
+                        chunk_size = 4
+                        for i in range(0, len(final_answer), chunk_size):
+                            yield _sse({"type": "token",
+                                        "content": final_answer[i:i + chunk_size]})
+                            await asyncio.sleep(0.002)
+                        yield _sse({"type": "done", "content": final_answer})
+
+                if final_answer and session_id:
+                    session_manager.add_message(session_id, "assistant", final_answer)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            traceback.print_exc()
+            yield _sse({"type": "error", "content": str(e)})
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no",
+                                      "Connection": "keep-alive"})
+
+
+@app.post("/api/chat/approve")
+async def chat_approve(request: ApprovalRequest):
+    """HITL 审批接口：恢复被中断的 Agent 执行流。
+
+    前端收到 approval_required 事件后调用本接口；
+    执行流恢复后可能再次中断（后续仍有行动任务），此时返回新的审批请求。
+    """
+    if ENABLE_AGENT_MODE != "agent":
+        raise HTTPException(status_code=400, detail="当前为 workflow 模式，无审批流程")
+
+    agent = get_supervisor_agent()
+    thread_id = request.session_id or "default"
+
+    try:
+        async with rate_limiter:
+            result = await agent.aresume(request.decision, thread_id=thread_id)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"审批恢复失败: {e}")
+
+    # 后续任务再次需要审批
+    if result.get("pending_approval"):
+        return {"status": "pending_approval", "approval": result["pending_approval"]}
+
+    answer = result.get("answer", "")
+    if answer and request.session_id:
+        session_manager.add_message(request.session_id, "assistant", answer)
+
+    return {
+        "status": "done",
+        "answer": answer,
+        "verification": result.get("verification"),
+    }
 
 
 # ============================================================
@@ -1176,6 +1329,34 @@ HTML_CONTENT = """
                                         }
                                         return newMsgs;
                                     });
+                                } else if (event.type === 'approval_required') {
+                                    // HITL 审批：展示审批卡片（批准/拒绝后调 /api/chat/approve 恢复）
+                                    setMessages(prev => {
+                                        const newMsgs = [...prev];
+                                        if (newMsgs.length > 0) {
+                                            newMsgs[newMsgs.length - 1] = {
+                                                role: 'assistant',
+                                                content: '',
+                                                isStreaming: false,
+                                                status: newMsgs[newMsgs.length - 1].status,
+                                                pendingApproval: event.content,
+                                                approvalSessionId: sid,
+                                            };
+                                        }
+                                        return newMsgs;
+                                    });
+                                } else if (event.type === 'error') {
+                                    setMessages(prev => {
+                                        const newMsgs = [...prev];
+                                        if (newMsgs.length > 0) {
+                                            newMsgs[newMsgs.length - 1] = {
+                                                role: 'assistant',
+                                                content: '⚠️ ' + (event.content || '系统错误'),
+                                                isStreaming: false
+                                            };
+                                        }
+                                        return newMsgs;
+                                    });
                                 }
                             } catch(e) {}
                         }
@@ -1196,6 +1377,82 @@ HTML_CONTENT = """
                         return newMsgs;
                     });
                     console.error(error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            // HITL 审批处理：批准/拒绝后恢复 Agent 执行流
+            const handleApproval = async (decision, msgIndex) => {
+                if (loading) return;
+                const msg = messages[msgIndex];
+                const sid = (msg && msg.approvalSessionId) || sessionId;
+                if (!sid) return;
+
+                // 更新审批卡片为已决定状态
+                setMessages(prev => {
+                    const newMsgs = [...prev];
+                    if (newMsgs[msgIndex]) {
+                        newMsgs[msgIndex] = {
+                            ...newMsgs[msgIndex],
+                            pendingApproval: null,
+                            approvalResult: decision === 'approve' ? '✅ 已批准，继续执行' : '❌ 已拒绝该操作',
+                        };
+                    }
+                    return newMsgs;
+                });
+                setLoading(true);
+                // 追加执行结果占位消息
+                setMessages(prev => [...prev, {
+                    role: 'assistant', content: '', isStreaming: true,
+                    status: decision === 'approve' ? '⏳ 正在继续执行任务...\n' : ''
+                }]);
+
+                try {
+                    const resp = await fetch('/api/chat/approve', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: sid, decision })
+                    });
+                    if (!resp.ok) throw new Error('Approve request failed');
+                    const data = await resp.json();
+
+                    if (data.status === 'pending_approval') {
+                        // 后续任务再次需要审批
+                        setMessages(prev => {
+                            const newMsgs = [...prev];
+                            newMsgs[newMsgs.length - 1] = {
+                                role: 'assistant', content: '', isStreaming: false,
+                                pendingApproval: data.approval, approvalSessionId: sid,
+                            };
+                            return newMsgs;
+                        });
+                    } else {
+                        const answer = data.answer || '(未生成答案)';
+                        // 模拟逐字输出
+                        for (let i = 0; i < answer.length; i += 4) {
+                            const snapshot = answer.slice(0, i + 4);
+                            setMessages(prev => {
+                                const newMsgs = [...prev];
+                                newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], content: snapshot };
+                                return newMsgs;
+                            });
+                            await new Promise(r => setTimeout(r, 5));
+                        }
+                        setMessages(prev => {
+                            const newMsgs = [...prev];
+                            newMsgs[newMsgs.length - 1] = { role: 'assistant', content: answer, isStreaming: false };
+                            return newMsgs;
+                        });
+                    }
+                    loadSessions();
+                } catch (e) {
+                    console.error(e);
+                    setMessages(prev => {
+                        const newMsgs = [...prev];
+                        newMsgs[newMsgs.length - 1] = { role: 'assistant', content: '⚠️ 审批请求失败，请重试。', isStreaming: false };
+                        return newMsgs;
+                    });
                 } finally {
                     setLoading(false);
                 }
@@ -1446,6 +1703,32 @@ HTML_CONTENT = """
                                                     <div className="text-xs text-slate-400 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 whitespace-pre-line">
                                                         {msg.status}
                                                     </div>
+                                                )}
+                                                {/* HITL 审批卡片 */}
+                                                {msg.pendingApproval && (
+                                                    <div className="bg-amber-50 border border-amber-300 px-5 py-4 rounded-xl shadow-sm">
+                                                        <div className="flex items-center space-x-2 text-amber-800 font-semibold text-sm mb-2">
+                                                            <i className="fa-solid fa-shield-halved"></i>
+                                                            <span>需要人工审批（HITL）</span>
+                                                        </div>
+                                                        <div className="text-xs text-amber-700 whitespace-pre-line mb-3">
+                                                            {msg.pendingApproval.message || '智能体请求执行敏感操作'}
+                                                            {msg.pendingApproval.task ? `\n\n任务描述：${msg.pendingApproval.task}` : ''}
+                                                        </div>
+                                                        <div className="flex space-x-2">
+                                                            <button onClick={() => handleApproval('approve', index)} disabled={loading}
+                                                                className="px-4 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
+                                                                <i className="fa-solid fa-check mr-1"></i>批准执行
+                                                            </button>
+                                                            <button onClick={() => handleApproval('reject', index)} disabled={loading}
+                                                                className="px-4 py-1.5 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors">
+                                                                <i className="fa-solid fa-xmark mr-1"></i>拒绝
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {msg.approvalResult && (
+                                                    <div className="text-xs text-slate-400 px-1">{msg.approvalResult}</div>
                                                 )}
                                                 <div 
                                                     className="bg-white border border-slate-200 px-6 py-4 rounded-2xl rounded-tl-none shadow-sm w-full markdown-body"

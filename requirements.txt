@@ -65,6 +65,13 @@ python-louvain==0.16  # 社区检测
 # 缓存和性能优化
 diskcache==5.6.0
 redis[hiredis]==5.2.1  # 会话持久化存储（hiredis 加速序列化）
+# Agent 状态持久化（Checkpointer）。已用 --dry-run 验证: 0.2.x 与 langgraph==0.3.34 冲突，锁定 0.1.2
+langgraph-checkpoint-redis==0.1.2
+
+# MCP (Model Context Protocol) 工具协议。已用 --dry-run (python 3.11) 验证与 langchain-core 0.3.x 兼容
+mcp==1.28.1
+langchain-mcp-adapters==0.3.0
+playwright==1.49.0  # 行动型工具-网页抓取（可选；slim 镜像可跳过，工具自动降级）
 
 # 异步HTTP请求（用于并发处理）
 aiohttp==3.11.14
