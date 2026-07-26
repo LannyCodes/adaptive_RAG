@@ -77,3 +77,39 @@ def sanitize_output(text: str) -> str:
 def check_and_sanitize_input(text: str) -> Dict:
     """输入护栏入口（check_input 的别名，保持语义完整）。"""
     return check_input(text)
+
+
+def scan_external_content(texts: List[str]) -> Tuple[List[str], int, List[str]]:
+    """外部内容注入扫描：过滤含注入指令的文档。
+
+    用于 Tavily 搜索结果和 RAG 检索文档——这些是不可信外部数据，
+    攻击者可在网页中嵌入注入指令（间接提示注入）。
+
+    与 check_input 的区别：不阻断整个请求，只剔除受污染的个别文档。
+
+    Args:
+        texts: 文档/搜索结果文本列表
+
+    Returns:
+        (干净文本列表, 被过滤数量, 被过滤片段摘要)
+    """
+    if not texts:
+        return texts, 0, []
+
+    clean: List[str] = []
+    blocked_count = 0
+    blocked_snippets: List[str] = []
+
+    for text in texts:
+        hit = False
+        for pattern in _INJECTION_PATTERNS:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                hit = True
+                blocked_count += 1
+                blocked_snippets.append(match.group(0)[:80])
+                break
+        if not hit:
+            clean.append(text)
+
+    return clean, blocked_count, blocked_snippets

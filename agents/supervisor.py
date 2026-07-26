@@ -486,7 +486,7 @@ class SupervisorAgent:
                     yield {
                         "type": "answer",
                         "node": "finalize",
-                        "content": update.get("final_answer", ""),
+                        "content": sanitize_output(update.get("final_answer", "")),
                     }
                 else:  # research / action
                     results = update.get("intermediate_results", {})

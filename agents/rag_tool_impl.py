@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 from langchain_core.documents import Document
 
 from config import WEB_SEARCH_RESULTS_COUNT
+from guardrails import scan_external_content
 
 
 # ── 1. 路由 ──
@@ -51,6 +52,17 @@ def retrieve_from_vectorstore(
     if not docs:
         return "未检索到任何相关文档。", []
 
+    # 外部内容注入扫描: 过滤含注入指令的文档
+    doc_texts = [getattr(d, "page_content", str(d)) for d in docs]
+    _, blocked_count, blocked_snippets = scan_external_content(doc_texts)
+    if blocked_count > 0:
+        clean_texts, _, _ = scan_external_content(doc_texts)
+        clean_set = set(clean_texts)
+        docs = [d for d in docs if getattr(d, "page_content", str(d)) in clean_set]
+        print(f"⚠️ [安全] 知识库检索: 过滤 {blocked_count} 篇含疑似注入的文档")
+        if not docs:
+            return "检索到的文档因安全原因被过滤，无可用内容。", []
+
     parts = []
     for i, doc in enumerate(docs):
         content = getattr(doc, "page_content", str(doc))
@@ -69,18 +81,31 @@ def search_web(query: str) -> Tuple[str, List[Document]]:
     web_search = TavilySearch(k=WEB_SEARCH_RESULTS_COUNT)
     try:
         docs = web_search.invoke({"query": query})
+
+        # 解析搜索结果为独立条目
+        items: List[str] = []
         if isinstance(docs, list) and len(docs) > 0:
             first = docs[0]
             if isinstance(first, str):
-                content = "\n".join(docs)
+                items = list(docs)
             elif isinstance(first, dict) and "content" in first:
-                content = "\n".join(d.get("content", str(d)) for d in docs)
+                items = [d.get("content", str(d)) for d in docs]
             else:
-                content = "\n".join(str(d) for d in docs)
+                items = [str(d) for d in docs]
         else:
             content = str(docs) if not isinstance(docs, list) else "无结果"
+            return f"网络搜索结果:\n{content[:2000]}", [Document(page_content=content)]
 
-        return f"网络搜索结果:\n{content[:2000]}", [Document(page_content=content)]
+        # 外部内容注入扫描: 过滤含注入指令的搜索结果
+        clean_items, blocked_count, _ = scan_external_content(items)
+        if blocked_count > 0:
+            print(f"⚠️ [安全] 网络搜索: 过滤 {blocked_count} 条含疑似注入的结果")
+        if not clean_items:
+            return "网络搜索结果因安全原因被过滤，无可用内容。", []
+
+        content = "\n".join(clean_items)
+        warning = f"\n[安全] 已过滤 {blocked_count} 条含疑似注入的搜索结果\n" if blocked_count > 0 else ""
+        return f"网络搜索结果:\n{warning}{content[:2000]}", [Document(page_content=content)]
     except Exception as e:
         return f"网络搜索失败: {e}", []
 
