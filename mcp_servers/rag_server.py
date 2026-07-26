@@ -38,10 +38,7 @@ class _StdoutProxy:
     def flush(self):
         return sys.stderr.flush()
 
-    def fileno(self):
-        return self._original.fileno()
-
-
+ 
 if not isinstance(sys.stdout, _StdoutProxy):
     sys.stdout = _StdoutProxy(sys.stdout)
 
