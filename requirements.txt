@@ -71,10 +71,12 @@ redis[hiredis]==5.2.1  # 会话持久化存储（hiredis 加速序列化）
 # Agent 状态持久化（Checkpointer）。已用 --dry-run 验证: 0.2.x 与 langgraph==0.3.34 冲突，锁定 0.1.2
 langgraph-checkpoint-redis==0.1.2
 
-# MCP (Model Context Protocol) 工具协议。已用 --dry-run 验证与 langchain 0.3.27 / langchain-core 0.3.x 兼容
-# 注意: langchain-mcp-adapters 0.3.0 要求 langchain-core>=1.0.0（配 langchain 1.x），与本项目 langchain 0.3.x 冲突，故锁 0.2.0
+# MCP (Model Context Protocol) 工具协议
+# 注意: 0.2.x 全系列引入 langchain_core.messages.content 导入，需要 langchain-core>=1.0.0
+# （0.2.0 未声明依赖导致 pip 解析通过但运行时报 ModuleNotFoundError；0.2.1+ 显式要求 >=1.0.0）
+# 本项目 langchain-core 为 0.3.x，故锁 0.1.14（最后兼容版本，含 MultiServerMCPClient + get_tools(server_name=) API）
 mcp==1.28.1
-langchain-mcp-adapters==0.2.0
+langchain-mcp-adapters==0.1.14
 playwright==1.49.0  # 行动型工具-网页抓取（可选；slim 镜像可跳过，工具自动降级）
 
 # 异步HTTP请求（用于并发处理）
