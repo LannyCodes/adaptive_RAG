@@ -1,7 +1,7 @@
 """
-Kaggle 多智能体验证启动器
+Kaggle RAG 服务验证启动器
 ========================
-在 Kaggle 上一键启动 server.py（Supervisor 多智能体），并验证新功能。
+在 Kaggle 上一键启动 server.py（RAG 工作流 Web 服务），并验证功能。
 
 用法（在 Kaggle Notebook 的一个 cell 中执行）:
     !python kaggle_run_server.py
@@ -11,7 +11,7 @@ Kaggle 多智能体验证启动器
     2. 确保 Ollama 服务运行且模型就绪（LLM_BACKEND=ollama）
     3. 安装/校验 pyngrok
     4. 后台启动 server.py（uvicorn, 0.0.0.0:8000）
-    5. 多智能体冒烟测试（POST /api/chat/stream，打印 Supervisor SSE 事件流）
+    5. 冒烟测试（POST /api/chat/stream，打印 SSE 事件流）
     6. 建立 ngrok 隧道并打印公开访问地址
     7. 阻塞保持服务存活（Ctrl+C / 中断 cell 停止）
 
@@ -24,9 +24,9 @@ Kaggle 多智能体验证启动器
       （免费注册: https://dashboard.ngrok.com/signup）
 
 说明:
-    * 多智能体（Supervisor 路由 / research / action / verifier / HITL 审批）
-      仅在 server.py 中生效；main.py 跑的是单智能体 AgentRuntime。
-    * 冒烟测试直接调用 API 打印 SSE 事件，即使前端资源下载不全也能验证后端多智能体逻辑。
+    * server.py 跑固定 DAG RAG 工作流；main.py 可用 ENABLE_AGENT_MODE=agent
+      跑单智能体 AgentRuntime。
+    * 冒烟测试直接调用 API 打印 SSE 事件，即使前端资源下载不全也能验证后端逻辑。
 """
 
 import os
@@ -250,18 +250,18 @@ def start_server():
         except Exception:
             pass
         time.sleep(1)
-    print("  ⚠️ 60s 内未通过健康检查，仍尝试继续（首个请求会触发 RAG/MCP 懒加载，可能较慢）")
+    print("  ⚠️ 60s 内未通过健康检查，仍尝试继续（首个请求会触发 RAG 系统初始化，可能较慢）")
     return False
 
 
 # ============================================================
-# 阶段 5: 多智能体冒烟测试（直接调用 SSE，打印 Supervisor 事件流）
+# 阶段 5: 冒烟测试（直接调用 SSE，打印工作流事件流）
 # ============================================================
 
-def smoke_test_multi_agent():
-    log_phase("阶段 5/6 · 多智能体冒烟测试")
-    print("  发送研究类问题，观察 Supervisor 事件流")
-    print("  （首次请求触发 MCP 工具懒加载 + Ollama 推理，可能需 1-3 分钟）\n")
+def smoke_test_workflow():
+    log_phase("阶段 5/6 · 冒烟测试")
+    print("  发送研究类问题，观察 RAG 工作流事件流")
+    print("  （首次请求触发 RAG 系统初始化 + Ollama 推理，可能需 1-3 分钟）\n")
 
     question = "AI Agent 的核心组成部分有哪些？请简要说明。"
     try:
@@ -287,15 +287,15 @@ def smoke_test_multi_agent():
 
         print("\n  " + "-" * 50)
         print(f"  观测到的事件类型: {sorted(event_types)}")
-        # 多智能体特征事件: thinking(Supervisor 决策) / agent_result(子任务) / verification(验证)
-        multi_agent_signals = event_types & {"thinking", "agent_result", "verification"}
-        if multi_agent_signals:
-            print(f"  ✅ 检测到多智能体特征事件: {sorted(multi_agent_signals)} → Supervisor 编排生效")
+        # 工作流特征事件: progress(节点进度) / token(答案流) / done(完成)
+        workflow_signals = event_types & {"progress", "token", "done"}
+        if workflow_signals:
+            print(f"  ✅ 检测到工作流特征事件: {sorted(workflow_signals)} → RAG 工作流生效")
         else:
-            print("  ⚠️ 未检测到多智能体特征事件，请检查 ENABLE_AGENT_MODE 是否为 agent")
+            print("  ⚠️ 未检测到预期事件，请检查服务日志")
     except Exception as e:
         print(f"  ❌ 冒烟测试失败: {e}")
-        print("     多智能体仍可通过下方 Web 地址手动验证")
+        print("     仍可通过下方 Web 地址手动验证")
 
 
 # ============================================================
@@ -356,7 +356,7 @@ def main():
     ensure_ollama()
     ensure_pyngrok()
     start_server()
-    smoke_test_multi_agent()
+    smoke_test_workflow()
     start_ngrok()
 
     log_phase("✅ 启动完成 · 服务保持运行中")

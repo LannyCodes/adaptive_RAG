@@ -1,9 +1,8 @@
 """
 RAG 工具纯函数实现层
 ====================
-9 个 RAG 能力的核心逻辑，以普通函数形式实现，供双通道复用:
-- agents/runtime.py: 包装为 LangChain @tool（进程内 ReAct Agent 使用）
-- mcp_servers/rag_server.py: 包装为 MCP tool（跨进程标准协议使用）
+9 个 RAG 能力的核心逻辑，以普通函数形式实现，
+由 agents/runtime.py 包装为 LangChain @tool（进程内 ReAct Agent 使用）。
 
 设计约定:
 - 函数不持有状态；检索到的文档通过返回值显式传递（调用方负责暂存）

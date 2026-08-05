@@ -6,9 +6,6 @@ Agent 系统的输入/输出双侧护栏:
 - 输入侧 check_input: 提示注入检测（规则正则 + 关键词黑名单）。
   Agent 会接触不可信外部数据（网络搜索/网页抓取），注入防护是刚需。
 - 输出侧 sanitize_output: 敏感信息正则过滤（API key、密码、私钥模式）。
-
-工具侧强制约束（工作目录限制、代码执行黑名单）在 mcp_servers/action_server.py
-中实现，属于强制执行层，不经过本模块。
 """
 
 import re

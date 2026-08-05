@@ -341,7 +341,19 @@ class AdaptiveRAGSystem:
     
     async def query(self, question: str, verbose: bool = True, chat_history: list = None):
         """
-        处理查询 (异步版本)
+        处理查询 (异步版本) —— 一次性交付：跑完整流程后返回完整结果 dict。
+
+        【使用场景 / 消费方】（"发起请求 → 等完整答案"，无需逐 token 直播）
+        1. 终端 CLI 交互循环         main.py ~L676     asyncio.run(self.query(question))
+           终端黑窗口一问一答，结果整段 print，过程只有 print 进度提示
+        2. Jupyter/Kaggle 部件界面   main.py ~L796/L799
+           ipywidgets 小界面点按钮后等待并整段显示答案（Notebook 环境经子线程跑 asyncio.run）
+        3. 内部批量评估              main.py ~L960     run_concurrent_queries
+           并发跑测试问题集，收集检索指标做性能基准测试
+        4. REST 非流式接口           server.py ~L1008  /api/chat
+           HTTP 请求返回完整 JSON 答案（区别于 /api/chat/stream 的 SSE 流式）
+
+        底层用 app.astream（节点级粒度）观察流程；如需逐 token 实时直播请用 stream_query()。
         
         Args:
             question (str): 用户问题
@@ -422,9 +434,12 @@ class AdaptiveRAGSystem:
                     print(f"\033[2K\033[G  ↳ 执行节点: {key}...")
                     await asyncio.sleep(0.1)
                     
-                # 记录路由决策
-                if key == "start":
-                    routing_decision = value.get("next_node", "unknown")
+                # 记录路由决策：按实际执行的检索节点锁定（首次出现为准）
+                if routing_decision == "unknown":
+                    if key == "web_search":
+                        routing_decision = "web_search"
+                    elif key == "retrieve":
+                        routing_decision = "vectorstore"
                 
                 final_generation = value.get("generation", final_generation)
                 # 保存检索评估指标
@@ -507,7 +522,12 @@ class AdaptiveRAGSystem:
     
     async def stream_query(self, question: str, chat_history: list = None):
         """
-        流式查询处理，通过 SSE 逐 token 流式返回
+        流式查询处理 —— 边跑边吐：通过 SSE 逐 token 流式返回（异步生成器）。
+
+        【使用场景 / 消费方】（需要实时看到"检索中→评分中→逐字出答案"的直播体验）
+        1. SSE 流式接口   server.py ~L742   /api/chat/stream
+           浏览器 EventSource 实时渲染：节点进度提示 + LLM 真实 token 流 + Agent 思考过程
+           （缓存命中不经过本函数——由 server.py L722-735 用伪流式直接吐缓存答案）
         
         使用 LangGraph astream_events 捕获 LLM 生成的真实 token，
         实现真正的流式输出，而非事后分块伪流式。

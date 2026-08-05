@@ -27,13 +27,6 @@ COPY requirements.txt .
 # 使用阿里云镜像源加速 pip 安装
 RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
-# 安装 Playwright 浏览器依赖（browse_webpage 工具使用，full 版独有；
-# 镜像体积 +约 400MB，slim 版不装并将浏览器工具降级为不可用）
-# 浏览器安装到 /app 共享路径（容器以非 root 的 user 用户运行，默认
-# ~/.cache/ms-playwright 路径对 user 不可见）；后续 chown -R user:user /app 会一并授权
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
-RUN playwright install --with-deps chromium
-
 # 复制项目文件
 COPY . .
 
@@ -57,7 +50,7 @@ ENV PATH=$HOME/.local/bin:$PATH
 ENV OLLAMA_MODELS=$HOME/.ollama/models
 ENV OLLAMA_HOST=127.0.0.1:11434
 
-# 创建必要目录并设置权限（含 Playwright 浏览器目录与工作目录）
+# 创建必要目录并设置权限
 RUN mkdir -p $OLLAMA_MODELS && chown -R user:user $HOME/.ollama
 RUN mkdir -p /app/workspace && chown -R user:user /app
 

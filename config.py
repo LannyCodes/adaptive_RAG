@@ -5,7 +5,6 @@
 
 import getpass
 import os
-import sys
 
 # 尝试加载.env文件，如果没有安装dotenv则跳过
 try:
@@ -122,39 +121,15 @@ REDIS_SESSION_TTL = int(os.environ.get("REDIS_SESSION_TTL", "604800"))  # 会话
 # ══════════════════════════════════════════════════════════════
 # Agent 智能体模式配置
 # ══════════════════════════════════════════════════════════════
-# 运行模式: "agent" 使用 LangGraph 原生 Agent 运行时; "workflow" 使用固定 DAG 工作流（降级回退路径）
+# 运行模式（仅 main.py CLI 使用）: "agent" 使用 AgentRuntime 单智能体运行时; "workflow" 使用固定 DAG 工作流
 ENABLE_AGENT_MODE = os.environ.get("ENABLE_AGENT_MODE", "agent").lower()  # agent / workflow
 AGENT_MAX_ITERATIONS = int(os.environ.get("AGENT_MAX_ITERATIONS", "30"))  # Agent 递归上限（recursion_limit）
-
-# 行动型工具（mcp_servers/action_server）配置
-ACTION_WORKSPACE_DIR = os.environ.get("ACTION_WORKSPACE_DIR", "./workspace")  # 文件工具与代码执行的根目录
-CODE_EXEC_TIMEOUT = int(os.environ.get("CODE_EXEC_TIMEOUT", "30"))  # 代码沙箱超时（秒）
-CODE_EXEC_MAX_OUTPUT = int(os.environ.get("CODE_EXEC_MAX_OUTPUT", "5000"))  # 代码执行输出截断长度
-
-# MCP 传输模式: stdio（client 拉起子进程，开发调试） / http（常驻服务，生产）
-# 注意: stdio 模式下每次工具调用会新建会话（重资源 server 重复初始化），
-#       生产环境务必用 http 模式并先启动 MCP server 常驻进程
-MCP_TRANSPORT = os.environ.get("MCP_TRANSPORT", "stdio")
-MCP_RAG_PORT = int(os.environ.get("MCP_RAG_PORT", "8100"))
-MCP_ACTION_PORT = int(os.environ.get("MCP_ACTION_PORT", "8101"))
-MCP_RAG_SERVER_URL = os.environ.get("MCP_RAG_SERVER_URL", f"http://localhost:{MCP_RAG_PORT}/mcp")
-MCP_ACTION_SERVER_URL = os.environ.get("MCP_ACTION_SERVER_URL", f"http://localhost:{MCP_ACTION_PORT}/mcp")
-
-# MCP Server 启动命令（stdio 模式，Agent 侧 MultiServerMCPClient 使用）
-MCP_SERVER_COMMANDS = {
-    "rag-tools": [sys.executable, "-m", "mcp_servers.rag_server"],
-    "action-tools": [sys.executable, "-m", "mcp_servers.action_server"],
-}
 
 # Agent 记忆体系配置
 USER_MEMORY_COLLECTION = os.environ.get("USER_MEMORY_COLLECTION", "user_memory")  # 长期记忆 Milvus collection
 MEMORY_TOP_K = int(os.environ.get("MEMORY_TOP_K", "3"))  # 长期记忆检索条数
 CONTEXT_COMPRESS_THRESHOLD = int(os.environ.get("CONTEXT_COMPRESS_THRESHOLD", "16000"))  # 工作记忆压缩阈值（字符数，约 8000 token）
 CONTEXT_COMPRESS_KEEP_RECENT = int(os.environ.get("CONTEXT_COMPRESS_KEEP_RECENT", "6"))  # 压缩时保留的最近消息条数
-
-# HITL 人机协同配置
-# 开启后，行动智能体执行任务前会中断等待人工审批（经 /api/chat/approve 恢复）
-HITL_ENABLED = os.environ.get("HITL_ENABLED", "true").lower() == "true"
 
 # 混合检索策略配置
 ENABLE_HYBRID_SEARCH = os.environ.get("ENABLE_HYBRID_SEARCH", "true").lower() == "true"  # 默认开启

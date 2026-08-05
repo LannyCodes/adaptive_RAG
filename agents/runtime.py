@@ -253,7 +253,7 @@ class AgentRuntime:
         # 会话隔离的文档暂存
         self.doc_store = ThreadSafeDocStore()
 
-        # 状态持久化（可由外部注入共享实例，如 Supervisor 图）
+        # 状态持久化（可由外部注入共享实例）
         self.checkpointer = checkpointer if checkpointer is not None else build_checkpointer()
 
         # 长期记忆（Milvus user_memory collection；初始化失败降级为无记忆模式）

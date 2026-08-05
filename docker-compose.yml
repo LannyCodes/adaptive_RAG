@@ -26,12 +26,8 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      # Agent 多智能体模式（agent=Supervisor 编排 / workflow=固定 DAG 回退）
+      # main.py CLI 运行模式（agent=AgentRuntime 单智能体 / workflow=固定 DAG）
       - ENABLE_AGENT_MODE=${ENABLE_AGENT_MODE:-agent}
-      # HITL 人工审批（危险工具执行前中断等待批准）
-      - HITL_ENABLED=${HITL_ENABLED:-true}
-      # MCP 传输（stdio=子进程 / http=常驻服务）
-      - MCP_TRANSPORT=${MCP_TRANSPORT:-stdio}
     depends_on:
       redis:
         condition: service_healthy
@@ -51,12 +47,10 @@ services:
       - ./workflow_nodes.py:/app/workflow_nodes.py
       - ./entity_extractor.py:/app/entity_extractor.py
       - ./document_processor.py:/app/document_processor.py
-      # Agent 多智能体模块
+      # Agent 模块（单智能体运行时）
       - ./agents:/app/agents
-      - ./mcp_servers:/app/mcp_servers
       - ./memory:/app/memory
       - ./guardrails.py:/app/guardrails.py
-      - ./agent_evals.py:/app/agent_evals.py
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
