@@ -1624,25 +1624,31 @@ class LatexAwareTextSplitter:
         )
 
     def split_documents(self, documents: list[Document]) -> list[Document]:
-        """分块文档，保护公式不被截断"""
+        """分块文档，保护公式不被截断，并回填 start_index"""
         result = []
         for doc in documents:
             text = doc.page_content
             # 先保护公式：用占位符替换，避免被分块器切断
             protected_text, formulas = self._protect_formulas(text)
 
-            # 分块
+            # 分块（split_text 不产生 metadata，start_index 需按原文回填）
             splits = self._splitter.split_text(protected_text)
 
-            # 还原公式
+            # 还原公式，并按原文顺序回填块起始偏移（供相邻块合并使用）
+            # 占位符替换改变了文本长度，不能用 splitter 的偏移，这里用顺序 find 定位
+            cursor = 0
             for split_text in splits:
-                restored = self._restore_formulas(split_text, formulas)
+                restored = self._restore_formulas(split_text, formulas).strip()
                 # 跳过过短的块
-                if len(restored.strip()) < 10:
+                if len(restored) < 10:
                     continue
+                start_index = text.find(restored, cursor)
+                if start_index < 0:
+                    start_index = cursor
+                cursor = start_index + len(restored)
                 result.append(Document(
-                    page_content=restored.strip(),
-                    metadata={**doc.metadata},
+                    page_content=restored,
+                    metadata={**doc.metadata, "start_index": start_index},
                 ))
 
         return result
@@ -1803,6 +1809,7 @@ def main():
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
+            add_start_index=True,  # 供相邻块合并使用
         )
 
     doc_splits = splitter.split_documents(all_docs)

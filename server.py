@@ -627,10 +627,15 @@ async def upload_file(file: UploadFile = File(...)):
                 for d in docs
             )
             if has_latex:
+                # LatexAwareTextSplitter 内部会回填 start_index（供相邻块合并使用）
                 splitter = LatexAwareTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
             else:
                 from langchain_text_splitters import RecursiveCharacterTextSplitter
-                splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=CHUNK_SIZE,
+                    chunk_overlap=CHUNK_OVERLAP,
+                    add_start_index=True,  # 供相邻块合并使用（缺省会让合并退化为同源全合并）
+                )
             
             doc_splits = splitter.split_documents(docs)
             rag_system.doc_processor.add_documents_to_vectorstore(doc_splits)

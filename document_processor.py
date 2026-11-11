@@ -134,61 +134,59 @@ class CustomEnsembleRetriever:
         return merged_docs
 
     def _merge_adjacent_chunks(self, docs):
-        """合并来自同一文档的相邻分块"""
+        """合并来自同一文档的相邻分块。
+
+        判定依据是分块时写入的 metadata["start_index"]（块在原文中的字符偏移）：
+        同源 + 「下一块起点 - 当前块终点 < 200」即视为相邻。
+
+        缺少 start_index 的块无法判断位置关系，一律不参与合并——旧实现把它
+        当作 0，会让同一 source 的所有块被误判为相邻，拼成巨型文档。
+        """
         if not docs:
             return []
-            
-        # 按 (source, start_index) 排序，以便发现相邻块
-        # 假设 metadata 中有 'source' 和 'start_index' (这通常由 TextSplitter 添加)
-        # 如果没有 start_index，则尝试用内容重叠度判断（这里简化处理）
-        
-        # 为了安全，先检查 metadata 是否有必要字段
-        docs_with_meta = []
+
+        # 按 source 分组，并保持分组在输入中的先后顺序（尽量保留检索相关性顺序）
+        groups: Dict[str, List] = {}
         for doc in docs:
-            # 如果没有 start_index，尝试用 page_content 的哈希或简单顺序作为替补
-            if "start_index" not in doc.metadata:
-                doc.metadata["start_index"] = 0 
-            docs_with_meta.append(doc)
-            
-        # 按源文件和起始位置排序
-        sorted_docs = sorted(docs_with_meta, key=lambda x: (x.metadata.get("source", ""), x.metadata.get("start_index", 0)))
-        
-        merged = []
-        current_doc = None
-        
-        for doc in sorted_docs:
-            if current_doc is None:
-                current_doc = doc
-                continue
-                
-            # 判断是否相邻：
-            # 1. 同源
-            # 2. 当前doc的开始位置 <= 上一个doc的结束位置 + 容差 (比如 200 chars)
-            is_same_source = current_doc.metadata.get("source") == doc.metadata.get("source")
-            
-            # 计算上一个doc的结束位置
-            prev_end = current_doc.metadata.get("start_index", 0) + len(current_doc.page_content)
-            curr_start = doc.metadata.get("start_index", 0)
-            
-            # 如果重叠或非常接近 (距离 < 200 字符)
-            is_adjacent = (curr_start - prev_end) < 200
-            
-            if is_same_source and is_adjacent:
-                # 合并！
-                # print(f"🔗 合并相邻块: {current_doc.metadata.get('source')} (End: {prev_end}) + (Start: {curr_start})")
-                new_content = current_doc.page_content + "\n" + doc.page_content
-                # 更新 current_doc
-                current_doc.page_content = new_content
-                # 保留元数据
-                current_doc.metadata["merged"] = True
-            else:
-                # 不相邻，保存上一个，开始新的
+            groups.setdefault(doc.metadata.get("source", ""), []).append(doc)
+
+        merged: List = []
+        for group in groups.values():
+            # 无 start_index 的块原样保留，绝不参与相邻合并
+            mergeable = [d for d in group if "start_index" in d.metadata]
+            merged.extend(d for d in group if "start_index" not in d.metadata)
+
+            # 按起始位置排序后，同源块按文档顺序排列，可单遍扫描
+            mergeable.sort(key=lambda d: d.metadata["start_index"])
+
+            current_doc = None
+            current_end = 0
+
+            for doc in mergeable:
+                doc_start = doc.metadata["start_index"]
+                doc_end = doc_start + len(doc.page_content)
+
+                if current_doc is None:
+                    current_doc, current_end = doc, doc_end
+                    continue
+
+                # 重叠或间隙 < 200 字符 → 视为连续段落
+                if doc_start - current_end < 200:
+                    # 重叠部分裁剪：只拼接块尾新增内容，避免重叠文本重复进入上下文
+                    overlap = max(0, current_end - doc_start)
+                    addition = doc.page_content[overlap:]
+                    if addition:
+                        current_doc.page_content = current_doc.page_content + "\n" + addition
+                    current_doc.metadata["merged"] = True
+                    current_end = max(current_end, doc_end)
+                else:
+                    # 不相邻，保存上一个，开始新的
+                    merged.append(current_doc)
+                    current_doc, current_end = doc, doc_end
+
+            if current_doc is not None:
                 merged.append(current_doc)
-                current_doc = doc
-                
-        if current_doc:
-            merged.append(current_doc)
-            
+
         return merged
     
     async def ainvoke(self, query):
@@ -233,7 +231,8 @@ class CustomEnsembleRetriever:
                 doc.metadata["retriever_weight"] = self.weights[i]
                 all_results.append(doc)
                 
-        return self._process_results(all_results)
+        # 异步路径与同步 invoke 保持一致：去重排序后再做相邻块合并
+        return self._merge_adjacent_chunks(self._process_results(all_results))
 
     async def _safe_ainvoke(self, retriever, query):
         """安全的异步调用方法，避免 SearchResult await 问题"""
@@ -1010,6 +1009,20 @@ class DocumentProcessor:
                         
                         # 确定文本字段名
                         text_field = self.vectorstore._text_field if hasattr(self.vectorstore, "_text_field") else "text"
+
+                        # 输出字段: 文本 + 全部标量 metadata 字段（含 start_index）
+                        # BM25 重建的 Document 若缺 start_index，相邻块合并会退化为同源全合并
+                        try:
+                            from pymilvus import DataType
+
+                            output_fields = [text_field] + [
+                                f.name
+                                for f in col.schema.fields
+                                if f.name not in (pk_field, text_field)
+                                and f.dtype not in (DataType.FLOAT_VECTOR, DataType.BINARY_VECTOR)
+                            ]
+                        except Exception:
+                            output_fields = [text_field, "source", "data_type"]
                         
                         # 分批查询，避免 gRPC 响应超过 4MB 限制
                         # KG 实体描述很长，一次查太多会超出限制
@@ -1028,7 +1041,7 @@ class DocumentProcessor:
                                 expr = f"{pk_field} >= 0"
                                 batch = col.query(
                                     expr=expr,
-                                    output_fields=[text_field, "source", "data_type"],
+                                    output_fields=output_fields,
                                     limit=current_limit,
                                     offset=offset,
                                 )
@@ -1043,7 +1056,7 @@ class DocumentProcessor:
                                     try:
                                         batch = col.query(
                                             expr=expr,
-                                            output_fields=[text_field, "source", "data_type"],
+                                            output_fields=output_fields,
                                             limit=current_limit,
                                             offset=offset,
                                         )
