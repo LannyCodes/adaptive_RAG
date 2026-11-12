@@ -339,7 +339,8 @@ class AdaptiveRAGSystem:
             debug=False,
         )
     
-    async def query(self, question: str, verbose: bool = True, chat_history: list = None):
+    async def query(self, question: str, verbose: bool = True, chat_history: list = None,
+                    thread_id: str = "main"):
         """
         处理查询 (异步版本) —— 一次性交付：跑完整流程后返回完整结果 dict。
 
@@ -358,7 +359,9 @@ class AdaptiveRAGSystem:
         Args:
             question (str): 用户问题
             verbose (bool): 是否显示详细输出
-            chat_history (list): 对话历史，格式 [{role, content, timestamp}]
+            chat_history (list): 对话历史，格式 [{role, content, timestamp}]（仅工作流模式使用）
+            thread_id (str): Agent 模式会话标识；相同 thread_id 复用 Checkpointer 中的历史。
+                服务端应传 session_id，CLI/Notebook 保持默认 "main"。
             
         Returns:
             dict: 包含最终答案和评估指标的字典
@@ -399,7 +402,7 @@ class AdaptiveRAGSystem:
             agent_result = await loop.run_in_executor(
                 None,
                 lambda: self.agent_runtime.query(
-                    question, thread_id="main", verbose=verbose
+                    question, thread_id=thread_id, verbose=verbose
                 ),
             )
             return {
@@ -520,7 +523,8 @@ class AdaptiveRAGSystem:
             "node_times": _node_times,
         }
     
-    async def stream_query(self, question: str, chat_history: list = None):
+    async def stream_query(self, question: str, chat_history: list = None,
+                           thread_id: str = "main"):
         """
         流式查询处理 —— 边跑边吐：通过 SSE 逐 token 流式返回（异步生成器）。
 
@@ -538,11 +542,19 @@ class AdaptiveRAGSystem:
         
         Args:
             question (str): 用户问题
-            chat_history (list): 对话历史，格式 [{role, content, timestamp}]
+            chat_history (list): 对话历史，格式 [{role, content, timestamp}]（仅工作流模式使用）
+            thread_id (str): Agent 模式会话标识，服务端传 session_id 实现会话隔离
             
         Yields:
             dict: 包含 type 和 content 的事件
         """
+        # ─── Agent 模式分流 ───
+        # Agent 图没有 self.app，且历史由 Checkpointer 按 thread_id 管理
+        if self.agent_runtime is not None:
+            async for event in self._stream_query_agent(question, thread_id):
+                yield event
+            return
+
         inputs = {"question": question, "retry_count": 0, "chat_history": chat_history or []}
         config = {"recursion_limit": 20, **self.langsmith_manager.get_callback_config()}
         
@@ -632,6 +644,60 @@ class AdaptiveRAGSystem:
                 yield {"type": "answer"}
                 yield {"type": "token", "content": final_generation}
             yield {"type": "done", "content": final_generation}
+        else:
+            yield {"type": "error", "content": "未生成回答"}
+
+    async def _stream_query_agent(self, question: str, thread_id: str):
+        """Agent 模式的 SSE 事件流。
+
+        AgentRuntime.stream_events() 是同步生成器（graph.stream），
+        这里用工作线程 + asyncio.Queue 桥接为异步生成器，避免阻塞事件循环。
+        """
+        yield {"type": "start"}
+
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        sentinel = object()
+
+        def _producer():
+            try:
+                for event in self.agent_runtime.stream_events(question, thread_id=thread_id):
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
+            except Exception as exc:
+                loop.call_soon_threadsafe(
+                    queue.put_nowait, {"type": "error", "content": str(exc)}
+                )
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+        loop.run_in_executor(None, _producer)
+
+        answer_parts = []
+        answer_started = False
+        while True:
+            event = await queue.get()
+            if event is sentinel:
+                break
+
+            event_type = event.get("type")
+            if event_type == "tool_call":
+                yield {"type": "thought", "content": f"🤔 调用工具 {event.get('name', '')}..."}
+            elif event_type == "tool_result":
+                preview = event.get("preview", "")
+                yield {"type": "thought", "content": f"📎 {event.get('name', '')} 返回: {preview[:80]}"}
+            elif event_type == "answer":
+                if not answer_started:
+                    yield {"type": "answer"}
+                    answer_started = True
+                content = event.get("content", "")
+                answer_parts.append(content)
+                yield {"type": "token", "content": content}
+            elif event_type == "error":
+                yield event
+
+        final_answer = "".join(answer_parts)
+        if final_answer:
+            yield {"type": "done", "content": final_answer}
         else:
             yield {"type": "error", "content": "未生成回答"}
     
@@ -974,7 +1040,10 @@ def main():
                 print(f"查询 {idx}/{len(test_questions)}: {question[:50]}...")
                 print(f"{'='*60}")
                 try:
-                    result = await rag_system.query(question, verbose=False)
+                    # 每个并发任务独立 thread_id，避免压测时共享 Agent 会话状态
+                    result = await rag_system.query(
+                        question, verbose=False, thread_id=f"bench-{idx}"
+                    )
                     print(f"✅ 查询 {idx} 完成")
                     return {
                         "question": question,

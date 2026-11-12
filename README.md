@@ -272,7 +272,7 @@ python main.py
 
 ```bash
 docker build -t adaptive-rag .
-docker run -p 7860:7860 --env-file .env adaptive-rag
+docker run -p 8000:8000 --env-file .env adaptive-rag
 ```
 
 **方式四：MCP Server 常驻模式（生产推荐）**
@@ -464,18 +464,23 @@ python upload_and_index.py --dry-run file.pdf
 
 ```bash
 docker build -t adaptive-rag .
-docker run -p 7860:7860 --env-file .env adaptive-rag
+docker run -p 8000:8000 --env-file .env adaptive-rag
 ```
 
-### GPU 部署（推荐）
+### GPU 部署
+
+不再维护独立的 GPU Docker 镜像。应用统一使用 `Dockerfile.slim`，GPU 推理由宿主机或独立容器的 Ollama / vLLM 提供：
 
 ```bash
-docker-compose -f docker-compose.gpu.yml up -d
+docker build -f Dockerfile.slim -t adaptive-rag:slim .
+docker run -p 8000:8000 --env-file .env \
+  --add-host=host.docker.internal:host-gateway \
+  -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+  adaptive-rag:slim
 ```
 
-GPU 部署需要：
-- 安装 NVIDIA Container Toolkit
-- 具备 NVIDIA GPU 及 CUDA 驱动
+使用 vLLM 时将环境变量改为
+`-e LLM_BACKEND=vllm -e VLLM_BASE_URL=http://host.docker.internal:8200/v1`。
 
 ### Hugging Face Spaces 部署
 
@@ -502,7 +507,6 @@ adaptive_RAG/
 │   └── user_memory.py         # 长期事实型记忆（Milvus 独立 collection）
 ├── main.py                    # 命令行主入口（双模式：agent / workflow）
 ├── server.py                  # FastAPI + React Web 服务（SSE 流式/HITL/会话管理）
-├── app.py                     # Python Runner 启动脚本（Kaggle/ModelScope）
 ├── config.py                  # 集中配置管理
 ├── guardrails.py              # 安全护栏（输入注入检测 + 输出脱敏）
 ├── document_processor.py      # 文档处理、向量化、检索核心模块
@@ -523,11 +527,9 @@ adaptive_RAG/
 ├── langsmith_integration.py   # LangSmith 追踪与监控集成
 ├── requirements.txt           # Python 依赖
 ├── Dockerfile                 # Docker 镜像（CPU）
-├── Dockerfile.gpu             # Docker 镜像（GPU）
 ├── Dockerfile.slim            # Docker 镜像（精简版，不含浏览器）
-├── docker-compose.gpu.yml     # GPU Docker Compose 配置
-├── start.sh                   # 启动脚本
-├── entrypoint.sh              # Docker 入口脚本
+├── docker-compose.yml         # Docker Compose 配置（Redis + 应用 + Nginx）
+├── entrypoint.sh              # Docker 入口脚本（启动 server.py）
 ├── data/                      # 数据目录（向量库、图谱索引、上传文件等）
 └── source/                    # 源文件目录
 ```

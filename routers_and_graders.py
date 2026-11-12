@@ -18,6 +18,13 @@ from config import (
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
     OLLAMA_BASE_URL,
+    VLLM_BASE_URL,
+    VLLM_API_KEY,
+    VLLM_MODEL,
+    VLLM_LIGHT_MODEL,
+    VLLM_LIGHT_BASE_URL,
+    VLLM_REQUEST_TIMEOUT,
+    VLLM_USE_RESPONSE_FORMAT,
 )
 from prompt_manager import get_prompt_manager
 
@@ -104,6 +111,30 @@ def create_chat_model(format: str | None = None, temperature: float = 0.0, timeo
             temperature=temperature,
         )
         return client
+    if LLM_BACKEND == "vllm":
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError:
+            raise ImportError("langchain-openai not installed, cannot use vllm backend")
+
+        model_name = VLLM_LIGHT_MODEL if light else VLLM_MODEL
+        base_url = (VLLM_LIGHT_BASE_URL if light else VLLM_BASE_URL).rstrip("/")
+
+        kwargs = {
+            "timeout": timeout if timeout is not None else VLLM_REQUEST_TIMEOUT,
+        }
+        if format == "json" and VLLM_USE_RESPONSE_FORMAT:
+            kwargs["model_kwargs"] = {
+                "response_format": {"type": "json_object"}
+            }
+
+        return ChatOpenAI(
+            model=model_name,
+            api_key=VLLM_API_KEY or "dummy",
+            base_url=base_url,
+            temperature=temperature,
+            **kwargs,
+        )
     raise ValueError(f"Unsupported LLM_BACKEND: {LLM_BACKEND}")
 
 

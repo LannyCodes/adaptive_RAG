@@ -39,10 +39,26 @@ def setup_environment():
         print("⚠️  TAVILY_API_KEY 未找到")
 
 
-LLM_BACKEND = os.environ.get("LLM_BACKEND", "tongyi")  # 原来是使用Ollama
+LLM_BACKEND = os.environ.get("LLM_BACKEND", "tongyi")  # 可选: tongyi / deepseek / ollama / vllm
 LOCAL_LLM = os.environ.get("LOCAL_LLM", "qwen2:1.5b")
 LIGHT_LLM = os.environ.get("LIGHT_LLM", "qwen2.5:1.5b")  # 轻量模型，用于路由/评分等简单任务
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+
+# 应用层并发限流：vLLM 双副本默认 8（GPU0 4 路 + GPU1 8 路，共 12 路上限）
+_DEFAULT_MAX_CONCURRENT = 8 if LLM_BACKEND == "vllm" else 4
+MAX_CONCURRENT_REQUESTS = int(os.environ.get("MAX_CONCURRENT_REQUESTS", str(_DEFAULT_MAX_CONCURRENT)))
+MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", "20"))
+
+# vLLM OpenAI 兼容服务（双 T4 双副本通过 Nginx 暴露一个入口）
+# 8200 是 Nginx 负载均衡端口（8100/8101 已留给 MCP Server），server.py 仍监听 8000
+VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://127.0.0.1:8200/v1")
+VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "dummy")
+VLLM_MODEL = os.environ.get("VLLM_MODEL", "qwen2.5-7b")
+VLLM_LIGHT_MODEL = os.environ.get("VLLM_LIGHT_MODEL", VLLM_MODEL)
+VLLM_LIGHT_BASE_URL = os.environ.get("VLLM_LIGHT_BASE_URL", VLLM_BASE_URL)
+VLLM_REQUEST_TIMEOUT = int(os.environ.get("VLLM_REQUEST_TIMEOUT", "180"))
+# 旧版 vLLM 可能不支持 OpenAI 的 response_format，默认只靠 prompt 约束 JSON
+VLLM_USE_RESPONSE_FORMAT = os.environ.get("VLLM_USE_RESPONSE_FORMAT", "false").lower() == "true"
 
 TONGYI_API_KEY = os.environ.get("TONGYI_API_KEY") or os.environ.get("DASHSCOPE_API_KEY", "")
 TONGYI_BASE_URL = os.environ.get("TONGYI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")

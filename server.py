@@ -51,11 +51,19 @@ import shutil
 sys.path.append(os.getcwd())
 
 try:
-    from config import ENABLE_MULTIMODAL, LOCAL_LLM, LLM_BACKEND
+    from config import (
+        ENABLE_MULTIMODAL,
+        LOCAL_LLM,
+        LLM_BACKEND,
+        MAX_CONCURRENT_REQUESTS,
+        MAX_QUEUE_SIZE,
+    )
 except Exception:
     ENABLE_MULTIMODAL = False
     LOCAL_LLM = "qwen2:1.5b"
     LLM_BACKEND = "ollama"
+    MAX_CONCURRENT_REQUESTS = 4
+    MAX_QUEUE_SIZE = 20
 
 
 def ensure_ollama_service(model_name: str):
@@ -469,28 +477,102 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 服务本地静态资源（前端 JS 库，构建时下载）
+# 服务本地静态资源（前端 JS 库，构建时下载；Kaggle 首次运行自动补齐）
 from fastapi.staticfiles import StaticFiles
-import os
-static_dir = "/app/static"
-if os.path.exists(static_dir):
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
-    # 字体文件目录
-    webfonts_dir = "/app/webfonts"
-    if os.path.exists(webfonts_dir):
+
+# Kaggle/Colab 首次运行时需要的前端资源（缺失会导致页面白屏）
+_FRONTEND_ASSETS = [
+    ("static/react.production.min.js", "https://unpkg.com/react@18.3.1/umd/react.production.min.js"),
+    ("static/react-dom.production.min.js", "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"),
+    ("static/babel.min.js", "https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"),
+    ("static/tailwind.min.js", "https://cdn.tailwindcss.com"),
+    ("static/marked.min.js", "https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"),
+    ("static/katex.min.css", "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"),
+    ("static/katex.min.js", "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"),
+    ("static/auto-render.min.js", "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"),
+    ("static/fontawesome.min.css", "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"),
+    ("webfonts/fa-solid-900.woff2", "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.woff2"),
+    ("webfonts/fa-regular-400.woff2", "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.woff2"),
+    ("webfonts/fa-brands-400.woff2", "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-brands-400.woff2"),
+    ("webfonts/fa-solid-900.ttf", "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.ttf"),
+    ("webfonts/fa-regular-400.ttf", "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.ttf"),
+    ("webfonts/fa-brands-400.ttf", "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-brands-400.ttf"),
+]
+_KATEX_FONT_NAMES = [
+    "KaTeX_AMS-Regular", "KaTeX_Caligraphic-Bold", "KaTeX_Caligraphic-Regular",
+    "KaTeX_Fraktur-Bold", "KaTeX_Fraktur-Regular", "KaTeX_Main-Bold",
+    "KaTeX_Main-BoldItalic", "KaTeX_Main-Italic", "KaTeX_Main-Regular",
+    "KaTeX_Math-BoldItalic", "KaTeX_Math-Italic", "KaTeX_SansSerif-Bold",
+    "KaTeX_SansSerif-Italic", "KaTeX_SansSerif-Regular", "KaTeX_Script-Regular",
+    "KaTeX_Size1-Regular", "KaTeX_Size2-Regular", "KaTeX_Size3-Regular",
+    "KaTeX_Size4-Regular", "KaTeX_Typewriter-Regular",
+]
+_KATEX_FONT_BASE = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/fonts"
+
+_static_mounted = False
+_webfonts_mounted = False
+
+
+def mount_frontend_assets():
+    """挂载 /static 与 /webfonts（幂等，可在下载资源后再次调用）。"""
+    global _static_mounted, _webfonts_mounted
+
+    if os.path.exists("/app/static"):
+        static_dir, webfonts_dir = "/app/static", "/app/webfonts"
+    else:
+        base_dir = os.path.dirname(__file__)
+        static_dir = os.path.join(base_dir, "static")
+        webfonts_dir = os.path.join(base_dir, "webfonts")
+        os.makedirs(static_dir, exist_ok=True)
+
+    if not _static_mounted and os.listdir(static_dir):
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+        _static_mounted = True
+        print(f"  📦 静态资源目录已挂载: {static_dir}")
+
+    if (not _webfonts_mounted and os.path.isdir(webfonts_dir)
+            and os.listdir(webfonts_dir)):
         app.mount("/webfonts", StaticFiles(directory=webfonts_dir), name="webfonts")
-    print(f"  📦 静态资源目录已挂载: {static_dir}")
-else:
-    # 开发环境下使用本地相对路径
-    local_static = os.path.join(os.path.dirname(__file__), "static")
-    if not os.path.exists(local_static):
-        os.makedirs(local_static, exist_ok=True)
-    if os.listdir(local_static):
-        app.mount("/static", StaticFiles(directory=local_static), name="static")
-    # 字体文件目录（fontawesome webfonts，CSS 通过 ../webfonts/ 相对引用）
-    local_webfonts = os.path.join(os.path.dirname(__file__), "webfonts")
-    if os.path.exists(local_webfonts) and os.listdir(local_webfonts):
-        app.mount("/webfonts", StaticFiles(directory=local_webfonts), name="webfonts")
+        _webfonts_mounted = True
+
+
+def ensure_frontend_assets(timeout: int = 20):
+    """Kaggle/Colab 首次运行时下载前端静态资源（已存在则跳过）。"""
+    if not (os.path.exists("/kaggle") or os.environ.get("KAGGLE_KERNEL_RUN_TYPE")):
+        return
+
+    base_dir = os.path.dirname(__file__)
+    targets = list(_FRONTEND_ASSETS)
+    targets += [
+        (f"static/fonts/{name}.woff2", f"{_KATEX_FONT_BASE}/{name}.woff2")
+        for name in _KATEX_FONT_NAMES
+    ]
+
+    ok = fail = consecutive_fail = 0
+    for rel, url in targets:
+        dest = os.path.join(base_dir, rel)
+        if os.path.exists(dest) and os.path.getsize(dest) > 0:
+            continue
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "wb") as f:
+                f.write(resp.content)
+            ok += 1
+            consecutive_fail = 0
+        except Exception:
+            fail += 1
+            consecutive_fail += 1
+            if consecutive_fail >= 3:
+                print("  ⚠️ 前端资源连续下载失败，跳过剩余项")
+                break
+
+    if ok or fail:
+        print(f"  📦 前端静态资源: 新增 {ok} 个, 失败 {fail} 个")
+
+
+mount_frontend_assets()
 
 # --- 调试路由 (Added for ModelScope troubleshooting) ---
 
@@ -543,7 +625,10 @@ rag_system = None
 
 # 会话管理器和限流器
 session_manager = SessionManager()
-rate_limiter = RateLimiter(max_concurrent=4)
+rate_limiter = RateLimiter(
+    max_concurrent=MAX_CONCURRENT_REQUESTS,
+    max_queue=MAX_QUEUE_SIZE,
+)
 
 def get_rag_system():
     global rag_system
@@ -679,15 +764,18 @@ async def serve_image(image_path: str):
 
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest):
-    """SSE 流式聊天接口（固定 DAG 工作流）。
+    """SSE 流式聊天接口。
 
     【消费方式】浏览器 EventSource 实时接收事件流（边跑边吐的直播体验）。
-    调用 system.stream_query()（main.py，astream_events 真 token 流式）；
+    Agent 模式按 thread_id（= session_id）隔离 Checkpointer 会话历史；
+    工作流模式按 chat_history 传递上下文（main.py 内部自动分流）。
     缓存命中则走本函数下方伪流式直接吐缓存，不进入 stream_query()。
     对照一次性交付接口请看 /api/chat（chat_endpoint_with_session）。
     """
     session_id = request.session_id
     question = request.message
+    # 无 session 的 API 调用使用一次性 thread_id，避免多个未登录请求共享同一份 Agent 历史
+    thread_id = session_id or f"anon-{uuid.uuid4().hex}"
 
     system = get_rag_system()
 
@@ -721,7 +809,9 @@ async def chat_stream(request: ChatRequest):
                 if session_id:
                     session_manager.add_message(session_id, "user", question)
 
-                async for event in system.stream_query(question, chat_history=chat_history):
+                async for event in system.stream_query(
+                    question, chat_history=chat_history, thread_id=thread_id
+                ):
                     data = json.dumps(event, ensure_ascii=False)
                     yield f"data: {data}\n\n"
 
@@ -846,11 +936,13 @@ async def chat_endpoint_with_session(request: ChatRequest):
 
     【消费方式】普通 HTTP 请求，调用 system.query()（main.py ~L342）拿到完整 dict 后
     一次性返回 ChatResponse（区别于 /api/chat/stream 的 SSE 逐 token 直播）。
+    Agent 模式下 thread_id=session_id，会话隔离由 Checkpointer 保证。
     命中缓存时直接返回缓存答案，不进入 query()。
     """
     system = get_rag_system()
     session_id = request.session_id
     question = request.message
+    thread_id = session_id or f"anon-{uuid.uuid4().hex}"
 
     # 0. 获取对话历史
     chat_history = []
@@ -874,7 +966,9 @@ async def chat_endpoint_with_session(request: ChatRequest):
 
     try:
         async with rate_limiter:
-            result = await system.query(question, chat_history=chat_history)
+            result = await system.query(
+                question, chat_history=chat_history, thread_id=thread_id
+            )
 
         answer = result.get("answer", "无法生成回答")
 
@@ -1604,7 +1698,45 @@ async def read_root():
     """返回单页应用前端"""
     return HTMLResponse(content=HTML_CONTENT)
 
+def start_ngrok_tunnel(port: int = 8000):
+    """有 NGROK_AUTH_TOKEN 时建立公网隧道，否则返回 None。
+
+    Token 优先从环境变量读取，其次从 Kaggle Secrets 读取。
+    """
+    token = os.environ.get("NGROK_AUTH_TOKEN", "")
+    if not token:
+        try:
+            from kaggle_secrets import UserSecretsClient
+            token = UserSecretsClient().get_secret("NGROK_AUTH_TOKEN")
+        except Exception:
+            token = ""
+    if not token:
+        print("  ℹ️  未配置 NGROK_AUTH_TOKEN，跳过 ngrok（公网访问需自行穿透）")
+        return None
+
+    try:
+        from pyngrok import ngrok, conf
+    except ImportError:
+        print("  ⚠️ pyngrok 未安装，跳过 ngrok（pip install pyngrok）")
+        return None
+
+    try:
+        conf.get_default().auth_token = token
+        ngrok.kill()
+        public_url = ngrok.connect(port, bind_tls=True).public_url
+        print(f"  🌐 公网访问地址: {public_url}")
+        return public_url
+    except Exception as e:
+        print(f"  ⚠️ ngrok 建立失败: {e}")
+        return None
+
+
 if __name__ == "__main__":
+    # Kaggle 首次运行：补齐前端静态资源（缺失会导致页面白屏）
+    ensure_frontend_assets()
+    mount_frontend_assets()
+    start_ngrok_tunnel(8000)
+
     log.info("server_start", "企业级 RAG 服务器启动",
              backend="FastAPI", frontend="React 18", port=8000)
     print(f"{'='*60}")

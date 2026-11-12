@@ -4,7 +4,8 @@ from prompt_manager import get_prompt_manager
 使用LLM从文档中提取实体、关系和属性，构建知识图谱的基础
 """
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
+import contextlib
 import time
 import asyncio
 import aiohttp
@@ -12,7 +13,7 @@ import json
 from langchain_core.prompts import PromptTemplate
 
 from langchain_core.output_parsers import JsonOutputParser
-from config import LOCAL_LLM
+from config import LLM_BACKEND, LOCAL_LLM, OLLAMA_BASE_URL
 from routers_and_graders import create_chat_model
 
 
@@ -30,7 +31,8 @@ class EntityExtractor:
         self.llm = create_chat_model(format="json", temperature=0.0, timeout=timeout)
         self.max_retries = max_retries
         self.enable_async = enable_async
-        self.ollama_url = "http://localhost:11434/api/generate"
+        # 仅在 Ollama 后端下使用；vLLM 后端走 self.llm 的 OpenAI 兼容接口
+        self.ollama_url = f"{OLLAMA_BASE_URL.rstrip('/').removesuffix('/v1')}/api/generate"
         self.timeout = timeout  # 保存超时设置供异步使用
         
         # 实体提取提示模板
@@ -121,8 +123,10 @@ class EntityExtractor:
                     return []
         return []
     
-    async def _async_llm_call(self, prompt: str, session: aiohttp.ClientSession, attempt: int = 0) -> Dict:
-        """异步调用 Ollama API"""
+    async def _async_llm_call(self, prompt: str, session: Optional[aiohttp.ClientSession], attempt: int = 0) -> Dict:
+        """异步调用 LLM：vLLM 走 OpenAI 兼容接口，Ollama 走原生 generate 接口"""
+        if LLM_BACKEND == "vllm":
+            return await self._async_vllm_call(prompt, attempt)
         try:
             timeout = aiohttp.ClientTimeout(
                 total=self.timeout,      # 总超时
@@ -157,8 +161,20 @@ class EntityExtractor:
                 await asyncio.sleep(2)
                 return await self._async_llm_call(prompt, session, attempt + 1)
             raise
+
+    async def _async_vllm_call(self, prompt: str, attempt: int = 0) -> Dict:
+        """通过 LangChain 客户端异步调用 vLLM（Nginx 负载均衡后的 OpenAI 兼容入口）"""
+        try:
+            message = await self.llm.ainvoke(prompt)
+            content = message.content if isinstance(message.content, str) else str(message.content)
+            return JsonOutputParser().parse(content)
+        except Exception:
+            if attempt < self.max_retries - 1:
+                await asyncio.sleep(2)
+                return await self._async_vllm_call(prompt, attempt + 1)
+            raise
     
-    async def _extract_entities_async(self, text: str, doc_index: int, session: aiohttp.ClientSession) -> List[Dict]:
+    async def _extract_entities_async(self, text: str, doc_index: int, session: Optional[aiohttp.ClientSession]) -> List[Dict]:
         """异步提取实体"""
         prompt = self.entity_prompt.format(text=text[:2000])
         
@@ -175,7 +191,7 @@ class EntityExtractor:
                     return []
         return []
     
-    async def _extract_relations_async(self, text: str, entities: List[Dict], doc_index: int, session: aiohttp.ClientSession) -> List[Dict]:
+    async def _extract_relations_async(self, text: str, entities: List[Dict], doc_index: int, session: Optional[aiohttp.ClientSession]) -> List[Dict]:
         """异步提取关系"""
         if not entities:
             return []
@@ -199,7 +215,7 @@ class EntityExtractor:
                     return []
         return []
     
-    async def _extract_from_document_async(self, document_text: str, doc_index: int, session: aiohttp.ClientSession) -> Dict:
+    async def _extract_from_document_async(self, document_text: str, doc_index: int, session: Optional[aiohttp.ClientSession]) -> Dict:
         """异步处理单个文档"""
         print(f"\n🔍 [文档 #{doc_index + 1}] 开始异步提取...")
         
@@ -223,7 +239,9 @@ class EntityExtractor:
         Returns:
             提取结果列表
         """
-        async with aiohttp.ClientSession() as session:
+        # vLLM 后端复用 AsyncOpenAI 连接池，不需要额外的 aiohttp session
+        session_cm = contextlib.nullcontext(None) if LLM_BACKEND == "vllm" else aiohttp.ClientSession()
+        async with session_cm as session:
             tasks = [
                 self._extract_from_document_async(doc_text, doc_idx, session)
                 for doc_text, doc_idx in documents

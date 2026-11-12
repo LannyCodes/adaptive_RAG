@@ -30,10 +30,6 @@ RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com
 # 复制项目文件
 COPY . .
 
-# 复制启动脚本
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
-
 # 复制 entrypoint 脚本
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
@@ -58,7 +54,7 @@ RUN mkdir -p /app/workspace && chown -R user:user /app
 USER user
 
 # 暴露端口
-EXPOSE 7860
+EXPOSE 8000
 
 # 启动命令
 # 使用 ENTRYPOINT 确保脚本被执行

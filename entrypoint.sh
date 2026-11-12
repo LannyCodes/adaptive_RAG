@@ -26,20 +26,20 @@ export OLLAMA_MODELS="$HOME/.ollama/models"
 
 
 # 检查文件是否存在
-if [ -f "app.py" ]; then
-    echo "✅ app.py found."
+if [ -f "server.py" ]; then
+    echo "✅ server.py found."
 else
-    echo "❌ app.py NOT found in $(pwd)!"
+    echo "❌ server.py NOT found in $(pwd)!"
     ls -la
 fi
 
 # 启动 Python 应用
-echo "🚀 Executing app.py..."
-python app.py
+echo "🚀 Executing server.py..."
+python server.py
 
-# 如果 python app.py 退出，显示退出码
+# 如果 python server.py 退出，显示退出码
 EXIT_CODE=$?
-echo "⚠️ app.py exited with code $EXIT_CODE"
+echo "⚠️ server.py exited with code $EXIT_CODE"
 
 # 保持容器运行一小会儿，以便查看日志（如果崩溃太快）
 if [ $EXIT_CODE -ne 0 ]; then
