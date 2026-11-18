@@ -65,6 +65,8 @@ class ThreadSafeDocStore:
         self._vector_store: Dict[str, List[Document]] = {}
         # grade_documents 过滤后的文档，用于生成干净的引用来源和检索指标
         self._graded_store: Dict[str, List[Document]] = {}
+        # 本轮送进 grade_documents 的候选文档，保证评分与指标同源
+        self._candidate_store: Dict[str, List[Document]] = {}
         # 单次查询的检索/评分过程指标（不进入 LangGraph checkpoint）
         self._metrics: Dict[str, Dict[str, Any]] = {}
         # 最近一次塞入通用暂存区的来源通道: vectorstore / generic
@@ -103,6 +105,11 @@ class ThreadSafeDocStore:
         with self._lock:
             return list(self._graded_store.get(self._tid(config), []))
 
+    def get_candidates(self, config: Optional[RunnableConfig]) -> List[Document]:
+        """返回最近一次被评分的候选文档；未评分则为空。"""
+        with self._lock:
+            return list(self._candidate_store.get(self._tid(config), []))
+
     def record_retrieval(self, config: Optional[RunnableConfig], docs: List[Document],
                          latency: float, query: str, top_k: int):
         """记录一次知识库检索的耗时、文档数和来源数。"""
@@ -125,11 +132,14 @@ class ThreadSafeDocStore:
 
     def record_grading(self, config: Optional[RunnableConfig], docs: List[Document],
                        total_docs: int, fallback: bool = False,
-                       channel: str = ""):
+                       channel: str = "",
+                       candidates: Optional[List[Document]] = None):
         """记录评分后保留的文档，以及是否触发了“全不相关”兜底。"""
         with self._lock:
             tid = self._tid(config)
             self._graded_store[tid] = list(docs)
+            if candidates is not None:
+                self._candidate_store[tid] = list(candidates)
             metrics = self._metrics.setdefault(tid, {})
             metrics["graded_relevant_count"] = len(docs)
             metrics["graded_total_docs"] = total_docs
@@ -230,6 +240,7 @@ def build_rag_tools(doc_processor, graders, doc_store: ThreadSafeDocStore) -> li
             config, filtered, len(docs),
             fallback=bool(grade_meta.get("fallback", False)),
             channel=source_channel,
+            candidates=docs,
         )
         return text
 
@@ -473,7 +484,7 @@ class AgentRuntime:
                 if cls._doc_key(doc) in relevant_ids
             )
 
-        precision = {k: hits_at(k) / k for k in (1, 3, 5)}
+        precision = {k: hits_at(k) / min(k, len(retrieved_docs)) for k in (1, 3, 5)}
         recall = {k: hits_at(k) / len(relevant_ids) for k in (1, 3, 5)}
 
         # Average Precision：每个命中位置的 precision 取平均
@@ -508,8 +519,13 @@ class AgentRuntime:
         """汇总本次 Agent 查询的真实检索过程指标。"""
         raw_docs = self.doc_store.get_vector(config)
         graded_docs = self.doc_store.get_graded(config)
+        candidates = self.doc_store.get_candidates(config)
         trace = self.doc_store.get_metrics(config)
-        ranking = self._ranking_metrics(raw_docs, graded_docs)
+        # Agent 可能重写查询后再检索一次，此时 get_vector 只剩最后一次结果，
+        # 而 graded 来自更早一次评分。指标必须用“被评分的那批候选”作基准，
+        # 否则 graded 与 retrieved 不同源，命中数会被误算成 0。
+        basis_docs = candidates or raw_docs
+        ranking = self._ranking_metrics(basis_docs, graded_docs)
 
         fallback = bool(trace.get("grader_fallback", False))
         grading_channel = trace.get("grading_channel", "")
@@ -536,7 +552,8 @@ class AgentRuntime:
         return {
             **ranking,
             "latency": round(float(trace.get("retrieval_latency", 0.0)), 6),
-            "retrieved_docs_count": trace.get("retrieved_docs_count", len(raw_docs)),
+            "retrieved_docs_count": len(basis_docs),
+            "last_retrieval_docs": trace.get("retrieved_docs_count", len(raw_docs)),
             "graded_relevant_count": len(graded_docs),
             "graded_total_docs": trace.get("graded_total_docs", len(raw_docs)),
             "retrieval_calls": trace.get("retrieval_calls", 0),
