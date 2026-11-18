@@ -25,12 +25,15 @@
   VLLM_GPU1_MAX_SEQS     默认 8
   VLLM_LB_PORT           Nginx 负载均衡端口，默认 8200
   VLLM_HEALTH_TIMEOUT    副本就绪超时（秒），默认 900
+  HF_HOME                HuggingFace 缓存目录，必须可写；若 /kaggle/temp 不可写会直接失败，
+                         推荐 HF_HOME=/kaggle/working/hf-cache
 """
 
 import os
 import shutil
 import socket
 import subprocess
+import sys
 import textwrap
 import time
 from pathlib import Path
@@ -114,7 +117,80 @@ def build_serve_command(replica: dict) -> list[str]:
     return cmd
 
 
-def start_replicas() -> list[subprocess.Popen]:
+def replica_log_path(replica: dict) -> Path:
+    return WORK_DIR / f"vllm-gpu{replica['gpu']}.log"
+
+
+def tail_log(path: Path, lines: int = 40) -> str:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            content = fh.readlines()
+    except OSError as exc:
+        return f"<无法读取 {path}: {exc}>"
+    return "".join(content[-lines:]).strip() or "<日志为空>"
+
+
+def fail_with_log(port: int, log_path: Path, reason: str) -> None:
+    """子进程异常退出时，把日志尾部直接打到屏幕上，避免盲等 15 分钟。"""
+    print(f"[fail] {reason}")
+    print("-" * 70)
+    print(tail_log(log_path, 80))
+    print("-" * 70)
+    sys.stdout.flush()
+    raise RuntimeError(f"{reason}；完整日志: {log_path}")
+
+
+def health_ok(port: int) -> bool:
+    try:
+        response = requests.get(
+            f"http://127.0.0.1:{port}/health",
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            timeout=2,
+        )
+        return response.status_code == 200
+    except requests.RequestException:
+        return False
+
+
+def check_hf_storage() -> None:
+    """HF 缓存目录不可写时 vLLM 会在加载模型前就退出，这里提前给出明确错误。"""
+    candidates = {
+        os.environ.get("HF_HOME"),
+        os.environ.get("TRANSFORMERS_CACHE"),
+        os.environ.get("HF_HUB_CACHE"),
+    }
+    seen: set[str] = set()
+    for raw in filter(None, candidates):
+        path = Path(raw).expanduser()
+        if str(path) in seen:
+            continue
+        seen.add(str(path))
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            probe = path / ".write_probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except Exception as exc:
+            raise RuntimeError(
+                f"HF 缓存目录不可写: {path}（{exc}）。"
+                "请改用可写目录，例如 HF_HOME=/kaggle/working/hf-cache"
+            ) from exc
+        free_gb = shutil.disk_usage(path).free / (1024 ** 3)
+        print(f"[hf] 缓存目录 {path} 可写，剩余 {free_gb:.1f} GB")
+        if free_gb < 15:
+            print("[hf] 警告：剩余空间不足 15GB，模型权重或编译缓存可能写入失败")
+
+
+def check_model_source() -> None:
+    local = Path(MODEL_PATH).expanduser()
+    if local.exists():
+        print(f"[model] 本地模型路径: {local}")
+    else:
+        print(f"[model] HuggingFace 仓库: {MODEL_PATH}")
+        print("[model] 首次运行需要下载权重，5-15 分钟属正常；若日志停在下载阶段请检查网络和磁盘")
+
+
+def start_replicas() -> dict[int, subprocess.Popen]:
     if not (Path(VLLM_BIN).exists() or shutil.which(VLLM_BIN)):
         raise RuntimeError(
             "未找到 vllm 可执行文件，请先安装，例如：\n"
@@ -122,62 +198,79 @@ def start_replicas() -> list[subprocess.Popen]:
             "  /kaggle/working/vllm-env/bin/pip install vllm==0.7.3"
         )
 
-    procs = []
-    logs = []
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"[vllm] 使用可执行文件: {VLLM_BIN}")
+    procs: dict[int, subprocess.Popen] = {}
     for replica in REPLICAS:
         port = replica["port"]
+        log_path = replica_log_path(replica)
         if port_open(port):
-            print(f"[skip] vLLM 端口 {port} 已在监听")
+            state = "已就绪" if health_ok(port) else "健康检查不通，可能是残留进程"
+            print(f"[skip] vLLM 端口 {port} 已在监听（{state}）")
             continue
 
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = str(replica["gpu"])
         env.setdefault("VLLM_USE_V1", "0")
 
-        log_path = WORK_DIR / f"vllm-gpu{replica['gpu']}.log"
         log_file = open(log_path, "w")
         cmd = build_serve_command(replica)
         print(f"[start] GPU{replica['gpu']} -> 127.0.0.1:{port}, log={log_path}")
-        procs.append(
-            subprocess.Popen(
-                cmd,
-                env=env,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
-        logs.append(log_file)
+        procs[port] = proc
+
+        # 缺依赖、缓存不可写、端口冲突等问题通常 2-3 秒内就会退出，先快速探一次
+        time.sleep(3)
+        rc = proc.poll()
+        if rc is not None:
+            fail_with_log(port, log_path, f"vLLM {port} 启动后立即退出（exit code={rc}）")
     return procs
 
 
-def wait_health(timeout_seconds: int = 900) -> None:
+def wait_health(
+    timeout_seconds: int = 900,
+    procs: dict[int, subprocess.Popen] | None = None,
+) -> None:
+    procs = procs or {}
     for replica in REPLICAS:
         port = replica["port"]
+        proc = procs.get(port)
+        log_path = replica_log_path(replica)
         deadline = time.time() + timeout_seconds
-        last_report = time.time()
+        wait_started = time.time()
+        last_report = 0.0
         while time.time() < deadline:
-            try:
-                response = requests.get(
-                    f"http://127.0.0.1:{port}/health",
-                    headers={"Authorization": f"Bearer {API_KEY}"},
-                    timeout=2,
+            if proc is not None and proc.poll() is not None:
+                fail_with_log(
+                    port,
+                    log_path,
+                    f"vLLM {port} 进程已退出（exit code={proc.returncode}）",
                 )
-                if response.status_code == 200:
-                    print(f"[ready] vLLM {port}")
-                    break
-            except requests.RequestException:
-                pass
-            if time.time() - last_report >= 30:
-                log_name = f"vllm-gpu{replica['gpu']}.log"
-                print(f"[wait] vLLM {port} 尚未就绪，查看 {WORK_DIR / log_name}")
-                last_report = time.time()
+            if health_ok(port):
+                print(f"[ready] vLLM {port}")
+                break
+            now = time.time()
+            if now - last_report >= 30:
+                elapsed = int(now - wait_started)
+                last_line = tail_log(log_path, 1).replace("\r", " ").replace("\n", " ")[:180]
+                suffix = f" | 日志最后一行: {last_line}" if last_line else ""
+                print(f"[wait] vLLM {port} 尚未就绪（{elapsed}s）{suffix}")
+                last_report = now
             time.sleep(5)
         else:
-            log_name = f"vllm-gpu{replica['gpu']}.log"
-            raise TimeoutError(
-                f"vLLM {port} 在 {timeout_seconds}s 内未就绪，"
-                f"请查看 {WORK_DIR / log_name}"
+            hint = ""
+            if proc is None:
+                hint = f"；端口 {port} 在启动前已被占用，请检查是否残留旧进程：ss -ltnp | grep {port}"
+            fail_with_log(
+                port,
+                log_path,
+                f"vLLM {port} 在 {timeout_seconds}s 内未就绪{hint}",
             )
 
 
@@ -252,8 +345,10 @@ def start_nginx(conf_path: Path) -> None:
 
 def main() -> None:
     WORK_DIR.mkdir(parents=True, exist_ok=True)
-    start_replicas()
-    wait_health(HEALTH_TIMEOUT)
+    check_hf_storage()
+    check_model_source()
+    procs = start_replicas()
+    wait_health(HEALTH_TIMEOUT, procs)
     start_nginx(write_nginx_conf())
 
     print("\n应用侧环境变量：")
