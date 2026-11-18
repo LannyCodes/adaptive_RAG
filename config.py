@@ -142,6 +142,8 @@ ENABLE_AGENT_MODE = os.environ.get("ENABLE_AGENT_MODE", "agent").lower()  # agen
 AGENT_MAX_ITERATIONS = int(os.environ.get("AGENT_MAX_ITERATIONS", "30"))  # Agent 递归上限（recursion_limit）
 
 # Agent 记忆体系配置
+# 长期用户记忆开关：压测/评测时建议关闭，避免后台抽取调用干扰时延
+ENABLE_USER_MEMORY = os.environ.get("ENABLE_USER_MEMORY", "true").lower() == "true"
 USER_MEMORY_COLLECTION = os.environ.get("USER_MEMORY_COLLECTION", "user_memory")  # 长期记忆 Milvus collection
 MEMORY_TOP_K = int(os.environ.get("MEMORY_TOP_K", "3"))  # 长期记忆检索条数
 CONTEXT_COMPRESS_THRESHOLD = int(os.environ.get("CONTEXT_COMPRESS_THRESHOLD", "16000"))  # 工作记忆压缩阈值（字符数，约 8000 token）

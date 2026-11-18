@@ -649,6 +649,7 @@ class WorkflowNodes:
         if scores is not None:
             filtered_docs = []
             rejected_docs = []  # 保留被拒绝的文档，用于兜底
+            fallback = False
             for i, (doc, score) in enumerate(zip(documents, scores)):
                 if score == "yes":
                     print(f"---评分：文档{i+1}相关---")
@@ -662,13 +663,39 @@ class WorkflowNodes:
             if not filtered_docs and documents:
                 print(f"⚠️ 所有文档都被过滤，保留原始 {len(documents)} 个文档（评分可能过于严格）")
                 filtered_docs = list(documents)
+                fallback = True
 
-            return {"documents": filtered_docs, "question": question}
+            # 用评分后的文档作为伪相关标签，更新检索指标；
+            # 不再假设“前两篇一定相关”。
+            retrieval_metrics = self._evaluate_retrieval_results(
+                question,
+                documents,
+                (state.get("retrieval_metrics") or {}).get("latency", 0.0),
+                relevant_docs=filtered_docs,
+                relevant_source=(
+                    "agent_graded_fallback" if fallback else "agent_graded"
+                ),
+            )
+            return {
+                "documents": filtered_docs,
+                "question": question,
+                "retrieval_metrics": retrieval_metrics,
+            }
 
         # 如果批量评分失败，直接保留所有文档（避免回退到逐个评分浪费 30-60s）
         if scores is None:
             print(f"⚠️ 批量评分失败，直接保留全部 {len(documents)} 个文档（跳过逐个评分以节省时间）")
-            return {"documents": documents, "question": question}
+            retrieval_metrics = self._evaluate_retrieval_results(
+                question,
+                documents,
+                (state.get("retrieval_metrics") or {}).get("latency", 0.0),
+                relevant_docs=None,
+            )
+            return {
+                "documents": documents,
+                "question": question,
+                "retrieval_metrics": retrieval_metrics,
+            }
             
     def transform_query(self, state):
         """
@@ -1297,23 +1324,41 @@ class WorkflowNodes:
         
         return context
 
-    def _evaluate_retrieval_results(self, question, documents, retrieval_time):
+    def _evaluate_retrieval_results(self, question, documents, retrieval_time,
+                                    relevant_docs=None, relevant_source="unavailable"):
         """
-        评估检索结果的质量
-        
+        评估检索结果的质量。
+
         Args:
             question: 查询问题
             documents: 检索到的文档
             retrieval_time: 检索耗时
-            
+            relevant_docs: 真实/伪相关的文档；不提供时只返回检索诊断信息，
+                不再假设“前两篇一定相关”来伪造 Precision/Recall/MAP
+            relevant_source: 相关文档来源（agent_graded / agent_graded_fallback /
+                ground_truth）
+
         Returns:
             dict: 评估指标
         """
+        if not relevant_docs:
+            print("⚠️ 未提供相关文档标注，Precision/Recall/MAP 不可用，仅返回检索诊断")
+            return {
+                "latency": retrieval_time,
+                "retrieved_docs_count": len(documents),
+                "precision_at_1": 0.0,
+                "precision_at_3": 0.0,
+                "precision_at_5": 0.0,
+                "recall_at_1": 0.0,
+                "recall_at_3": 0.0,
+                "recall_at_5": 0.0,
+                "map_score": 0.0,
+                "mrr": 0.0,
+                "metric_source": "unavailable",
+                "evaluation_note": "未提供相关文档标注，Precision/Recall/MAP 无法计算",
+            }
+
         try:
-            # 创建模拟的相关文档（在实际应用中，这些应该是真实的相关文档）
-            # 这里我们假设前几个文档是相关的，用于演示评估功能
-            relevant_docs = documents[:min(2, len(documents))] if documents else []
-            
             # 创建检索结果对象
             retrieval_result = RetrievalResult(
                 query=question,
@@ -1322,8 +1367,10 @@ class WorkflowNodes:
                 retrieval_time=retrieval_time
             )
             
-            # 评估检索结果
-            metrics = self.retrieval_evaluator.evaluate_retrieval([retrieval_result], k_values=[1, 3, 5])
+            # 评估检索结果（在线路径不做覆盖率/多样性等嵌入计算，避免额外耗时）
+            metrics = self.retrieval_evaluator.evaluate_retrieval(
+                [retrieval_result], k_values=[1, 3, 5], compute_semantic_metrics=False
+            )
             
             # 提取关键指标
             result_metrics = {
@@ -1336,7 +1383,16 @@ class WorkflowNodes:
                 "map_score": metrics.map_score,
                 "mrr": metrics.mrr,
                 "latency": metrics.latency,
-                "retrieved_docs_count": len(documents)
+                "retrieved_docs_count": len(documents),
+                "graded_relevant_count": len(relevant_docs),
+                "metric_source": relevant_source,
+                "evaluation_note": (
+                    "相关标签来自 Agent 的 grade_documents，不是人工标注 ground truth"
+                    if relevant_source == "agent_graded"
+                    else "评分兜底保留了全部文档，Precision/Recall/MAP 仅供参考"
+                    if relevant_source == "agent_graded_fallback"
+                    else "使用人工标注的相关文档计算"
+                ),
             }
             
             # 打印评估结果

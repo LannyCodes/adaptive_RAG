@@ -74,13 +74,17 @@ class RetrievalEvaluator:
             # SentenceTransformer 接口
             return self.embedding_model.encode(texts, convert_to_tensor=True)
     
-    def evaluate_retrieval(self, results: List[RetrievalResult], k_values: List[int] = [1, 3, 5, 10]) -> EvaluationMetrics:
+    def evaluate_retrieval(self, results: List[RetrievalResult],
+                           k_values: List[int] = [1, 3, 5, 10],
+                           compute_semantic_metrics: bool = True) -> EvaluationMetrics:
         """
         评估检索结果
         
         Args:
             results: 检索结果列表
             k_values: 要计算的k值列表
+            compute_semantic_metrics: 是否计算覆盖率/多样性/新颖性。
+                这三项需要额外嵌入计算；在线查询只看 P/R/MAP/MRR 时应关闭。
             
         Returns:
             评估指标
@@ -126,8 +130,8 @@ class RetrievalEvaluator:
                 # 计算交集
                 intersection = len(relevant_ids.intersection(retrieved_k_ids))
                 
-                # 计算Precision@K
-                precision_k = intersection / k if k > 0 else 0
+                # 计算Precision@K（检索结果不足 k 篇时按实际篇数归一，避免系统性偏低）
+                precision_k = intersection / min(k, len(retrieved_k)) if retrieved_k else 0
                 total_precision[k] += precision_k
                 
                 # 计算Recall@K
@@ -141,8 +145,8 @@ class RetrievalEvaluator:
                     f1_k = 0
                 total_f1[k] += f1_k
                 
-                # 计算NDCG@K
-                if result.scores:
+                # 计算NDCG@K（相关性来自 relevant_docs 标注，与检索分数无关）
+                if retrieved_k:
                     # 创建相关性分数 (1表示相关，0表示不相关)
                     relevance_scores = []
                     for doc in retrieved_k:
@@ -168,8 +172,12 @@ class RetrievalEvaluator:
                                 idcg += rel / np.log2(i + 2) if rel > 0 else 0
                             ndcg_k = dcg / idcg if idcg > 0 else 0
                             total_ndcg[k] += ndcg_k
+                    elif sum(ideal_relevance) > 0:
+                        # 只有一个相关文档且已被检索到，理想排序下 NDCG 为 1
+                        total_ndcg[k] += 1.0
                     else:
-                        total_ndcg[k] += 1.0  # 如果没有相关文档或只有一个文档，NDCG为1
+                        # 没有任何相关文档时 NDCG 应为 0，不能记成 1
+                        total_ndcg[k] += 0.0
             
             # 计算平均精度 (AP)
             precisions = []
@@ -206,10 +214,19 @@ class RetrievalEvaluator:
         mrr = sum(all_reciprocal_ranks) / num_results if all_reciprocal_ranks else 0
         latency = sum(all_latencies) / num_results if all_latencies else 0
         
-        # 计算覆盖率、多样性和新颖性
-        coverage = self._calculate_coverage(results)
-        diversity = self._calculate_diversity(results)
-        novelty = self._calculate_novelty(results)
+        # 覆盖率/多样性/新颖性：需要额外嵌入计算，按需启用（在线查询默认关闭以省时）
+        if compute_semantic_metrics:
+            coverage = self._calculate_coverage(results)
+            try:
+                diversity = self._calculate_diversity(results)
+            except Exception as e:
+                print(f"⚠️ 多样性计算失败，记 0: {e}")
+                diversity = 0.0
+            novelty = self._calculate_novelty(results)
+        else:
+            coverage = 0.0
+            diversity = 0.0
+            novelty = 0.0
         
         return EvaluationMetrics(
             precision_at_k=precision_at_k,
@@ -268,9 +285,8 @@ class RetrievalEvaluator:
                 similarities = cos_sim[upper_indices]
                 diversity = 1 - similarities.mean()
             
-            # 多样性 = 1 - 平均相似度
-            diversity = 1 - similarities.mean().item()
-            all_similarities.append(diversity)
+            # 多样性 = 1 - 平均相似度（torch/numpy 两条分支都已算出 diversity）
+            all_similarities.append(float(diversity))
         
         return sum(all_similarities) / len(all_similarities) if all_similarities else 0
     

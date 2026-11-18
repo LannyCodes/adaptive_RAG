@@ -127,10 +127,20 @@ def search_web(query: str) -> Tuple[str, List[Document]]:
 
 def grade_documents(
     question: str, docs: List[Document]
-) -> Tuple[str, List[Document]]:
-    """批量评估文档相关性并过滤，返回 (文本, 过滤后文档)。"""
+) -> Tuple[str, List[Document], dict]:
+    """批量评估文档相关性并过滤。
+
+    Returns:
+        (展示文本, 过滤后文档, 评分元数据)
+        元数据中的 fallback=True 表示评分结果为空后兜底保留了全部文档，
+        调用方不应把它当作真实的“全部相关”。
+    """
     if not docs:
-        return "没有文档可供评分。请先调用 retrieve_from_vectorstore 或 search_web。", []
+        return "没有文档可供评分。请先调用 retrieve_from_vectorstore 或 search_web。", [], {
+            "fallback": False,
+            "relevant_count": 0,
+            "total_count": 0,
+        }
 
     from langchain_core.output_parsers import JsonOutputParser
     from prompt_manager import get_prompt_manager
@@ -154,6 +164,7 @@ def grade_documents(
 
     filtered = []
     lines = []
+    fallback = False
     for i, (doc, score) in enumerate(zip(docs, scores)):
         status = "相关" if score == "yes" else "不相关"
         lines.append(f"  文档{i+1}: {status}")
@@ -162,9 +173,18 @@ def grade_documents(
 
     if not filtered and docs:
         filtered = list(docs)
+        fallback = True
         lines.append("  (兜底: 保留全部文档)")
 
-    return f"评分结果 ({len(filtered)}/{len(docs)} 相关):\n" + "\n".join(lines), filtered
+    return (
+        f"评分结果 ({len(filtered)}/{len(docs)} 相关):\n" + "\n".join(lines),
+        filtered,
+        {
+            "fallback": fallback,
+            "relevant_count": len(filtered),
+            "total_count": len(docs),
+        },
+    )
 
 
 # ── 6. 查询重写 ──

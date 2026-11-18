@@ -991,7 +991,6 @@ async def chat_endpoint_with_session(request: ChatRequest):
         if answer:
             cache_manager.set_answer(question, answer)
 
-        answer = result.get("answer", "无法生成回答")
         source_documents = result.get("source_documents", [])
         sources = [doc.page_content[:200] + "..." for doc in source_documents]
         metrics = result.get("retrieval_metrics", {})

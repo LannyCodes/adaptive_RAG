@@ -1,9 +1,9 @@
 """
 Agent 运行时模块
 ================
-用 LangGraph 原生 create_react_agent + Checkpointer 替换 agent_rag.py 的手写 ReAct 循环。
+用 LangGraph 原生 create_react_agent + Checkpointer 替换早期的手写 ReAct 循环。
 
-与旧实现 (agent_rag.py) 的关键差异:
+与旧版手写 ReAct 实现的关键差异:
 1. ReAct 循环: 手写 while 循环 → create_react_agent 预建图（内部等价循环，但获得
    状态持久化、中断恢复、流式事件等基础设施能力）
 2. 工具共享状态: 实例级 self.documents → ThreadSafeDocStore 按 thread_id 隔离，
@@ -30,6 +30,7 @@ from config import (
     AGENT_MAX_ITERATIONS,
     CONTEXT_COMPRESS_KEEP_RECENT,
     CONTEXT_COMPRESS_THRESHOLD,
+    ENABLE_USER_MEMORY,
     REDIS_URL,
 )
 from routers_and_graders import create_chat_model, initialize_graders_and_router
@@ -62,6 +63,12 @@ class ThreadSafeDocStore:
         self._store: Dict[str, List[Document]] = {}
         # 知识库检索结果单独保留一份，避免后续 web_search 覆盖后丢失引用来源
         self._vector_store: Dict[str, List[Document]] = {}
+        # grade_documents 过滤后的文档，用于生成干净的引用来源和检索指标
+        self._graded_store: Dict[str, List[Document]] = {}
+        # 单次查询的检索/评分过程指标（不进入 LangGraph checkpoint）
+        self._metrics: Dict[str, Dict[str, Any]] = {}
+        # 最近一次塞入通用暂存区的来源通道: vectorstore / generic
+        self._last_channel: Dict[str, str] = {}
         self._lock = threading.RLock()
 
     @staticmethod
@@ -73,6 +80,7 @@ class ThreadSafeDocStore:
         with self._lock:
             tid = self._tid(config)
             self._store[tid] = docs
+            self._last_channel[tid] = channel
             if channel == "vectorstore":
                 self._vector_store[tid] = docs
 
@@ -85,15 +93,74 @@ class ThreadSafeDocStore:
         with self._lock:
             return list(self._vector_store.get(self._tid(config), []))
 
+    def set_graded(self, config: Optional[RunnableConfig], docs: List[Document]):
+        """保存 grade_documents 过滤后的文档。"""
+        with self._lock:
+            self._graded_store[self._tid(config)] = list(docs)
+
+    def get_graded(self, config: Optional[RunnableConfig]) -> List[Document]:
+        """返回最近一次评分后保留的文档；未评分则为空。"""
+        with self._lock:
+            return list(self._graded_store.get(self._tid(config), []))
+
+    def record_retrieval(self, config: Optional[RunnableConfig], docs: List[Document],
+                         latency: float, query: str, top_k: int):
+        """记录一次知识库检索的耗时、文档数和来源数。"""
+        with self._lock:
+            metrics = self._metrics.setdefault(self._tid(config), {})
+            metrics["retrieval_latency"] = metrics.get("retrieval_latency", 0.0) + latency
+            metrics["retrieval_calls"] = metrics.get("retrieval_calls", 0) + 1
+            metrics["retrieved_docs_count"] = len(docs)
+            metrics["unique_sources"] = len({
+                d.metadata.get("source", "")
+                for d in docs
+                if getattr(d, "metadata", None)
+            })
+            metrics["last_query"] = query
+            metrics["top_k"] = top_k
+
+    def get_channel(self, config: Optional[RunnableConfig]) -> str:
+        with self._lock:
+            return self._last_channel.get(self._tid(config), "")
+
+    def record_grading(self, config: Optional[RunnableConfig], docs: List[Document],
+                       total_docs: int, fallback: bool = False,
+                       channel: str = ""):
+        """记录评分后保留的文档，以及是否触发了“全不相关”兜底。"""
+        with self._lock:
+            tid = self._tid(config)
+            self._graded_store[tid] = list(docs)
+            metrics = self._metrics.setdefault(tid, {})
+            metrics["graded_relevant_count"] = len(docs)
+            metrics["graded_total_docs"] = total_docs
+            metrics["grader_fallback"] = fallback
+            metrics["grading_channel"] = channel
+
+    def update_metrics(self, config: Optional[RunnableConfig], **kwargs):
+        with self._lock:
+            self._metrics.setdefault(self._tid(config), {}).update(kwargs)
+
+    def increment_metric(self, config: Optional[RunnableConfig], key: str, amount: int = 1):
+        with self._lock:
+            metrics = self._metrics.setdefault(self._tid(config), {})
+            metrics[key] = metrics.get(key, 0) + amount
+
+    def get_metrics(self, config: Optional[RunnableConfig]) -> Dict[str, Any]:
+        with self._lock:
+            return dict(self._metrics.get(self._tid(config), {}))
+
     def clear(self, config: Optional[RunnableConfig]):
         with self._lock:
             tid = self._tid(config)
             self._store.pop(tid, None)
             self._vector_store.pop(tid, None)
+            self._graded_store.pop(tid, None)
+            self._metrics.pop(tid, None)
+            self._last_channel.pop(tid, None)
 
 
 # ═══════════════════════════════════════════════════════════════
-# 工具工厂 — 从 agent_rag.py 迁移的 9 个工具
+# 工具工厂 — 从早期手写 Agent 迁移的 9 个工具
 # ═══════════════════════════════════════════════════════════════
 #
 # 每个工具做一件事，由 Agent 决策何时调用。
@@ -113,9 +180,11 @@ def build_rag_tools(doc_processor, graders, doc_store: ThreadSafeDocStore) -> li
 
     # ── 工具 1: 路由 ──
     @tool
-    def route_query(question: str) -> str:
+    def route_query(question: str, config: RunnableConfig = None) -> str:
         """判断用户问题应该用知识库(vectorstore)还是网络搜索(web_search)。收到问题后应首先调用。"""
-        return impl.route_query(graders, question)
+        result = impl.route_query(graders, question)
+        doc_store.update_metrics(config, route=result.split(":", 1)[-1].strip())
+        return result
 
     # ── 工具 2: 查询分解 ──
     @tool
@@ -129,15 +198,19 @@ def build_rag_tools(doc_processor, graders, doc_store: ThreadSafeDocStore) -> li
         query: str, top_k: int = 5, config: RunnableConfig = None
     ) -> str:
         """从本地知识库检索与查询相关的文档。返回文档内容和编号。"""
+        start = time.perf_counter()
         text, docs = impl.retrieve_from_vectorstore(doc_processor, query, top_k)
+        latency = time.perf_counter() - start
         if docs:
             doc_store.set(config, docs, channel="vectorstore")
+        doc_store.record_retrieval(config, docs, latency, query, top_k)
         return text
 
     # ── 工具 4: 网络搜索 ──
     @tool
     def search_web(query: str, config: RunnableConfig = None) -> str:
         """通过网络搜索获取实时信息。知识库结果不足时使用。"""
+        doc_store.increment_metric(config, "web_search_calls")
         text, docs = impl.search_web(query)
         if docs:
             doc_store.set(config, docs)
@@ -146,35 +219,52 @@ def build_rag_tools(doc_processor, graders, doc_store: ThreadSafeDocStore) -> li
     # ── 工具 5: 文档相关性评分 ──
     @tool
     def grade_documents(question: str, config: RunnableConfig = None) -> str:
-        """评估当前检索到的文档与问题的相关性，过滤不相关文档。检索后应调用此工具。"""
-        text, filtered = impl.grade_documents(question, doc_store.get(config))
+        """评估当前检索到的文档与问题的相关性，过滤不相关文档。检索后应调用此工 具。"""
+        docs = doc_store.get(config)
+        source_channel = doc_store.get_channel(config)
+        text, filtered, grade_meta = impl.grade_documents(question, docs)
         if filtered:
-            doc_store.set(config, filtered)
+            # 保留原始来源通道，避免第二次评分把 vectorstore 误标成 generic
+            doc_store.set(config, filtered, channel=source_channel or "generic")
+        doc_store.record_grading(
+            config, filtered, len(docs),
+            fallback=bool(grade_meta.get("fallback", False)),
+            channel=source_channel,
+        )
         return text
 
     # ── 工具 6: 查询重写 ──
     @tool
-    def rewrite_query(question: str, context_hint: str = "") -> str:
+    def rewrite_query(question: str, context_hint: str = "",
+                      config: RunnableConfig = None) -> str:
         """优化查询以获得更好的检索结果。检索质量差时使用。context_hint 可包含之前检索到的关键词。"""
+        doc_store.increment_metric(config, "rewrite_calls")
         return impl.rewrite_query(graders, question, context_hint)
 
     # ── 工具 7: 可回答性检查 ──
     @tool
     def check_answerability(question: str, config: RunnableConfig = None) -> str:
         """检查已有文档是否足够回答用户问题。返回 yes 或 no。生成答案前使用。"""
-        return impl.check_answerability(graders, question, doc_store.get(config))
+        result = impl.check_answerability(graders, question, doc_store.get(config))
+        doc_store.update_metrics(config, answerability=result)
+        return result
 
     # ── 工具 8: 答案生成 ──
     @tool
     def generate_answer(question: str, config: RunnableConfig = None) -> str:
         """基于当前检索和筛选的文档生成最终答案。仅在文档经过评分后调用。"""
-        return impl.generate_answer(question, doc_store.get(config))
+        start = time.perf_counter()
+        answer = impl.generate_answer(question, doc_store.get(config))
+        doc_store.update_metrics(config, generation_latency=time.perf_counter() - start)
+        return answer
 
     # ── 工具 9: 幻觉检查 ──
     @tool
     def check_hallucination(generated_answer: str, config: RunnableConfig = None) -> str:
         """检查答案内容是否都能在文档中找到支撑。生成答案后使用。返回 yes(无幻觉) 或 no(有幻觉)。"""
-        return impl.check_hallucination(graders, generated_answer, doc_store.get(config))
+        result = impl.check_hallucination(graders, generated_answer, doc_store.get(config))
+        doc_store.update_metrics(config, hallucination_check=result)
+        return result
 
     return [
         route_query,
@@ -221,9 +311,9 @@ def build_checkpointer():
 class AgentRuntime:
     """LangGraph 原生 ReAct Agent 运行时。
 
-    对比 agent_rag.py 的 AgentRAG:
-    - AgentRAG._run_agent_loop(): 手写 while 循环 (~90 行) + 手写 stream_query (~40 行)
-    - AgentRuntime: create_react_agent 预建图，invoke/stream 由 LangGraph 驱动
+    相对早期手写 ReAct 实现的差异:
+    - 旧实现: 手写 while 循环 (~90 行) + 手写 stream_query (~40 行)
+    - 当前实现: create_react_agent 预建图，invoke/stream 由 LangGraph 驱动
     """
 
     def __init__(self, doc_processor, vectorstore=None, retriever=None,
@@ -246,15 +336,16 @@ class AgentRuntime:
 
         # 长期记忆（Milvus user_memory collection；初始化失败降级为无记忆模式）
         self.user_memory = None
-        embeddings = getattr(doc_processor, "embeddings", None)
-        if embeddings is not None:
-            try:
-                from memory.user_memory import UserMemoryStore
+        if ENABLE_USER_MEMORY:
+            embeddings = getattr(doc_processor, "embeddings", None)
+            if embeddings is not None:
+                try:
+                    from memory.user_memory import UserMemoryStore
 
-                self.user_memory = UserMemoryStore(embeddings)
-                print("✅ 长期记忆存储初始化完成")
-            except Exception as e:
-                print(f"⚠️ 长期记忆初始化失败，降级为无记忆模式: {e}")
+                    self.user_memory = UserMemoryStore(embeddings)
+                    print("✅ 长期记忆存储初始化完成")
+                except Exception as e:
+                    print(f"⚠️ 长期记忆初始化失败，降级为无记忆模式: {e}")
 
         # 构建 create_react_agent 预建图
         # pre_model_hook: 工作记忆压缩（消息总长超阈值时压缩早期历史为摘要）
@@ -349,6 +440,120 @@ class AgentRuntime:
             "recursion_limit": AGENT_MAX_ITERATIONS,
         }
 
+    # ── 检索指标 ──
+
+    @staticmethod
+    def _doc_key(doc: Document) -> str:
+        """用文档内容前缀作为去重/匹配键，与 retrieval_evaluation.py 保持一致。"""
+        return getattr(doc, "page_content", str(doc))[:200]
+
+    @classmethod
+    def _ranking_metrics(cls, retrieved_docs: List[Document],
+                         relevant_docs: List[Document]) -> dict:
+        """用 Agent 的评分结果作为伪相关标签计算排序指标。
+
+        注意：这不是人工标注 ground truth 上的 Precision/Recall，而是
+        “Agent 认为相关的文档，是否排在检索结果前列”的自洽评估。
+        """
+        metric_keys = (
+            "precision_at_1", "precision_at_3", "precision_at_5",
+            "recall_at_1", "recall_at_3", "recall_at_5",
+            "map_score", "mrr",
+        )
+        if not retrieved_docs or not relevant_docs:
+            return {key: 0.0 for key in metric_keys}
+
+        relevant_ids = {cls._doc_key(d) for d in relevant_docs}
+        if not relevant_ids:
+            return {key: 0.0 for key in metric_keys}
+
+        def hits_at(k: int) -> int:
+            return sum(
+                1 for doc in retrieved_docs[:k]
+                if cls._doc_key(doc) in relevant_ids
+            )
+
+        precision = {k: hits_at(k) / k for k in (1, 3, 5)}
+        recall = {k: hits_at(k) / len(relevant_ids) for k in (1, 3, 5)}
+
+        # Average Precision：每个命中位置的 precision 取平均
+        hit_count = 0
+        precision_sum = 0.0
+        for rank, doc in enumerate(retrieved_docs, 1):
+            if cls._doc_key(doc) in relevant_ids:
+                hit_count += 1
+                precision_sum += hit_count / rank
+        map_score = precision_sum / len(relevant_ids)
+
+        # Mean Reciprocal Rank：第一个相关文档的倒数排名
+        mrr = 0.0
+        for rank, doc in enumerate(retrieved_docs, 1):
+            if cls._doc_key(doc) in relevant_ids:
+                mrr = 1.0 / rank
+                break
+
+        return {
+            "precision_at_1": precision[1],
+            "precision_at_3": precision[3],
+            "precision_at_5": precision[5],
+            "recall_at_1": recall[1],
+            "recall_at_3": recall[3],
+            "recall_at_5": recall[5],
+            "map_score": map_score,
+            "mrr": mrr,
+        }
+
+    def _build_retrieval_metrics(self, config: RunnableConfig,
+                                 tool_call_count: int) -> dict:
+        """汇总本次 Agent 查询的真实检索过程指标。"""
+        raw_docs = self.doc_store.get_vector(config)
+        graded_docs = self.doc_store.get_graded(config)
+        trace = self.doc_store.get_metrics(config)
+        ranking = self._ranking_metrics(raw_docs, graded_docs)
+
+        fallback = bool(trace.get("grader_fallback", False))
+        grading_channel = trace.get("grading_channel", "")
+        if grading_channel == "vectorstore" and graded_docs and not fallback:
+            metric_source = "agent_graded"
+        elif grading_channel == "vectorstore" and graded_docs and fallback:
+            metric_source = "agent_graded_fallback"
+        elif grading_channel == "generic":
+            # 走的是 web_search，不能拿网络结果去算知识库排序指标
+            metric_source = "web_search"
+            ranking = {key: 0.0 for key in ranking}
+        else:
+            metric_source = "unavailable"
+
+        if metric_source == "agent_graded":
+            note = "相关标签来自 Agent 的 grade_documents，不是人工标注 ground truth"
+        elif metric_source == "agent_graded_fallback":
+            note = "评分兜底保留了全部文档，Precision/Recall/MAP 仅供参考"
+        elif metric_source == "web_search":
+            note = "本次回答使用 web_search，不计算知识库 Precision/Recall/MAP"
+        else:
+            note = "本次 Agent 未完成文档评分，Precision/Recall/MAP 不可用"
+
+        return {
+            **ranking,
+            "latency": round(float(trace.get("retrieval_latency", 0.0)), 6),
+            "retrieved_docs_count": trace.get("retrieved_docs_count", len(raw_docs)),
+            "graded_relevant_count": len(graded_docs),
+            "graded_total_docs": trace.get("graded_total_docs", len(raw_docs)),
+            "retrieval_calls": trace.get("retrieval_calls", 0),
+            "unique_sources": trace.get("unique_sources", 0),
+            "route": trace.get("route"),
+            "answerability": trace.get("answerability"),
+            "web_search_calls": trace.get("web_search_calls", 0),
+            "rewrite_calls": trace.get("rewrite_calls", 0),
+            "tool_call_count": tool_call_count,
+            "grader_fallback": fallback,
+            "generation_latency": round(float(trace.get("generation_latency", 0.0)), 6),
+            "hallucination_check": trace.get("hallucination_check"),
+            "metric_source": metric_source,
+            "ground_truth": False,
+            "evaluation_note": note,
+        }
+
     # ── 查询接口 ──
 
     def query(self, question: str, thread_id: str = "default",
@@ -361,6 +566,8 @@ class AgentRuntime:
 
         start_time = time.time()
         config = self._run_config(thread_id)
+        # 清理本 thread 上一轮的文档/指标暂存，避免引用或指标串轮
+        self.doc_store.clear(config)
 
         # 注入长期记忆（作为额外 system 消息，随本轮输入进入图）
         memory_section = self._memory_prompt_section(question)
@@ -379,6 +586,7 @@ class AgentRuntime:
         tool_call_count = sum(
             len(getattr(m, "tool_calls", []) or []) for m in messages
         )
+        retrieval_metrics = self._build_retrieval_metrics(config, tool_call_count)
 
         if verbose:
             print(f"\n{'─'*40}")
@@ -390,8 +598,11 @@ class AgentRuntime:
         if answer:
             self._extract_memory_async(question, answer, thread_id)
 
-        # 引用来源优先使用知识库检索结果；只走了网络搜索时再回退到通用暂存区
-        source_documents = self.doc_store.get_vector(config)
+        # 引用来源优先使用评分后保留的文档，避免把 top-k 中的无关文档
+        # 全部当成最终引用；没有评分结果时再回退到原始检索/通用暂存区。
+        source_documents = self.doc_store.get_graded(config)
+        if not source_documents:
+            source_documents = self.doc_store.get_vector(config)
         if not source_documents:
             source_documents = self.doc_store.get(config)
 
@@ -401,6 +612,7 @@ class AgentRuntime:
             "tool_call_count": tool_call_count,
             "elapsed": elapsed,
             "source_documents": source_documents,
+            "retrieval_metrics": retrieval_metrics,
         }
 
     def stream_events(self, question: str, thread_id: str = "default"):
