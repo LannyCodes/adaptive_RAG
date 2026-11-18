@@ -14,6 +14,7 @@ Agent 运行时模块
 依赖版本: langgraph==0.3.34（requirements.txt 锁定）
 """
 
+import math
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -470,6 +471,7 @@ class AgentRuntime:
             "precision_at_1", "precision_at_3", "precision_at_5",
             "recall_at_1", "recall_at_3", "recall_at_5",
             "map_score", "mrr",
+            "ndcg_at_1", "ndcg_at_3", "ndcg_at_5",
         )
         if not retrieved_docs or not relevant_docs:
             return {key: 0.0 for key in metric_keys}
@@ -486,6 +488,17 @@ class AgentRuntime:
 
         precision = {k: hits_at(k) / min(k, len(retrieved_docs)) for k in (1, 3, 5)}
         recall = {k: hits_at(k) / len(relevant_ids) for k in (1, 3, 5)}
+
+        # 二值相关 NDCG：DCG 按位置折损，IDCG 为理想排序（相关文档全部提前）的上界
+        def ndcg_at(k: int) -> float:
+            dcg = sum(
+                1.0 / math.log2(rank + 1)
+                for rank, doc in enumerate(retrieved_docs[:k], 1)
+                if cls._doc_key(doc) in relevant_ids
+            )
+            ideal_hits = min(k, len(relevant_ids))
+            idcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, ideal_hits + 1))
+            return dcg / idcg if idcg > 0 else 0.0
 
         # Average Precision：每个命中位置的 precision 取平均
         hit_count = 0
@@ -512,6 +525,9 @@ class AgentRuntime:
             "recall_at_5": recall[5],
             "map_score": map_score,
             "mrr": mrr,
+            "ndcg_at_1": ndcg_at(1),
+            "ndcg_at_3": ndcg_at(3),
+            "ndcg_at_5": ndcg_at(5),
         }
 
     def _build_retrieval_metrics(self, config: RunnableConfig,

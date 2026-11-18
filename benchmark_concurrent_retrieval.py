@@ -247,6 +247,8 @@ def main() -> None:
         "recall_at_3": round(mean_metric(graded_rows, "recall_at_3"), 4),
         "map_score": round(mean_metric(graded_rows, "map_score"), 4),
         "mrr": round(mean_metric(graded_rows, "mrr"), 4),
+        "ndcg_at_3": round(mean_metric(graded_rows, "ndcg_at_3"), 4),
+        "ndcg_at_5": round(mean_metric(graded_rows, "ndcg_at_5"), 4),
         "retrieval_latency_mean": round(mean_metric(metric_rows, "latency"), 4),
         "retrieval_calls_mean": round(mean_metric(metric_rows, "retrieval_calls"), 2),
         "retrieved_docs_mean": round(mean_metric(metric_rows, "retrieved_docs_count"), 2),
@@ -291,6 +293,8 @@ def main() -> None:
     print(f"平均 R@3    : {summary['recall_at_3']}  (仅 agent_graded)")
     print(f"平均 MAP    : {summary['map_score']}  (仅 agent_graded)")
     print(f"平均 MRR    : {summary['mrr']}  (仅 agent_graded)")
+    print(f"平均 NDCG@3 : {summary['ndcg_at_3']}  (仅 agent_graded)")
+    print(f"平均 NDCG@5 : {summary['ndcg_at_5']}  (仅 agent_graded)")
     print(f"检索耗时均值: {summary['retrieval_latency_mean']}s")
     print(f"检索次数均值: {summary['retrieval_calls_mean']}")
     print(f"检索文档均值: {summary['retrieved_docs_mean']}")
