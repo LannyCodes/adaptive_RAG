@@ -686,12 +686,27 @@ async def upload_file(file: UploadFile = File(...)):
                 "indexed": False,
             }
         
-        if not rag_system or not hasattr(rag_system, 'doc_processor'):
-            return {"filename": file.filename, "status": "success", "message": "文件已上传，RAG 系统未就绪，稍后将自动索引", "indexed": False}
+        # 上传接口可能先于 /api/chat 被调用，这里主动触发懒加载；
+        # 否则文件只落盘、不建索引，检索时永远看不到新文档。
+        try:
+            system = get_rag_system()
+        except HTTPException:
+            raise
+        except Exception as init_e:
+            traceback.print_exc()
+            return {
+                "filename": file.filename,
+                "status": "success",
+                "message": f"文件已上传，但 RAG 系统初始化失败: {init_e}",
+                "indexed": False,
+            }
+
+        if not system or not hasattr(system, 'doc_processor'):
+            return {"filename": file.filename, "status": "success", "message": "文件已上传，但 RAG 系统未就绪，无法建立索引", "indexed": False}
         
         try:
             # 检查文件是否已索引过（去重）
-            existing = rag_system.doc_processor.check_existing_urls([file_path])
+            existing = system.doc_processor.check_existing_urls([file_path])
             if file_path in existing:
                 return {
                     "filename": file.filename,
@@ -723,7 +738,7 @@ async def upload_file(file: UploadFile = File(...)):
                 )
             
             doc_splits = splitter.split_documents(docs)
-            rag_system.doc_processor.add_documents_to_vectorstore(doc_splits)
+            system.doc_processor.add_documents_to_vectorstore(doc_splits)
             
             # 生成友好提示
             file_type_desc = "图片(OCR+VLM)" if docs[0].metadata.get("file_type") == "image" else ext.lstrip(".")
