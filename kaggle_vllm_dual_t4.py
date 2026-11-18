@@ -17,6 +17,8 @@
   VLLM_BIN               vllm 可执行文件，默认优先使用 /kaggle/working/vllm-env/bin/vllm
   VLLM_MAX_MODEL_LEN     默认 8192
   VLLM_MAX_NUM_BATCHED_TOKENS  单次批处理 token 上限，默认 2048（T4 上降低激活峰值）
+  VLLM_CHUNKED_PREFILL   默认 true；max_num_batched_tokens < max_model_len 时必须为 true，
+                         否则 vLLM 会直接拒绝启动
   VLLM_QUANTIZATION      默认 gptq；AWQ 模型设为 awq；空字符串表示不传
   VLLM_ENABLE_TOOL_CALLING  默认 true，Agent 模式需要
   VLLM_TOOL_PARSER       默认 hermes
@@ -54,6 +56,7 @@ TOOL_PARSER = os.environ.get("VLLM_TOOL_PARSER", "hermes")
 ENABLE_TOOL_CALLING = os.environ.get("VLLM_ENABLE_TOOL_CALLING", "true").lower() == "true"
 ENFORCE_EAGER = os.environ.get("VLLM_ENFORCE_EAGER", "true").lower() == "true"
 PREFIX_CACHING = os.environ.get("VLLM_PREFIX_CACHING", "true").lower() == "true"
+CHUNKED_PREFILL = os.environ.get("VLLM_CHUNKED_PREFILL", "true").lower() == "true"
 LB_PORT = int(os.environ.get("VLLM_LB_PORT", "8200"))
 HEALTH_TIMEOUT = int(os.environ.get("VLLM_HEALTH_TIMEOUT", "900"))
 NGINX_BIN = os.environ.get("NGINX_BIN", "nginx")
@@ -111,6 +114,8 @@ def build_serve_command(replica: dict) -> list[str]:
     ]
     if MAX_NUM_BATCHED_TOKENS:
         cmd.extend(["--max-num-batched-tokens", MAX_NUM_BATCHED_TOKENS])
+    if CHUNKED_PREFILL:
+        cmd.append("--enable-chunked-prefill")
     if QUANTIZATION:
         cmd.extend(["--quantization", QUANTIZATION])
     if ENFORCE_EAGER:
@@ -232,6 +237,31 @@ def check_hf_storage() -> None:
         print(f"[hf] 缓存目录 {path} 可写，剩余 {free_gb:.1f} GB")
         if free_gb < 15:
             print("[hf] 警告：剩余空间不足 15GB，模型权重或编译缓存可能写入失败")
+
+
+def check_batching_config() -> None:
+    """vLLM 0.7.3 在未开 chunked prefill 时要求 max_num_batched_tokens >= max_model_len。"""
+    global CHUNKED_PREFILL, MAX_NUM_BATCHED_TOKENS
+    if not MAX_NUM_BATCHED_TOKENS:
+        return
+    try:
+        batched = int(MAX_NUM_BATCHED_TOKENS)
+        model_len = int(MAX_MODEL_LEN)
+    except ValueError:
+        return
+    if batched >= model_len:
+        return
+    if CHUNKED_PREFILL:
+        print(
+            f"[config] max_num_batched_tokens={batched} < max_model_len={model_len}，"
+            "已启用 --enable-chunked-prefill 分批 prefill"
+        )
+        return
+    MAX_NUM_BATCHED_TOKENS = str(model_len)
+    print(
+        f"[config] vLLM 不接受 max_num_batched_tokens({batched}) < max_model_len({model_len})；"
+        f"VLLM_CHUNKED_PREFILL=false，已自动提升到 {model_len}"
+    )
 
 
 def check_model_source() -> None:
@@ -409,6 +439,7 @@ def start_nginx(conf_path: Path) -> None:
 def main() -> None:
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     check_hf_storage()
+    check_batching_config()
     check_model_source()
     procs = start_replicas()
     try:
