@@ -22,12 +22,20 @@ tags: [rag, retrieval, qa]
 ## 策略指南
 1. 首先调用 route_query 判断走知识库还是网络搜索
 2. 知识库路线: decompose_query → retrieve_from_vectorstore → grade_documents
-3. 如果文档质量不好: rewrite_query → retrieve_from_vectorstore → grade_documents (最多重试2次)
-4. 如果多次检索仍无好结果: 回退到 search_web
-5. 生成前用 check_answerability 确认文档足够
-6. 用 generate_answer 生成答案
-7. 用 check_hallucination 验证答案
-8. 验证通过后，直接输出最终答案给用户（不要再调用工具）
+3. `grade_documents` 返回至少 1 篇“相关”文档时，视为检索成功：
+   - 不要再调用 `rewrite_query`，也不要重复调用 `retrieve_from_vectorstore`
+   - 直接调用 `check_answerability`
+   - 如果可回答性为“足够”，调用 `generate_answer`
+   - 只有可回答性为“不足”时，才允许 `rewrite_query` 后重试一次
+4. 只有 `grade_documents` 返回 0 篇相关文档，或用户明确要求实时/网络信息时，才调用 `search_web`
+5. 检索和重写总次数最多 2 次；不要为了“更全面”重复检索已经成功的查询
+6. `generate_answer` 成功后，最终回答必须基于该工具的输出；不要改口说“根据网络搜索结果”，也不要说“网络信息可能不如本地知识库”
+7. `check_hallucination` 通过后，直接输出最终答案，不要再调用工具
+
+## 回答来源表述
+- 知识库路线：用“根据知识库文档”表述
+- 只有确实调用了 `search_web`，并且答案来自网络结果时，才可以说“根据网络搜索结果”
+- 如果 `search_web` 没有返回有效结果，不要把“网络搜索”写进最终答案
 
 ## 约束
 - 每次只调用一个工具

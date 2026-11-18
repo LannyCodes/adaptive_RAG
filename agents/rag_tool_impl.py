@@ -81,19 +81,33 @@ def search_web(query: str) -> Tuple[str, List[Document]]:
     try:
         docs = web_search.invoke({"query": query})
 
-        # 解析搜索结果为独立条目
+        # TavilySearch 默认返回 {"results": [...]}，旧实现只处理 list，
+        # 会把整个 dict 当成搜索结果返回给 Agent。
         items: List[str] = []
-        if isinstance(docs, list) and len(docs) > 0:
-            first = docs[0]
-            if isinstance(first, str):
-                items = list(docs)
-            elif isinstance(first, dict) and "content" in first:
-                items = [d.get("content", str(d)) for d in docs]
-            else:
-                items = [str(d) for d in docs]
-        else:
-            content = str(docs) if not isinstance(docs, list) else "无结果"
-            return f"网络搜索结果:\n{content[:2000]}", [Document(page_content=content)]
+        if isinstance(docs, dict):
+            for item in docs.get("results") or []:
+                if isinstance(item, dict):
+                    title = str(item.get("title", "")).strip()
+                    content = str(item.get("content", "")).strip()
+                    url = str(item.get("url", "")).strip()
+                    text = "\n".join(p for p in (title, content, url) if p)
+                    if text:
+                        items.append(text)
+                elif item:
+                    items.append(str(item))
+            if not items and docs.get("answer"):
+                items.append(str(docs["answer"]))
+        elif isinstance(docs, list):
+            for item in docs:
+                if isinstance(item, str):
+                    items.append(item)
+                elif isinstance(item, dict):
+                    items.append(str(item.get("content", item)))
+                else:
+                    items.append(str(item))
+
+        if not items:
+            return "网络搜索无有效结果。", []
 
         # 外部内容注入扫描: 过滤含注入指令的搜索结果
         clean_items, blocked_count, _ = scan_external_content(items)
