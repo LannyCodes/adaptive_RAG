@@ -247,7 +247,9 @@ class AgentRAG:
             context = "\n\n".join(
                 d.page_content if hasattr(d, 'page_content') else str(d) for d in docs
             )
-            rag_prompt = get_prompt_manager().get_template("generate_answer")
+            rag_prompt = get_prompt_manager().get_template("rag_generate")
+            if rag_prompt is None:
+                raise KeyError("Prompt 模板 'rag_generate' 未找到")
             gen_llm = create_chat_model(temperature=0.3)
             chain = rag_prompt | gen_llm | StrOutputParser()
             answer = chain.invoke({"question": question, "context": context})

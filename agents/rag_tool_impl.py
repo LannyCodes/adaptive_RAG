@@ -188,7 +188,11 @@ def generate_answer(question: str, docs: List[Document]) -> str:
     context = "\n\n".join(
         d.page_content if hasattr(d, "page_content") else str(d) for d in docs
     )
-    rag_prompt = get_prompt_manager().get_template("generate_answer")
+    # prompts.yaml 中的键名是 rag_generate；取不到模板时直接报错，
+    # 避免 None | LLM 产生难以定位的 "unsupported type" TypeError。
+    rag_prompt = get_prompt_manager().get_template("rag_generate")
+    if rag_prompt is None:
+        raise KeyError("Prompt 模板 'rag_generate' 未找到")
     gen_llm = create_chat_model(temperature=0.3)
     chain = rag_prompt | gen_llm | StrOutputParser()
     answer = chain.invoke({"question": question, "context": context})
