@@ -16,6 +16,7 @@
   VLLM_SERVED_NAME       应用侧模型名，默认 qwen2.5-7b
   VLLM_BIN               vllm 可执行文件，默认优先使用 /kaggle/working/vllm-env/bin/vllm
   VLLM_MAX_MODEL_LEN     默认 8192
+  VLLM_MAX_NUM_BATCHED_TOKENS  单次批处理 token 上限，默认 2048（T4 上降低激活峰值）
   VLLM_QUANTIZATION      默认 gptq；AWQ 模型设为 awq；空字符串表示不传
   VLLM_ENABLE_TOOL_CALLING  默认 true，Agent 模式需要
   VLLM_TOOL_PARSER       默认 hermes
@@ -31,6 +32,7 @@
 
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -45,6 +47,7 @@ WORK_DIR = Path(os.environ.get("VLLM_WORK_DIR", "/kaggle/working"))
 MODEL_PATH = os.environ.get("VLLM_MODEL_PATH", "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4")
 SERVED_NAME = os.environ.get("VLLM_SERVED_NAME", "qwen2.5-7b")
 MAX_MODEL_LEN = os.environ.get("VLLM_MAX_MODEL_LEN", "8192")
+MAX_NUM_BATCHED_TOKENS = os.environ.get("VLLM_MAX_NUM_BATCHED_TOKENS", "2048")
 QUANTIZATION = os.environ.get("VLLM_QUANTIZATION", "gptq")
 API_KEY = os.environ.get("VLLM_API_KEY", "dummy")
 TOOL_PARSER = os.environ.get("VLLM_TOOL_PARSER", "hermes")
@@ -106,6 +109,8 @@ def build_serve_command(replica: dict) -> list[str]:
         str(replica["max_seqs"]),
         "--disable-log-requests",
     ]
+    if MAX_NUM_BATCHED_TOKENS:
+        cmd.extend(["--max-num-batched-tokens", MAX_NUM_BATCHED_TOKENS])
     if QUANTIZATION:
         cmd.extend(["--quantization", QUANTIZATION])
     if ENFORCE_EAGER:
@@ -150,6 +155,54 @@ def health_ok(port: int) -> bool:
         return response.status_code == 200
     except requests.RequestException:
         return False
+
+
+def probe_engine(port: int) -> bool:
+    """/health 在 engine 挂掉后仍可能返回 200，用一次真实推理确认 engine 可用。"""
+    try:
+        response = requests.post(
+            f"http://127.0.0.1:{port}/v1/completions",
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            json={
+                "model": SERVED_NAME,
+                "prompt": "ping",
+                "max_tokens": 1,
+                "temperature": 0,
+            },
+            timeout=30,
+        )
+        if response.status_code != 200:
+            print(
+                f"[probe] vLLM {port} 推理探测失败: "
+                f"HTTP {response.status_code} {response.text[:200]}"
+            )
+            return False
+        return True
+    except requests.RequestException as exc:
+        print(f"[probe] vLLM {port} 推理探测异常: {exc}")
+        return False
+
+
+def stop_replicas(procs: dict[int, subprocess.Popen]) -> None:
+    for port, proc in procs.items():
+        if proc.poll() is not None:
+            continue
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            print(f"[stop] 已终止 vLLM {port} 进程组")
+        except ProcessLookupError:
+            continue
+        except Exception as exc:
+            print(f"[stop] 终止 vLLM {port} 失败: {exc}")
+            continue
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                print(f"[stop] vLLM {port} 未响应 SIGTERM，已强制终止")
+            except ProcessLookupError:
+                pass
 
 
 def check_hf_storage() -> None:
@@ -232,6 +285,7 @@ def start_replicas() -> dict[int, subprocess.Popen]:
         time.sleep(3)
         rc = proc.poll()
         if rc is not None:
+            stop_replicas(procs)
             fail_with_log(port, log_path, f"vLLM {port} 启动后立即退出（exit code={rc}）")
     return procs
 
@@ -256,8 +310,14 @@ def wait_health(
                     f"vLLM {port} 进程已退出（exit code={proc.returncode}）",
                 )
             if health_ok(port):
-                print(f"[ready] vLLM {port}")
-                break
+                if probe_engine(port):
+                    print(f"[ready] vLLM {port}")
+                    break
+                fail_with_log(
+                    port,
+                    log_path,
+                    f"vLLM {port} /health 返回 200，但推理探测失败（engine 可能已退出）",
+                )
             now = time.time()
             if now - last_report >= 30:
                 elapsed = int(now - wait_started)
@@ -351,7 +411,11 @@ def main() -> None:
     check_hf_storage()
     check_model_source()
     procs = start_replicas()
-    wait_health(HEALTH_TIMEOUT, procs)
+    try:
+        wait_health(HEALTH_TIMEOUT, procs)
+    except BaseException:
+        stop_replicas(procs)
+        raise
     start_nginx(write_nginx_conf())
 
     print("\n应用侧环境变量：")
