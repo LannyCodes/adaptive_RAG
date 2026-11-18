@@ -120,6 +120,8 @@ def main() -> None:
     parser.add_argument("--no-cache-buster", action="store_true",
                         help="不要在问题后追加唯一批次号（可能命中语义缓存）")
     parser.add_argument("--output", default="")
+    parser.add_argument("--warmup", type=int, default=1,
+                        help="压测前串行预热次数（不纳入统计），用于加载 BGE-M3/CrossEncoder 并预热 prefix cache")
     args = parser.parse_args()
 
     run_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
@@ -136,6 +138,23 @@ def main() -> None:
     print("  建议: 启动 server 时设 ENABLE_USER_MEMORY=false，")
     print("        避免后台记忆抽取的 LLM 调用干扰压测时延。")
     print("=" * 72)
+
+    # 预热：server 重启后 embedding/reranker 是懒加载的，首个请求会承担模型加载开销；
+    # 若直接并发，所有请求会阻塞在同一把加载锁上，污染延迟基线。
+    if args.warmup > 0:
+        print(f"[warmup] 串行预热 {args.warmup} 次（不计入统计）...")
+        for i in range(args.warmup):
+            warm = ask_one(
+                args.base_url,
+                0,
+                "这是一次服务预热请求，请直接回答 OK。",
+                f"warmup-{run_id}-{i}",
+                args.timeout,
+                cache_buster=True,
+            )
+            state = "ok" if warm.get("status") == 200 else f"failed({warm.get('error')})"
+            print(f"[warmup] {i + 1}/{args.warmup} {warm['elapsed']:.1f}s {state}")
+        print("[warmup] 完成，开始正式压测")
 
     started = time.perf_counter()
     results: List[Dict[str, Any]] = []
