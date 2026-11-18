@@ -1,0 +1,17 @@
+# vLLM 0.7.3 在 Kaggle 双 T4 上的固定依赖。
+#
+# 用法：
+#   bash setup_vllm_env.sh
+# 或：
+#   /kaggle/working/vllm-env/bin/python -m pip install -r requirements-vllm.txt
+#
+# 注意：这是 vLLM 独立 venv 的依赖，不要和主应用 requirements.txt 混用。
+# vLLM 0.7.3 仍在使用 tokenizer.all_special_tokens_extended，
+# transformers 5.x 已删除该属性，必须锁在 4.48.3。
+
+vllm==0.7.3
+
+# vLLM 0.7.3 兼容组合
+transformers==4.48.3
+huggingface-hub==0.27.1
+tokenizers==0.21.1

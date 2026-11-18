@@ -192,10 +192,13 @@ def check_model_source() -> None:
 
 def start_replicas() -> dict[int, subprocess.Popen]:
     if not (Path(VLLM_BIN).exists() or shutil.which(VLLM_BIN)):
+        setup_script = Path(__file__).resolve().parent / "setup_vllm_env.sh"
         raise RuntimeError(
-            "未找到 vllm 可执行文件，请先安装，例如：\n"
+            "未找到 vllm 可执行文件，请先安装：\n"
+            f"  bash {setup_script}\n"
+            "或手动安装：\n"
             "  python -m venv /kaggle/working/vllm-env --system-site-packages\n"
-            "  /kaggle/working/vllm-env/bin/pip install vllm==0.7.3"
+            "  /kaggle/working/vllm-env/bin/python -m pip install -r requirements-vllm.txt"
         )
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
