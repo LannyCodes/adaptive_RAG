@@ -60,23 +60,36 @@ class ThreadSafeDocStore:
 
     def __init__(self):
         self._store: Dict[str, List[Document]] = {}
+        # 知识库检索结果单独保留一份，避免后续 web_search 覆盖后丢失引用来源
+        self._vector_store: Dict[str, List[Document]] = {}
         self._lock = threading.RLock()
 
     @staticmethod
     def _tid(config: Optional[RunnableConfig]) -> str:
         return (config or {}).get("configurable", {}).get("thread_id", "default")
 
-    def set(self, config: Optional[RunnableConfig], docs: List[Document]):
+    def set(self, config: Optional[RunnableConfig], docs: List[Document],
+            channel: str = "generic"):
         with self._lock:
-            self._store[self._tid(config)] = docs
+            tid = self._tid(config)
+            self._store[tid] = docs
+            if channel == "vectorstore":
+                self._vector_store[tid] = docs
 
     def get(self, config: Optional[RunnableConfig]) -> List[Document]:
         with self._lock:
             return list(self._store.get(self._tid(config), []))
 
+    def get_vector(self, config: Optional[RunnableConfig]) -> List[Document]:
+        """返回最近一次知识库检索的文档；未检索过则为空。"""
+        with self._lock:
+            return list(self._vector_store.get(self._tid(config), []))
+
     def clear(self, config: Optional[RunnableConfig]):
         with self._lock:
-            self._store.pop(self._tid(config), None)
+            tid = self._tid(config)
+            self._store.pop(tid, None)
+            self._vector_store.pop(tid, None)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -118,7 +131,7 @@ def build_rag_tools(doc_processor, graders, doc_store: ThreadSafeDocStore) -> li
         """从本地知识库检索与查询相关的文档。返回文档内容和编号。"""
         text, docs = impl.retrieve_from_vectorstore(doc_processor, query, top_k)
         if docs:
-            doc_store.set(config, docs)
+            doc_store.set(config, docs, channel="vectorstore")
         return text
 
     # ── 工具 4: 网络搜索 ──
@@ -377,11 +390,17 @@ class AgentRuntime:
         if answer:
             self._extract_memory_async(question, answer, thread_id)
 
+        # 引用来源优先使用知识库检索结果；只走了网络搜索时再回退到通用暂存区
+        source_documents = self.doc_store.get_vector(config)
+        if not source_documents:
+            source_documents = self.doc_store.get(config)
+
         return {
             "answer": answer,
             "messages": messages,
             "tool_call_count": tool_call_count,
             "elapsed": elapsed,
+            "source_documents": source_documents,
         }
 
     def stream_events(self, question: str, thread_id: str = "default"):

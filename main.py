@@ -407,7 +407,8 @@ class AdaptiveRAGSystem:
             )
             return {
                 "answer": agent_result["answer"],
-                "retrieval_metrics": None,
+                "source_documents": agent_result.get("source_documents", []),
+                "retrieval_metrics": agent_result.get("retrieval_metrics"),
                 "total_time": agent_result["elapsed"],
                 "node_times": {},
             }
@@ -417,6 +418,7 @@ class AdaptiveRAGSystem:
 
         inputs = {"question": question, "retry_count": 0, "chat_history": chat_history or []}  # 初始化重试计数器和对话历史
         final_generation = None
+        source_documents = []
         retrieval_metrics = None
         routing_decision = "unknown"
         
@@ -445,6 +447,9 @@ class AdaptiveRAGSystem:
                         routing_decision = "vectorstore"
                 
                 final_generation = value.get("generation", final_generation)
+                # 保存最终检索文档，供 server.py 生成 sources
+                if value.get("documents"):
+                    source_documents = value["documents"]
                 # 保存检索评估指标
                 if "retrieval_metrics" in value:
                     retrieval_metrics = value["retrieval_metrics"]
@@ -518,6 +523,7 @@ class AdaptiveRAGSystem:
         # 返回包含答案和评估指标的字典
         return {
             "answer": final_generation,
+            "source_documents": source_documents,
             "retrieval_metrics": retrieval_metrics,
             "total_time": _total_elapsed,
             "node_times": _node_times,
