@@ -228,6 +228,11 @@ def main() -> None:
         1 for row in metric_rows
         if str(row["metrics"].get("hallucination_check") or "").startswith("未通过")
     )
+    # 推理步数耗尽后由已检索文档兜底生成的数量：这类样本答案可用，
+    # 但说明 Agent 循环没走完，是架构层面的优化信号。
+    step_exhausted = sum(
+        1 for row in ok_rows if (row.get("metrics") or {}).get("step_exhausted")
+    )
 
     summary = {
         "total": len(results),
@@ -256,6 +261,7 @@ def main() -> None:
         "tool_calls_mean": round(mean_metric(metric_rows, "tool_call_count"), 2),
         "metric_source_counts": source_counts,
         "grader_fallback": grader_fallbacks,
+        "step_exhausted": step_exhausted,
         "web_search_used": web_search_used,
         "hallucination_passed": hallucination_passed,
         "hallucination_failed": hallucination_failed,
@@ -302,6 +308,7 @@ def main() -> None:
     print(f"工具调用均值: {summary['tool_calls_mean']}")
     print(f"指标来源    : {summary['metric_source_counts']}")
     print(f"评分兜底    : {summary['grader_fallback']}  | 使用网络搜索: {summary['web_search_used']}")
+    print(f"步数耗尽    : {summary['step_exhausted']}（已用文档兜底生成）")
     print(f"幻觉检查    : 通过 {summary['hallucination_passed']} / 未通过 {summary['hallucination_failed']}")
     print(f"报告文件    : {output.resolve()}")
     print("=" * 72)

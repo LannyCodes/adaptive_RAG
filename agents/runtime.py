@@ -452,6 +452,76 @@ class AgentRuntime:
             "recursion_limit": AGENT_MAX_ITERATIONS,
         }
 
+    # ── 步数耗尽兜底 ──
+    #
+    # create_react_agent 在 recursion_limit 用尽时不抛 GraphRecursionError，
+    # 而是直接把固定英文占位当作最终答案返回，所以无法用 try/except 捕获。
+
+    _STEP_EXHAUSTED_MARKER = "Sorry, need more steps to process this request."
+
+    @staticmethod
+    def _content_to_text(content) -> str:
+        """把消息 content 统一成纯文本。
+
+        多模态/分段内容的 content 是 list，元素可能是 {"type": "text", "text": ...}，
+        直接 str() 会拼出字典 repr，必须取出 text 字段。
+        """
+        if not isinstance(content, list):
+            return str(content)
+        parts = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(str(part.get("text", "")))
+            else:
+                parts.append(str(part))
+        return " ".join(parts)
+
+    @classmethod
+    def _is_step_exhausted(cls, messages: list) -> bool:
+        """判断本轮是否因递归上限中断。
+
+        两种信号任一成立即视为耗尽:
+        1. 最后一条 AI 消息是 LangGraph 的固定占位文案
+        2. 最后一条 AI 消息仍挂着未执行的 tool_calls，说明模型刚发出调用、图就被截断
+        """
+        if not messages:
+            return False
+        last = messages[-1]
+        if getattr(last, "type", "") != "ai":
+            return False
+        if getattr(last, "tool_calls", None):
+            return True
+        content = getattr(last, "content", "")
+        return cls._content_to_text(content).strip().startswith(cls._STEP_EXHAUSTED_MARKER)
+
+    def _fallback_answer(self, question: str, config: Optional[RunnableConfig]) -> str:
+        """用已检索到的文档直接生成答案，替换掉无信息的英文占位。
+
+        优先用评分后保留的文档，其次用原始检索结果，最后用通用暂存区。
+        没有任何文档时不编造内容，只告诉用户可做什么。
+        """
+        from agents import rag_tool_impl as impl
+
+        docs = (
+            self.doc_store.get_graded(config)
+            or self.doc_store.get_vector(config)
+            or self.doc_store.get(config)
+        )
+        if not docs:
+            return (
+                "抱歉，这个问题需要的推理步骤超出了当前上限，"
+                "且没有检索到可用的知识库资料。建议换一种问法或缩小问题范围。"
+            )
+        try:
+            answer = impl.generate_answer(question, docs, prefix=False)
+        except Exception as e:
+            print(f"⚠️ 步数耗尽兜底生成失败: {e}")
+            return "抱歉，这个问题需要的推理步骤超出了当前上限，请稍后重试或换个问法。"
+        return (
+            f"{answer}\n\n（说明：本次推理步数达到上限，"
+            f"以上答案基于已检索到的 {len(docs)} 篇资料生成）"
+        )
+
     # ── 检索指标 ──
 
     @staticmethod
@@ -584,6 +654,7 @@ class AgentRuntime:
             "hallucination_check": trace.get("hallucination_check"),
             "metric_source": metric_source,
             "ground_truth": False,
+            "step_exhausted": False,
             "evaluation_note": note,
         }
 
@@ -615,20 +686,33 @@ class AgentRuntime:
 
         elapsed = time.time() - start_time
         messages = result["messages"]
-        answer = messages[-1].content if messages else ""
+
+        # 步数耗尽兜底：LangGraph 不抛异常，只把固定英文占位当作最终答案返回。
+        # 直接用它会让用户拿到一句无信息的话，因此改用已检索文档重新生成。
+        step_exhausted = self._is_step_exhausted(messages)
+        if step_exhausted:
+            answer = self._fallback_answer(question, config)
+            elapsed = time.time() - start_time
+        else:
+            answer = self._content_to_text(messages[-1].content) if messages else ""
+
         tool_call_count = sum(
             len(getattr(m, "tool_calls", []) or []) for m in messages
         )
         retrieval_metrics = self._build_retrieval_metrics(config, tool_call_count)
+        if step_exhausted:
+            retrieval_metrics["step_exhausted"] = True
 
         if verbose:
             print(f"\n{'─'*40}")
             print(f"⏱️ 耗时: {elapsed:.1f}s | 工具调用: {tool_call_count} 次")
+            if step_exhausted:
+                print("⚠️ 推理步数达到上限，已用已检索文档兜底生成")
             print(f"📝 答案:\n{answer or '未能生成答案'}")
             print(f"{'='*60}")
 
-        # 后台抽取事实记忆（不阻塞响应）
-        if answer:
+        # 后台抽取事实记忆（不阻塞响应）；兜底答案是降级产物，不参与抽取
+        if answer and not step_exhausted:
             self._extract_memory_async(question, answer, thread_id)
 
         # 引用来源优先使用评分后保留的文档，避免把 top-k 中的无关文档
@@ -657,6 +741,8 @@ class AgentRuntime:
           {"type": "answer", "content": ...}
         """
         config = self._run_config(thread_id)
+        # 清理本 thread 上一轮的文档/指标暂存，与 query() 保持一致
+        self.doc_store.clear(config)
         inputs = {"messages": [HumanMessage(content=question)]}
 
         for chunk in self.graph.stream(inputs, config, stream_mode="updates"):
@@ -682,11 +768,25 @@ class AgentRuntime:
                             "preview": preview,
                         }
                     elif msg.type == "ai" and msg.content:
+                        text = self._content_to_text(msg.content)
+                        # 步数耗尽时 LangGraph 用固定英文占位冒充答案，不下发给前端
+                        if text.strip().startswith(self._STEP_EXHAUSTED_MARKER):
+                            continue
                         yield {
                             "type": "answer",
                             "node": node_name,
-                            "content": msg.content,
+                            "content": text,
                         }
+
+        # 图被递归上限截断时，用已检索文档补一条可用答案，避免前端停在半截
+        state = self.graph.get_state(config)
+        messages = state.values.get("messages", []) if state and state.values else []
+        if self._is_step_exhausted(messages):
+            yield {
+                "type": "answer",
+                "node": "step_exhausted_fallback",
+                "content": self._fallback_answer(question, config),
+            }
 
     def get_history(self, thread_id: str) -> list:
         """读取会话历史消息（来自 checkpointer）。"""

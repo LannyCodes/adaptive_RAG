@@ -210,8 +210,12 @@ def check_answerability(graders, question: str, docs: List[Document]) -> str:
 
 # ── 8. 答案生成 ──
 
-def generate_answer(question: str, docs: List[Document]) -> str:
-    """基于筛选后的文档生成最终答案。"""
+def generate_answer(question: str, docs: List[Document], prefix: bool = True) -> str:
+    """基于筛选后的文档生成最终答案。
+
+    prefix=False 供步数耗尽兜底使用：兜底答案要直接返回给用户，
+    不能带 "生成答案:" 这种给 Agent 看的工具结果前缀。
+    """
     if not docs:
         return "错误: 没有文档可生成答案。"
 
@@ -230,7 +234,7 @@ def generate_answer(question: str, docs: List[Document]) -> str:
     gen_llm = create_chat_model(temperature=0.3)
     chain = rag_prompt | gen_llm | StrOutputParser()
     answer = chain.invoke({"question": question, "context": context})
-    return f"生成答案:\n\n{answer}"
+    return f"生成答案:\n\n{answer}" if prefix else answer
 
 
 # ── 9. 幻觉检查 ──
