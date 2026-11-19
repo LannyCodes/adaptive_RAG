@@ -210,11 +210,17 @@ def main() -> None:
     grader_fallbacks = sum(
         1 for row in metric_rows if row["metrics"].get("grader_fallback")
     )
-    # 排序指标只统计“评分链路真实生效”的样本；
-    # web_search / 评分兜底的样本不能代表知识库检索质量，单独计数。
+    # 严格口径：只统计“评分链路真实生效”的样本。
     graded_rows = [
         row for row in metric_rows
         if row["metrics"].get("metric_source") == "agent_graded"
+    ]
+    # 含兜底口径：把“评分判全不相关”的样本按 0 分计入。
+    # 只看严格口径会随失败率上升而虚高——最差的样本恰好被排除在均值之外。
+    # 两个数字必须一起报，否则指标不可跨轮对比。
+    graded_rows_with_fallback = [
+        row for row in metric_rows
+        if row["metrics"].get("metric_source") in ("agent_graded", "agent_graded_fallback")
     ]
     web_search_used = sum(
         1 for row in metric_rows
@@ -242,6 +248,7 @@ def main() -> None:
         "cached": sum(1 for row in results if row["cached"]),
         "metrics_available": len(metric_rows),
         "ranked_samples": len(graded_rows),
+        "ranked_samples_with_fallback": len(graded_rows_with_fallback),
         "wall_seconds": round(wall, 3),
         "latency_mean": round(statistics.mean(latencies), 3) if latencies else 0.0,
         "latency_p50": round(percentile(latencies, 50), 3),
@@ -254,6 +261,12 @@ def main() -> None:
         "mrr": round(mean_metric(graded_rows, "mrr"), 4),
         "ndcg_at_3": round(mean_metric(graded_rows, "ndcg_at_3"), 4),
         "ndcg_at_5": round(mean_metric(graded_rows, "ndcg_at_5"), 4),
+        "precision_at_1_with_fallback": round(mean_metric(graded_rows_with_fallback, "precision_at_1"), 4),
+        "precision_at_3_with_fallback": round(mean_metric(graded_rows_with_fallback, "precision_at_3"), 4),
+        "map_score_with_fallback": round(mean_metric(graded_rows_with_fallback, "map_score"), 4),
+        "mrr_with_fallback": round(mean_metric(graded_rows_with_fallback, "mrr"), 4),
+        "ndcg_at_3_with_fallback": round(mean_metric(graded_rows_with_fallback, "ndcg_at_3"), 4),
+        "ndcg_at_5_with_fallback": round(mean_metric(graded_rows_with_fallback, "ndcg_at_5"), 4),
         "retrieval_latency_mean": round(mean_metric(metric_rows, "latency"), 4),
         "retrieval_calls_mean": round(mean_metric(metric_rows, "retrieval_calls"), 2),
         "retrieved_docs_mean": round(mean_metric(metric_rows, "retrieved_docs_count"), 2),
@@ -289,18 +302,25 @@ def main() -> None:
     print(f"HTTP 429    : {summary['http_429']}")
     print(f"缓存命中    : {summary['cached']}")
     print(f"有指标样本  : {summary['metrics_available']}")
-    print(f"可评排序样本: {summary['ranked_samples']}（仅 agent_graded）")
+    print(f"可评排序样本: {summary['ranked_samples']}（严格 agent_graded）"
+          f" / {summary['ranked_samples_with_fallback']}（含评分兜底）")
     print(f"总墙钟时间  : {summary['wall_seconds']}s")
     print(f"平均延迟    : {summary['latency_mean']}s")
     print(f"P50 / P95   : {summary['latency_p50']}s / {summary['latency_p95']}s")
     print(f"最大延迟    : {summary['latency_max']}s")
-    print(f"平均 P@1    : {summary['precision_at_1']}  (仅 agent_graded)")
-    print(f"平均 P@3    : {summary['precision_at_3']}  (仅 agent_graded)")
-    print(f"平均 R@3    : {summary['recall_at_3']}  (仅 agent_graded)")
-    print(f"平均 MAP    : {summary['map_score']}  (仅 agent_graded)")
-    print(f"平均 MRR    : {summary['mrr']}  (仅 agent_graded)")
-    print(f"平均 NDCG@3 : {summary['ndcg_at_3']}  (仅 agent_graded)")
-    print(f"平均 NDCG@5 : {summary['ndcg_at_5']}  (仅 agent_graded)")
+    print(f"平均 P@1    : {summary['precision_at_1']}  (严格) | "
+          f"{summary['precision_at_1_with_fallback']} (含兜底)")
+    print(f"平均 P@3    : {summary['precision_at_3']}  (严格) | "
+          f"{summary['precision_at_3_with_fallback']} (含兜底)")
+    print(f"平均 R@3    : {summary['recall_at_3']}  (严格)")
+    print(f"平均 MAP    : {summary['map_score']}  (严格) | "
+          f"{summary['map_score_with_fallback']} (含兜底)")
+    print(f"平均 MRR    : {summary['mrr']}  (严格) | "
+          f"{summary['mrr_with_fallback']} (含兜底)")
+    print(f"平均 NDCG@3 : {summary['ndcg_at_3']}  (严格) | "
+          f"{summary['ndcg_at_3_with_fallback']} (含兜底)")
+    print(f"平均 NDCG@5 : {summary['ndcg_at_5']}  (严格) | "
+          f"{summary['ndcg_at_5_with_fallback']} (含兜底)")
     print(f"检索耗时均值: {summary['retrieval_latency_mean']}s")
     print(f"检索次数均值: {summary['retrieval_calls_mean']}")
     print(f"检索文档均值: {summary['retrieved_docs_mean']}")

@@ -611,10 +611,13 @@ class AgentRuntime:
         # 而 graded 来自更早一次评分。指标必须用“被评分的那批候选”作基准，
         # 否则 graded 与 retrieved 不同源，命中数会被误算成 0。
         basis_docs = candidates or raw_docs
-        ranking = self._ranking_metrics(basis_docs, graded_docs)
-
         fallback = bool(trace.get("grader_fallback", False))
         grading_channel = trace.get("grading_channel", "")
+
+        # 评分兜底意味着“所有候选都被判为不相关”。此时不能用兜底保留的全量
+        # 文档当相关标签——那会让 P@k/MAP/NDCG 恒等于 1.0，把最差的样本
+        # 美化成满分。传空相关集让指标归零，由汇总层决定是否计入均值。
+        ranking = self._ranking_metrics(basis_docs, [] if fallback else graded_docs)
         if grading_channel == "vectorstore" and graded_docs and not fallback:
             metric_source = "agent_graded"
         elif grading_channel == "vectorstore" and graded_docs and fallback:
