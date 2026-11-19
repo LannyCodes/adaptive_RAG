@@ -1030,9 +1030,46 @@ class DocumentProcessor:
                         MAX_QUERY_WINDOW = 16384
                         batch_size = 200
                         query_limit = limit if limit else MAX_QUERY_WINDOW
+
+                        # Milvus 的 offset+limit 上限是 16384，光靠 offset 翻页永远拿不到
+                        # 第 16385 条之后的文档（Zilliz 上实测 18916 条只取回 16384）。
+                        # 而且不带 order_by 的 query 返回顺序不保证稳定，会导致每次
+                        # 拉到的子集不同 → BM25 索引不同 → 混合检索排序抖动。
+                        # 这里优先用服务端游标取全量，保证索引内容稳定。
+                        iterator = None
+                        try:
+                            iterator = col.query_iterator(
+                                expr=f"{pk_field} >= 0",
+                                output_fields=output_fields,
+                                batch_size=500,
+                            )
+                            while True:
+                                batch = iterator.next()
+                                if not batch:
+                                    break
+                                for item in batch:
+                                    content = item.get(text_field, "")
+                                    meta = {k: v for k, v in item.items()
+                                            if k != text_field and k != pk_field}
+                                    docs.append(Document(page_content=content, metadata=meta))
+                                if limit and len(docs) >= limit:
+                                    break
+                        except Exception as iter_e:
+                            docs.clear()
+                            print(
+                                f"   ↪ query_iterator 不可用，回退 offset 分页"
+                                f"（上限 {MAX_QUERY_WINDOW} 条）: {iter_e}"
+                            )
+                        finally:
+                            if iterator is not None:
+                                try:
+                                    iterator.close()
+                                except Exception:
+                                    pass
+
                         offset = 0
-                        
-                        while offset < query_limit:
+                        # docs 已由游标填满时跳过 offset 回退路径
+                        while offset < query_limit and not docs:
                             # 确保 offset + limit 不超过 Milvus 最大窗口
                             current_limit = min(batch_size, MAX_QUERY_WINDOW - offset)
                             if current_limit <= 0:
