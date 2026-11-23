@@ -1,0 +1,51 @@
+# ── 模型权重：vLLM 容器以 ./models 只读挂载，绝不能拷进应用镜像 ──
+models/
+
+# ── 运行时数据：由 docker-compose 的 volumes 挂载 ──
+data/
+workspace/
+
+# ── 密钥：运行时由 env_file 注入，不进镜像层 ──
+.env
+.env.production
+
+# ── Python 缓存 ──
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# ── 版本控制与 IDE ──
+.git/
+.gitignore
+.gitattributes
+.qoder/
+
+# ── 虚拟环境 ──
+venv/
+.venv/
+env/
+
+# ── 日志 ──
+*.log
+logs/
+
+# ── 教学/演示脚本：不参与服务运行 ──
+*_demo.py
+*_explained.py
+compare_hallucination_methods.py
+open_source_hallucination_models.py
+SETUP_HALLUCINATION_DETECTOR.py
+
+# ── 离线评测脚本与导出产物 ──
+# 注意：retrieval_evaluation.py 虽然名字像评测脚本，但被 workflow_nodes.py
+# 和 graph_retriever.py 导入，属于运行时模块，不能排除
+source/knowledge_graph_export/
+evaluate_retrieval.py
+
+# ── 项目文档（不影响运行） ──
+# 注意：只排根级说明文档。skills/**/SKILL.md 是 Agent 的 System Prompt，
+# 被 agents/runtime.py 加载，必须保留
+/*.md
+Channel讲解.txt
+项目概述.txt

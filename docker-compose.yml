@@ -1,6 +1,38 @@
-version: '3.8'
+# ══════════════════════════════════════════════════════════════
+# Adaptive RAG — 双 RTX 4090 单机生产部署
+#
+# 拓扑：
+#   外网 :80 → nginx → adaptive-rag:8000（GPU0，跑 BGE-M3 + 重排）
+#                        ├─→ nginx:8200 → vllm-0（GPU0）/ vllm-1（GPU1）
+#                        └─→ redis:6379（三层记忆）
+#
+# 显存分配（两张 4090，各 24GB）：
+#   GPU0: vllm-0 util=0.65 (15.6G) + app 的 embedding/rerank (2.8G) = 18.4G，余 5.6G
+#   GPU1: vllm-1 util=0.90 (21.6G) 独占
+#
+# 前置条件：
+#   1. 宿主机已装 NVIDIA 驱动 + nvidia-container-toolkit
+#      （nvidia-smi 能列出两张 4090）
+#   2. 模型已下载到 ./models/Qwen2.5-7B-Instruct-GPTQ-Int4
+#      huggingface-cli download Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4 \
+#          --local-dir ./models/Qwen2.5-7B-Instruct-GPTQ-Int4
+#   3. .env 中保留业务配置即可；LLM 相关变量由下方 environment 强制覆盖
+#
+# 启动：docker compose up -d --build
+# 首次启动约 4-6 分钟（两个 vLLM 副本各自加载模型）
+# ══════════════════════════════════════════════════════════════
+
+# 统一日志轮转，防止 json-file 无限增长写满磁盘
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
 
 services:
+  # ─────────────────────────────────────────────
+  # Redis：三层记忆 + 会话状态
+  # ─────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: adaptive-rag-redis
@@ -9,75 +41,207 @@ services:
       - "6379"  # 仅内部网络可访问，不暴露到宿主机
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    # noeviction：内存满时写入报错而非静默淘汰 key。
+    # 原先的 allkeys-lru 会在高峰时段把用户长期记忆当作冷数据删掉，且无任何日志。
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    logging: *default-logging
 
+  # ─────────────────────────────────────────────
+  # vLLM 副本 0：绑定 GPU 0（与 app 共享，故 util 较低）
+  # ─────────────────────────────────────────────
+  vllm-0:
+    image: vllm/vllm-openai:v0.7.3
+    container_name: adaptive-rag-vllm-0
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - HF_ENDPOINT=https://hf-mirror.com
+    volumes:
+      - ./models:/models:ro          # 模型共享挂载，两个副本共用一份权重
+      - vllm_cache_0:/root/.cache/vllm  # 编译产物缓存，重启不必重新 capture
+    # vllm/vllm-openai 的 ENTRYPOINT 已是 api_server，command 直接给参数
+    command:
+      - --model=/models/Qwen2.5-7B-Instruct-GPTQ-Int4
+      - --served-model-name=qwen2.5-7b   # 必须与 VLLM_MODEL 一致
+      - --api-key=dummy
+      - --dtype=bfloat16                 # Ada 架构原生支持，比 float16 数值更稳
+      - --max-model-len=8192
+      - --gpu-memory-utilization=0.65    # 与 app 共享 GPU0：留 8.4GB 给 BGE-M3 与重排
+      - --max-num-seqs=8
+      - --max-num-batched-tokens=4096    # 必须 < max-model-len 才能开 chunked prefill
+      - --quantization=gptq
+      - --enable-chunked-prefill
+      - --enable-prefix-caching          # 系统提示词高度重复，命中率提升显著
+      - --enable-auto-tool-choice        # Agent 依赖原生 Function Calling，不能省
+      - --tool-call-parser=hermes
+      - --disable-log-requests
+      # 若启动时报 CUDA Graph capture OOM，追加 --enforce-eager（牺牲约 15% 吞吐）
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+        limits:
+          memory: 32G
+    healthcheck:
+      # 镜像内必有 python3，不依赖 curl
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 300s  # 模型加载 + CUDA Graph capture 可能耗时 2-5 分钟
+    logging: *default-logging
+
+  # ─────────────────────────────────────────────
+  # vLLM 副本 1：绑定 GPU 1
+  # ─────────────────────────────────────────────
+  vllm-1:
+    image: vllm/vllm-openai:v0.7.3
+    container_name: adaptive-rag-vllm-1
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
+      - HF_ENDPOINT=https://hf-mirror.com
+    volumes:
+      - ./models:/models:ro
+      - vllm_cache_1:/root/.cache/vllm
+    command:
+      - --model=/models/Qwen2.5-7B-Instruct-GPTQ-Int4
+      - --served-model-name=qwen2.5-7b
+      - --api-key=dummy
+      - --dtype=bfloat16
+      - --max-model-len=8192
+      - --gpu-memory-utilization=0.90
+      - --max-num-seqs=16                # 本副本并发槽位加倍，nginx 侧按 least_conn 自动倾斜
+      - --max-num-batched-tokens=4096
+      - --quantization=gptq
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser=hermes
+      - --disable-log-requests
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['1']
+              capabilities: [gpu]
+        limits:
+          memory: 32G
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 300s
+    logging: *default-logging
+
+  # ─────────────────────────────────────────────
+  # 应用：FastAPI + LangGraph Agent
+  # ─────────────────────────────────────────────
   adaptive-rag:
     build:
       context: .
-      dockerfile: Dockerfile.slim
+      dockerfile: Dockerfile.gpu     # CUDA 镜像：BGE-M3 与重排在 GPU0 上跑
     container_name: adaptive-rag
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      - CUDA_VISIBLE_DEVICES=0    # 容器内只可见 GPU0，代码自动选 cuda 设备
       - REDIS_URL=redis://redis:6379/0
-      # main.py CLI 运行模式（agent=AgentRuntime 单智能体 / workflow=固定 DAG）
       - ENABLE_AGENT_MODE=${ENABLE_AGENT_MODE:-agent}
+      # ── 强制走本地 vLLM，覆盖 .env 中的云端 API 配置 ──
+      - LLM_BACKEND=vllm
+      - VLLM_BASE_URL=http://nginx:8200/v1
+      - VLLM_LIGHT_BASE_URL=http://nginx:8200/v1
+      - VLLM_MODEL=qwen2.5-7b
+      - VLLM_LIGHT_MODEL=qwen2.5-7b
+      - VLLM_API_KEY=dummy
+      - VLLM_REQUEST_TIMEOUT=180
+      # ── 并发：两副本槽位合计 8+16=24，应用层留余量设 16 ──
+      - MAX_CONCURRENT_REQUESTS=${MAX_CONCURRENT_REQUESTS:-16}
+      - MAX_QUEUE_SIZE=${MAX_QUEUE_SIZE:-20}
     depends_on:
       redis:
+        condition: service_healthy
+      vllm-0:
+        condition: service_healthy
+      vllm-1:
         condition: service_healthy
     expose:
       - "8000"  # 仅内部网络，外部通过 Nginx 访问
     volumes:
+      # 只挂运行时数据；源码已通过 Dockerfile.slim 的 COPY . . 打进镜像，
+      # 生产环境不再挂载源码，保证「镜像内容 == 实际运行内容」
       - ./data:/app/data
       - ./workspace:/app/workspace
-      - ./server.py:/app/server.py
-      - ./main.py:/app/main.py
-      - ./config.py:/app/config.py
-      - ./prompts.yaml:/app/prompts.yaml
-      - ./prompt_manager.py:/app/prompt_manager.py
-      - ./cache_manager.py:/app/cache_manager.py
-      - ./logger.py:/app/logger.py
-      - ./routers_and_graders.py:/app/routers_and_graders.py
-      - ./workflow_nodes.py:/app/workflow_nodes.py
-      - ./entity_extractor.py:/app/entity_extractor.py
-      - ./document_processor.py:/app/document_processor.py
-      # Agent 模块（单智能体运行时）
-      - ./agents:/app/agents
-      - ./memory:/app/memory
-      - ./guardrails.py:/app/guardrails.py
+      # HF 缓存持久化：BGE-M3(2.3G) + bge-reranker(1.1G) 只下载一次，
+      # 不挂卷的话每次重建容器都要重下 3.4GB
+      - hf_cache:/root/.cache/huggingface
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
-      start_period: 120s
+      start_period: 180s  # CUDA 初始化 + BGE-M3 + CrossEncoder 加载
       retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']    # 与 vllm-0 共享同一张卡
+              capabilities: [gpu]
+        limits:
+          cpus: '4'      # embedding 已上 GPU，CPU 只做分词与 BM25
+          memory: 16G    # CUDA runtime 的库映射比纯 CPU 镜像占得多
+    logging: *default-logging
 
+  # ─────────────────────────────────────────────
+  # Nginx：对外 80 入口 + 内部 8200 vLLM 负载均衡
+  # ─────────────────────────────────────────────
   nginx:
     image: nginx:alpine
     container_name: adaptive-rag-nginx
     restart: unless-stopped
     ports:
-      - "80:80"     # HTTP
-      # - "443:443" # HTTPS（启用后取消注释）
+      - "80:80"     # HTTP（对外）
+      # - "443:443" # HTTPS（启用后取消注释，并挂载 ./ssl）
+    expose:
+      - "8200"      # 仅容器网络内可达，供 adaptive-rag 调用
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       # - ./ssl:/etc/nginx/ssl:ro  # HTTPS 证书（启用后取消注释）
     depends_on:
       adaptive-rag:
         condition: service_healthy
-    # 健康检查：确认 Nginx 正常响应
+      vllm-0:
+        condition: service_healthy
+      vllm-1:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]
+      # nginx:alpine 不含 curl，用 busybox 自带的 wget
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       start_period: 10s
       retries: 3
+    logging: *default-logging
 
 volumes:
   redis_data:
+  hf_cache:
+  vllm_cache_0:
+  vllm_cache_1:

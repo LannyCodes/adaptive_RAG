@@ -1,0 +1,105 @@
+# ══════════════════════════════════════════════════════════════
+# GPU 版应用镜像 —— 让 BGE-M3 / bge-reranker 跑在显卡上
+#
+# 与 Dockerfile.slim 的唯一区别是基础镜像：slim 是 python:3.11-slim（无 CUDA），
+# 这里是 pytorch CUDA runtime（torch 2.5.1 已预装）。
+#
+# 代码层面无需任何改动：
+#   document_processor.py:357  devices = ['cuda','cpu'] if torch.cuda.is_available()
+#   reranker.py:226            SentenceTransformerCrossEncoder(...) 默认自动选 cuda
+# 只要容器能看见 GPU，两个模型就会自动上卡。
+#
+# 显存预算（单张 4090 24GB，与 vllm-0 共享）：
+#   vllm-0   --gpu-memory-utilization=0.65  → 15.6 GB
+#   本容器   BGE-M3 1.2G + reranker 0.6G + CUDA context 1.0G ≈ 2.8 GB
+#   余量     5.6 GB
+#
+# 驱动要求：CUDA 12.1 需 driver >= 525（2022 年后的 4090 驱动均满足）
+# 若服务器驱动较新，可换成 2.5.1-cuda12.4-cudnn9-runtime 获得更好兼容
+# ══════════════════════════════════════════════════════════════
+FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn8-runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV TOKENIZERS_PARALLELISM=false
+ENV TF_CPP_MIN_LOG_LEVEL=3
+ENV ABSL_MIN_LOG_LEVEL=3
+ENV PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+ENV HF_ENDPOINT=https://hf-mirror.com
+
+WORKDIR /app
+
+# 换阿里云源（pytorch 镜像基于 Ubuntu 22.04，使用传统 sources.list）
+RUN sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' \
+        /etc/apt/sources.list
+
+# curl: 健康检查与前端资源下载
+# gcc/g++/make: 少数包无预编译 wheel 时需要现场编译
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        gcc \
+        g++ \
+        make \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# ── 关键：requirements.txt 里不含 torch ──
+# sentence-transformers 只声明 torch>=1.11.0，pip 见到镜像内的 2.5.1 已满足，
+# 不会重新安装，因此 CUDA 版 torch 不会被 CPU wheel 覆盖。
+# 若日后往 requirements.txt 加了 torch，务必锁定与本镜像一致的版本。
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 120 --retries 5 \
+        -r requirements.txt \
+        -i https://mirrors.aliyun.com/pypi/simple/ \
+        --trusted-host mirrors.aliyun.com \
+    || pip install --no-cache-dir --timeout 120 --retries 5 \
+        -r requirements.txt \
+        -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+        --trusted-host pypi.tuna.tsinghua.edu.cn \
+    && rm -rf /root/.cache/pip
+
+# 编译工具用完即卸，回收约 300MB
+RUN apt-get purge -y --auto-remove gcc g++ make \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制项目文件（.dockerignore 已排除 models/ data/ workspace/ .env）
+COPY . .
+
+RUN mkdir -p /app/data /app/data/uploads /app/workspace
+
+# 前端依赖本地化，运行时不依赖外部 CDN
+RUN mkdir -p /app/static && \
+    echo "下载 React..." && \
+    curl -sL -o /app/static/react.production.min.js \
+         https://cdn.staticfile.org/react/18.2.0/umd/react.production.min.js && \
+    curl -sL -o /app/static/react-dom.production.min.js \
+         https://cdn.staticfile.org/react-dom/18.2.0/umd/react-dom.production.min.js && \
+    curl -sL -o /app/static/babel.min.js \
+         https://cdn.staticfile.org/babel-standalone/7.23.0/babel.min.js && \
+    curl -sL -o /app/static/marked.min.js \
+         https://cdn.staticfile.org/marked/9.1.0/marked.min.js && \
+    curl -sL -o /app/static/katex.min.css \
+         https://cdn.staticfile.org/KaTeX/0.16.9/katex.min.css && \
+    curl -sL -o /app/static/katex.min.js \
+         https://cdn.staticfile.org/KaTeX/0.16.9/katex.min.js && \
+    curl -sL -o /app/static/auto-render.min.js \
+         https://cdn.staticfile.org/KaTeX/0.16.9/contrib/auto-render.min.js && \
+    curl -sL -o /app/static/fontawesome.min.css \
+         https://cdn.staticfile.org/font-awesome/6.4.0/css/all.min.css && \
+    mkdir -p /app/webfonts && \
+    curl -sL -o /app/webfonts/fa-solid-900.woff2 \
+         https://cdn.staticfile.org/font-awesome/6.4.0/webfonts/fa-solid-900.woff2 && \
+    curl -sL -o /app/webfonts/fa-regular-400.woff2 \
+         https://cdn.staticfile.org/font-awesome/6.4.0/webfonts/fa-regular-400.woff2 && \
+    curl -sL -o /app/webfonts/fa-brands-400.woff2 \
+         https://cdn.staticfile.org/font-awesome/6.4.0/webfonts/fa-brands-400.woff2 && \
+    curl -sL -o /app/static/tailwind.min.js \
+         https://cdn.tailwindcss.com && \
+    echo "✅ 前端依赖下载完成"
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
+
+CMD ["python", "server.py"]
