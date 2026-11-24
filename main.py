@@ -81,6 +81,22 @@ except ImportError:
     ENABLE_GRAPHRAG = False
 
 
+async def _await_executor_completion(future):
+    """等待工作线程真正结束，避免 HTTP 取消后提前释放会话锁。"""
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(future)
+            break
+        except asyncio.CancelledError:
+            cancelled = True
+            if future.done():
+                break
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 class AdaptiveRAGSystem:
     """自适应RAG系统主类"""
     
@@ -399,12 +415,13 @@ class AdaptiveRAGSystem:
         # 不再经 inputs 传递 chat_history。
         if self.agent_runtime is not None:
             loop = asyncio.get_event_loop()
-            agent_result = await loop.run_in_executor(
+            agent_future = loop.run_in_executor(
                 None,
                 lambda: self.agent_runtime.query(
                     question, thread_id=thread_id, verbose=verbose
                 ),
             )
+            agent_result = await _await_executor_completion(agent_future)
             return {
                 "answer": agent_result["answer"],
                 "source_documents": agent_result.get("source_documents", []),
@@ -676,36 +693,40 @@ class AdaptiveRAGSystem:
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
-        loop.run_in_executor(None, _producer)
+        producer_future = loop.run_in_executor(None, _producer)
 
-        answer_parts = []
-        answer_started = False
-        while True:
-            event = await queue.get()
-            if event is sentinel:
-                break
+        try:
+            answer_parts = []
+            answer_started = False
+            while True:
+                event = await queue.get()
+                if event is sentinel:
+                    break
 
-            event_type = event.get("type")
-            if event_type == "tool_call":
-                yield {"type": "thought", "content": f"🤔 调用工具 {event.get('name', '')}..."}
-            elif event_type == "tool_result":
-                preview = event.get("preview", "")
-                yield {"type": "thought", "content": f"📎 {event.get('name', '')} 返回: {preview[:80]}"}
-            elif event_type == "answer":
-                if not answer_started:
-                    yield {"type": "answer"}
-                    answer_started = True
-                content = event.get("content", "")
-                answer_parts.append(content)
-                yield {"type": "token", "content": content}
-            elif event_type == "error":
-                yield event
+                event_type = event.get("type")
+                if event_type == "tool_call":
+                    yield {"type": "thought", "content": f"🤔 调用工具 {event.get('name', '')}..."}
+                elif event_type == "tool_result":
+                    preview = event.get("preview", "")
+                    yield {"type": "thought", "content": f"📎 {event.get('name', '')} 返回: {preview[:80]}"}
+                elif event_type == "answer":
+                    if not answer_started:
+                        yield {"type": "answer"}
+                        answer_started = True
+                    content = event.get("content", "")
+                    answer_parts.append(content)
+                    yield {"type": "token", "content": content}
+                elif event_type == "error":
+                    yield event
 
-        final_answer = "".join(answer_parts)
-        if final_answer:
-            yield {"type": "done", "content": final_answer}
-        else:
-            yield {"type": "error", "content": "未生成回答"}
+            final_answer = "".join(answer_parts)
+            if final_answer:
+                yield {"type": "done", "content": final_answer}
+            else:
+                yield {"type": "error", "content": "未生成回答"}
+        finally:
+            # 客户端断开时也要等工作线程结束，确保外层会话锁不会提前释放
+            await _await_executor_completion(producer_future)
     
     def interactive_mode(self):
         """交互模式，自动检测运行环境并选择合适的输入方式"""

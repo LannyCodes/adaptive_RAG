@@ -166,6 +166,7 @@ class ThreadSafeDocStore:
             self._store.pop(tid, None)
             self._vector_store.pop(tid, None)
             self._graded_store.pop(tid, None)
+            self._candidate_store.pop(tid, None)
             self._metrics.pop(tid, None)
             self._last_channel.pop(tid, None)
 
@@ -676,64 +677,68 @@ class AgentRuntime:
         # 清理本 thread 上一轮的文档/指标暂存，避免引用或指标串轮
         self.doc_store.clear(config)
 
-        # 注入长期记忆（作为额外 system 消息，随本轮输入进入图）
-        memory_section = self._memory_prompt_section(question)
-        input_messages = []
-        if memory_section:
-            from langchain_core.messages import SystemMessage
+        try:
+            # 注入长期记忆（作为额外 system 消息，随本轮输入进入图）
+            memory_section = self._memory_prompt_section(question)
+            input_messages = []
+            if memory_section:
+                from langchain_core.messages import SystemMessage
 
-            input_messages.append(SystemMessage(content=memory_section.strip()))
-        input_messages.append(HumanMessage(content=question))
+                input_messages.append(SystemMessage(content=memory_section.strip()))
+            input_messages.append(HumanMessage(content=question))
 
-        result = self.graph.invoke({"messages": input_messages}, config)
+            result = self.graph.invoke({"messages": input_messages}, config)
 
-        elapsed = time.time() - start_time
-        messages = result["messages"]
-
-        # 步数耗尽兜底：LangGraph 不抛异常，只把固定英文占位当作最终答案返回。
-        # 直接用它会让用户拿到一句无信息的话，因此改用已检索文档重新生成。
-        step_exhausted = self._is_step_exhausted(messages)
-        if step_exhausted:
-            answer = self._fallback_answer(question, config)
             elapsed = time.time() - start_time
-        else:
-            answer = self._content_to_text(messages[-1].content) if messages else ""
+            messages = result["messages"]
 
-        tool_call_count = sum(
-            len(getattr(m, "tool_calls", []) or []) for m in messages
-        )
-        retrieval_metrics = self._build_retrieval_metrics(config, tool_call_count)
-        if step_exhausted:
-            retrieval_metrics["step_exhausted"] = True
-
-        if verbose:
-            print(f"\n{'─'*40}")
-            print(f"⏱️ 耗时: {elapsed:.1f}s | 工具调用: {tool_call_count} 次")
+            # 步数耗尽兜底：LangGraph 不抛异常，只把固定英文占位当作最终答案返回。
+            # 直接用它会让用户拿到一句无信息的话，因此改用已检索文档重新生成。
+            step_exhausted = self._is_step_exhausted(messages)
             if step_exhausted:
-                print("⚠️ 推理步数达到上限，已用已检索文档兜底生成")
-            print(f"📝 答案:\n{answer or '未能生成答案'}")
-            print(f"{'='*60}")
+                answer = self._fallback_answer(question, config)
+                elapsed = time.time() - start_time
+            else:
+                answer = self._content_to_text(messages[-1].content) if messages else ""
 
-        # 后台抽取事实记忆（不阻塞响应）；兜底答案是降级产物，不参与抽取
-        if answer and not step_exhausted:
-            self._extract_memory_async(question, answer, thread_id)
+            tool_call_count = sum(
+                len(getattr(m, "tool_calls", []) or []) for m in messages
+            )
+            retrieval_metrics = self._build_retrieval_metrics(config, tool_call_count)
+            if step_exhausted:
+                retrieval_metrics["step_exhausted"] = True
 
-        # 引用来源优先使用评分后保留的文档，避免把 top-k 中的无关文档
-        # 全部当成最终引用；没有评分结果时再回退到原始检索/通用暂存区。
-        source_documents = self.doc_store.get_graded(config)
-        if not source_documents:
-            source_documents = self.doc_store.get_vector(config)
-        if not source_documents:
-            source_documents = self.doc_store.get(config)
+            if verbose:
+                print(f"\n{'─'*40}")
+                print(f"⏱️ 耗时: {elapsed:.1f}s | 工具调用: {tool_call_count} 次")
+                if step_exhausted:
+                    print("⚠️ 推理步数达到上限，已用已检索文档兜底生成")
+                print(f"📝 答案:\n{answer or '未能生成答案'}")
+                print(f"{'='*60}")
 
-        return {
-            "answer": answer,
-            "messages": messages,
-            "tool_call_count": tool_call_count,
-            "elapsed": elapsed,
-            "source_documents": source_documents,
-            "retrieval_metrics": retrieval_metrics,
-        }
+            # 后台抽取事实记忆（不阻塞响应）；兜底答案是降级产物，不参与抽取
+            if answer and not step_exhausted:
+                self._extract_memory_async(question, answer, thread_id)
+
+            # 引用来源优先使用评分后保留的文档，避免把 top-k 中的无关文档
+            # 全部当成最终引用；没有评分结果时再回退到原始检索/通用暂存区。
+            source_documents = self.doc_store.get_graded(config)
+            if not source_documents:
+                source_documents = self.doc_store.get_vector(config)
+            if not source_documents:
+                source_documents = self.doc_store.get(config)
+
+            return {
+                "answer": answer,
+                "messages": messages,
+                "tool_call_count": tool_call_count,
+                "elapsed": elapsed,
+                "source_documents": source_documents,
+                "retrieval_metrics": retrieval_metrics,
+            }
+        finally:
+            # 返回值已物化；正常返回、异常或取消时都释放本 thread 的暂存数据
+            self.doc_store.clear(config)
 
     def stream_events(self, question: str, thread_id: str = "default"):
         """流式查询（updates 模式），逐步产出节点更新事件。
@@ -748,48 +753,52 @@ class AgentRuntime:
         self.doc_store.clear(config)
         inputs = {"messages": [HumanMessage(content=question)]}
 
-        for chunk in self.graph.stream(inputs, config, stream_mode="updates"):
-            for node_name, update in chunk.items():
-                if not isinstance(update, dict):
-                    continue
-                for msg in update.get("messages", []):
-                    tool_calls = getattr(msg, "tool_calls", None)
-                    if tool_calls:
-                        for tc in tool_calls:
+        try:
+            for chunk in self.graph.stream(inputs, config, stream_mode="updates"):
+                for node_name, update in chunk.items():
+                    if not isinstance(update, dict):
+                        continue
+                    for msg in update.get("messages", []):
+                        tool_calls = getattr(msg, "tool_calls", None)
+                        if tool_calls:
+                            for tc in tool_calls:
+                                yield {
+                                    "type": "tool_call",
+                                    "node": node_name,
+                                    "name": tc.get("name", ""),
+                                    "args": tc.get("args", {}),
+                                }
+                        elif msg.type == "tool":
+                            preview = (msg.content or "")[:150].replace("\n", " ")
                             yield {
-                                "type": "tool_call",
+                                "type": "tool_result",
                                 "node": node_name,
-                                "name": tc.get("name", ""),
-                                "args": tc.get("args", {}),
+                                "name": getattr(msg, "name", ""),
+                                "preview": preview,
                             }
-                    elif msg.type == "tool":
-                        preview = (msg.content or "")[:150].replace("\n", " ")
-                        yield {
-                            "type": "tool_result",
-                            "node": node_name,
-                            "name": getattr(msg, "name", ""),
-                            "preview": preview,
-                        }
-                    elif msg.type == "ai" and msg.content:
-                        text = self._content_to_text(msg.content)
-                        # 步数耗尽时 LangGraph 用固定英文占位冒充答案，不下发给前端
-                        if text.strip().startswith(self._STEP_EXHAUSTED_MARKER):
-                            continue
-                        yield {
-                            "type": "answer",
-                            "node": node_name,
-                            "content": text,
-                        }
+                        elif msg.type == "ai" and msg.content:
+                            text = self._content_to_text(msg.content)
+                            # 步数耗尽时 LangGraph 用固定英文占位冒充答案，不下发给前端
+                            if text.strip().startswith(self._STEP_EXHAUSTED_MARKER):
+                                continue
+                            yield {
+                                "type": "answer",
+                                "node": node_name,
+                                "content": text,
+                            }
 
-        # 图被递归上限截断时，用已检索文档补一条可用答案，避免前端停在半截
-        state = self.graph.get_state(config)
-        messages = state.values.get("messages", []) if state and state.values else []
-        if self._is_step_exhausted(messages):
-            yield {
-                "type": "answer",
-                "node": "step_exhausted_fallback",
-                "content": self._fallback_answer(question, config),
-            }
+            # 图被递归上限截断时，用已检索文档补一条可用答案，避免前端停在半截
+            state = self.graph.get_state(config)
+            messages = state.values.get("messages", []) if state and state.values else []
+            if self._is_step_exhausted(messages):
+                yield {
+                    "type": "answer",
+                    "node": "step_exhausted_fallback",
+                    "content": self._fallback_answer(question, config),
+                }
+        finally:
+            # 生成器正常结束、异常或被客户端关闭时都清理
+            self.doc_store.clear(config)
 
     def get_history(self, thread_id: str) -> list:
         """读取会话历史消息（来自 checkpointer）。"""

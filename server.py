@@ -630,6 +630,49 @@ rate_limiter = RateLimiter(
     max_queue=MAX_QUEUE_SIZE,
 )
 
+
+class SessionRequestLocks:
+    """按 thread_id 串行化请求，并在无等待者时自动删除锁。"""
+
+    def __init__(self):
+        self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
+        self._guard = threading.Lock()
+
+    def _acquire(self, thread_id: str) -> asyncio.Lock:
+        with self._guard:
+            entry = self._locks.get(thread_id)
+            if entry is None:
+                lock, users = asyncio.Lock(), 0
+            else:
+                lock, users = entry
+            self._locks[thread_id] = (lock, users + 1)
+            return lock
+
+    def _release(self, thread_id: str, lock: asyncio.Lock) -> None:
+        with self._guard:
+            current_lock, users = self._locks[thread_id]
+            users -= 1
+            if users:
+                self._locks[thread_id] = (current_lock, users)
+            else:
+                self._locks.pop(thread_id, None)
+
+    @asynccontextmanager
+    async def hold(self, thread_id: str):
+        lock = self._acquire(thread_id)
+        acquired = False
+        try:
+            await lock.acquire()
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                lock.release()
+                self._release(thread_id, lock)
+
+
+session_request_locks = SessionRequestLocks()
+
 def get_rag_system():
     global rag_system
     if rag_system is None:
@@ -795,51 +838,53 @@ async def chat_stream(request: ChatRequest):
     system = get_rag_system()
 
     async def event_generator():
-        # 0. 获取对话历史（最近 10 条消息，即 5 轮对话）
-        chat_history = []
-        if session_id:
-            try:
-                full_history = session_manager.get_history(session_id)
-                chat_history = full_history[-10:] if len(full_history) > 10 else full_history
-            except Exception:
-                chat_history = []
-        
-        # 1. 检查缓存（精确匹配，不考虑上下文）
-        cached = cache_manager.get_answer(question)
-        if cached is not None:
-            yield f"data: {json.dumps({'type': 'progress', 'content': '⚡ 命中缓存'}, ensure_ascii=False)}\n\n"
-            yield f"data: {json.dumps({'type': 'answer'}, ensure_ascii=False)}\n\n"
-            chunk_size = 4
-            for i in range(0, len(cached), chunk_size):
-                yield f"data: {json.dumps({'type': 'token', 'content': cached[i:i+chunk_size]}, ensure_ascii=False)}\n\n"
-                await asyncio.sleep(0.002)
-            yield f"data: {json.dumps({'type': 'done', 'content': cached}, ensure_ascii=False)}\n\n"
+        # 锁覆盖整个流式生命周期，避免同会话的文档暂存与 Checkpointer 交叉写入
+        async with session_request_locks.hold(thread_id):
+            # 0. 获取对话历史（最近 10 条消息，即 5 轮对话）
+            chat_history = []
             if session_id:
-                session_manager.add_message(session_id, "user", question)
-                session_manager.add_message(session_id, "assistant", cached)
-            return
+                try:
+                    full_history = session_manager.get_history(session_id)
+                    chat_history = full_history[-10:] if len(full_history) > 10 else full_history
+                except Exception:
+                    chat_history = []
 
-        try:
-            async with rate_limiter:
+            # 1. 检查缓存（精确匹配，不考虑上下文）
+            cached = cache_manager.get_answer(question)
+            if cached is not None:
+                yield f"data: {json.dumps({'type': 'progress', 'content': '⚡ 命中缓存'}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'answer'}, ensure_ascii=False)}\n\n"
+                chunk_size = 4
+                for i in range(0, len(cached), chunk_size):
+                    yield f"data: {json.dumps({'type': 'token', 'content': cached[i:i + chunk_size]}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.002)
+                yield f"data: {json.dumps({'type': 'done', 'content': cached}, ensure_ascii=False)}\n\n"
                 if session_id:
                     session_manager.add_message(session_id, "user", question)
+                    session_manager.add_message(session_id, "assistant", cached)
+                return
 
-                async for event in system.stream_query(
-                    question, chat_history=chat_history, thread_id=thread_id
-                ):
-                    data = json.dumps(event, ensure_ascii=False)
-                    yield f"data: {data}\n\n"
+            try:
+                async with rate_limiter:
+                    if session_id:
+                        session_manager.add_message(session_id, "user", question)
 
-                    if event.get("type") == "done" and event.get("content"):
-                        # 写入缓存
-                        cache_manager.set_answer(question, event["content"])
-                        if session_id:
-                            session_manager.add_message(session_id, "assistant", event["content"])
+                    async for event in system.stream_query(
+                        question, chat_history=chat_history, thread_id=thread_id
+                    ):
+                        data = json.dumps(event, ensure_ascii=False)
+                        yield f"data: {data}\n\n"
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+                        if event.get("type") == "done" and event.get("content"):
+                            # 写入缓存
+                            cache_manager.set_answer(question, event["content"])
+                            if session_id:
+                                session_manager.add_message(session_id, "assistant", event["content"])
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",
@@ -959,65 +1004,67 @@ async def chat_endpoint_with_session(request: ChatRequest):
     question = request.message
     thread_id = session_id or f"anon-{uuid.uuid4().hex}"
 
-    # 0. 获取对话历史
-    chat_history = []
-    if session_id:
-        try:
-            full_history = session_manager.get_history(session_id)
-            chat_history = full_history[-10:] if len(full_history) > 10 else full_history
-        except Exception:
-            chat_history = []
+    # 同一会话的历史读取、缓存、Agent 执行和消息写回必须作为完整临界区
+    async with session_request_locks.hold(thread_id):
+        # 0. 获取对话历史
+        chat_history = []
+        if session_id:
+            try:
+                full_history = session_manager.get_history(session_id)
+                chat_history = full_history[-10:] if len(full_history) > 10 else full_history
+            except Exception:
+                chat_history = []
 
-    # 1. 检查缓存
-    cached = cache_manager.get_answer(question)
-    if cached is not None:
+        # 1. 检查缓存
+        cached = cache_manager.get_answer(question)
+        if cached is not None:
+            if session_id:
+                session_manager.add_message(session_id, "user", question)
+                session_manager.add_message(session_id, "assistant", cached)
+            return ChatResponse(answer=cached, sources=["⚡ 命中缓存"])
+
         if session_id:
             session_manager.add_message(session_id, "user", question)
-            session_manager.add_message(session_id, "assistant", cached)
-        return ChatResponse(answer=cached, sources=["⚡ 命中缓存"])
 
-    if session_id:
-        session_manager.add_message(session_id, "user", question)
+        try:
+            async with rate_limiter:
+                result = await system.query(
+                    question, chat_history=chat_history, thread_id=thread_id
+                )
 
-    try:
-        async with rate_limiter:
-            result = await system.query(
-                question, chat_history=chat_history, thread_id=thread_id
-            )
+            answer = result.get("answer", "无法生成回答")
 
-        answer = result.get("answer", "无法生成回答")
+            # 写入缓存
+            if answer:
+                cache_manager.set_answer(question, answer)
 
-        # 写入缓存
-        if answer:
-            cache_manager.set_answer(question, answer)
+            source_documents = result.get("source_documents", [])
+            sources = [doc.page_content[:200] + "..." for doc in source_documents]
+            metrics = result.get("retrieval_metrics", {})
 
-        source_documents = result.get("source_documents", [])
-        sources = [doc.page_content[:200] + "..." for doc in source_documents]
-        metrics = result.get("retrieval_metrics", {})
+            images = []
+            if ENABLE_MULTIMODAL:
+                for doc in source_documents:
+                    stored_path = doc.metadata.get("stored_image_path", "")
+                    if stored_path:
+                        images.append(f"/api/images/{os.path.basename(stored_path)}")
+                    elif doc.metadata.get("data_type") == "image" or doc.metadata.get("file_type") == "image":
+                        source = doc.metadata.get("source", "")
+                        if source:
+                            images.append(f"/api/images/{os.path.basename(source)}")
+                for img_path in result.get("image_paths", []):
+                    img_url = f"/api/images/{os.path.basename(img_path)}"
+                    if img_url not in images:
+                        images.append(img_url)
 
-        images = []
-        if ENABLE_MULTIMODAL:
-            for doc in source_documents:
-                stored_path = doc.metadata.get("stored_image_path", "")
-                if stored_path:
-                    images.append(f"/api/images/{os.path.basename(stored_path)}")
-                elif doc.metadata.get("data_type") == "image" or doc.metadata.get("file_type") == "image":
-                    source = doc.metadata.get("source", "")
-                    if source:
-                        images.append(f"/api/images/{os.path.basename(source)}")
-            for img_path in result.get("image_paths", []):
-                img_url = f"/api/images/{os.path.basename(img_path)}"
-                if img_url not in images:
-                    images.append(img_url)
+            if session_id:
+                session_manager.add_message(session_id, "assistant", answer)
 
-        if session_id:
-            session_manager.add_message(session_id, "assistant", answer)
+            return ChatResponse(answer=answer, sources=sources, metrics=metrics, images=images)
 
-        return ChatResponse(answer=answer, sources=sources, metrics=metrics, images=images)
-
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"处理请求时出错: {str(e)}")
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"处理请求时出错: {str(e)}")
 
 
 @app.get("/api/health")
